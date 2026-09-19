@@ -42,7 +42,9 @@ uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 The backend must run as a **single Uvicorn worker** — device connections,
 calibration, queues, and subscribers are in-memory shared state.
 
-Once at least one calibrated phone reports clock-ready, pressing **Start live recapture** starts a backend-paced 3 FPS session. With one connected phone the backend publishes a single-view LiDAR cloud and adds the `single_view` quality warning. When the second calibrated phone becomes ready, subsequent captures automatically use and merge both views. Live frames are not stored under `data/recordings`; explicit snapshots are.
+Once at least one phone reports clock-ready, pressing **Start live recapture** starts a backend-paced 3 FPS session. With one connected phone the backend publishes a single-view LiDAR cloud and adds the `single_view` quality warning. If `data/calibration.json` is missing, the first RGBD frame creates a session-local provisional camera-relative calibration for debugging. When a real multi-camera calibration is loaded, a second calibrated phone is incorporated automatically. Live frames are not stored under `data/recordings`; explicit snapshots are.
+
+Provisional mode is enabled by default with `HMC_ALLOW_UNCALIBRATED_SINGLE_VIEW=true`. It assumes a stationary phone and is only for single-view debugging; it cannot align independent ARKit worlds for multi-phone merging. Set it to `false` when a real stage calibration must be mandatory.
 
 The default allows one or two configured devices and requires at least one for capture. Override this when strict two-phone operation is desired:
 

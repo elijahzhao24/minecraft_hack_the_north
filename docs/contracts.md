@@ -181,7 +181,7 @@ The backend is authoritative and broadcasts every state change to connected phon
 {"type":"live_state","protocol_version":1,"request_id":null,"live_session_id":"18434a87-0ea1-4088-a120-b44823d1c8a8","state":"running","target_fps":3.0,"reason":null}
 ```
 
-State is `starting`, `running`, `paused`, or `stopped`. By default a requested session can run with one calibrated, clock-ready phone and automatically incorporates a second ready phone. `HMC_MIN_CAPTURE_DEVICES=2` enables strict two-phone operation. While running, the backend sends selected phones `capture_request` messages with one shared capture ID, `mode: live`, and device-specific monotonic deadlines. Live RGBD packets are latest-wins and are not persisted; explicit snapshots retain immutable recording behavior.
+State is `starting`, `running`, `paused`, or `stopped`. By default a requested session can run with one clock-ready phone. When no calibration file exists, the first frame establishes a provisional single-view, camera-relative stage for debugging. A real rig calibration allows the backend to incorporate a second ready phone. `HMC_MIN_CAPTURE_DEVICES=2` enables strict two-phone operation, and `HMC_ALLOW_UNCALIBRATED_SINGLE_VIEW=false` disables provisional bootstrap. While running, the backend sends selected phones `capture_request` messages with one shared capture ID, `mode: live`, and device-specific monotonic deadlines. Live RGBD packets are latest-wins and are not persisted; explicit snapshots retain immutable recording behavior.
 
 ### Capture and generic result messages
 

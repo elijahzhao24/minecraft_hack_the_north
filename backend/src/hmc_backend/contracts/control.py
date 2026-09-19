@@ -151,6 +151,7 @@ class RequestCapture(_Strict):
 class CalibrationHealth(_Strict):
     loaded: bool
     calibration_id: UUID | None = None
+    provisional: bool = False
 
 
 class DeviceHealth(_Strict):

@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     live_voxel_size_m: float = 0.025
     person_mask_threshold: float = 0.5
     require_real_vision: bool = False
+    allow_uncalibrated_single_view: bool = True
 
     # --- Reconstruction tunables -----------------------------------------
     voxel_size_m: float = 0.015

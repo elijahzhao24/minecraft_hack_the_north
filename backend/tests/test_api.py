@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+import hmc_backend.api.app as app_module
 from hmc_backend.api.app import app
 from hmc_backend.api.runtime import AppRuntime
 from hmc_backend.calibration.synthetic import build_synthetic_rig
@@ -46,6 +47,46 @@ def test_health_503_without_calibration():
         resp = client.get("/health")
     assert resp.status_code == 503
     assert resp.json()["status"] in {"starting", "degraded"}
+
+
+def test_missing_calibration_logs_readiness_reason(tmp_path, monkeypatch):
+    events: list[tuple[str, dict]] = []
+
+    def capture_log(level: str, message: str, **attributes) -> None:
+        events.append((message, attributes))
+
+    monkeypatch.setattr(app_module, "log_event", capture_log)
+    runtime = app_module.build_runtime(
+        Settings(calibration_path=str(tmp_path / "missing-calibration.json"))
+    )
+    assert runtime.readiness_issues() == (
+        "provisional_calibration_pending",
+        "processor_unavailable",
+    )
+    failure = next(attributes for name, attributes in events if name == "calibration_load_failed")
+    assert "not found" in failure["reason"]
+
+
+def test_handshake_logs_accepted_but_backend_not_ready(monkeypatch):
+    events: list[tuple[str, dict]] = []
+
+    def capture_log(level: str, message: str, **attributes) -> None:
+        events.append((message, attributes))
+
+    monkeypatch.setattr(app_module, "log_event", capture_log)
+    with TestClient(app) as client:
+        runtime = AppRuntime(Settings(), None)
+        app.state.runtime = runtime
+        events.clear()
+        with client.websocket_connect("/ws/capture") as sock:
+            sock.send_text(_client_hello("front-phone"))
+            assert json.loads(sock.receive_text())["type"] == "server_hello"
+
+    accepted = next(
+        attributes for name, attributes in events if name == "capture_handshake_accepted"
+    )
+    assert accepted["backend_ready"] is False
+    assert accepted["readiness_issues"] == "provisional_calibration_pending,processor_unavailable"
 
 
 def test_valid_packet_is_recorded_without_calibration(tmp_path):

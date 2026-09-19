@@ -42,9 +42,30 @@ def build_runtime(settings: Settings) -> AppRuntime:
     calibration = None
     try:
         calibration = load_rig_calibration(settings.calibration_path)
-    except CalibrationError:
-        calibration = None
-    return AppRuntime(settings, calibration)
+        log_event(
+            "info",
+            "calibration_loaded",
+            calibration_path=settings.calibration_path,
+            calibration_id=str(calibration.calibration_id),
+            calibrated_devices=",".join(calibration.device_ids()),
+        )
+    except CalibrationError as exc:
+        log_event(
+            "warning",
+            "calibration_load_failed",
+            calibration_path=settings.calibration_path,
+            reason=str(exc),
+        )
+    try:
+        return AppRuntime(settings, calibration)
+    except Exception as exc:
+        log_event(
+            "error",
+            "backend_initialization_failed",
+            error_type=type(exc).__name__,
+            reason=str(exc),
+        )
+        raise
 
 
 @contextlib.asynccontextmanager
@@ -59,12 +80,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.runtime = build_runtime(settings)
     log_event(
-        "info",
+        "info" if app.state.runtime.is_ready() else "warning",
         "backend_started",
         bind_host=settings.bind_host,
         port=settings.port,
         expected_device_ids=",".join(settings.expected_device_ids),
         calibration_loaded=app.state.runtime.is_ready(),
+        ready=app.state.runtime.is_ready(),
+        readiness_issues=",".join(app.state.runtime.readiness_issues()),
+        allow_uncalibrated_single_view=settings.allow_uncalibrated_single_view,
     )
     yield
     await app.state.runtime.shutdown()
@@ -79,6 +103,13 @@ app = FastAPI(title="hmc-backend", lifespan=lifespan)
 async def health() -> JSONResponse:
     runtime: AppRuntime = app.state.runtime
     response, status_code = runtime.health()
+    if not runtime.is_ready():
+        log_event(
+            "warning",
+            "backend_health_not_ready",
+            status_code=status_code,
+            readiness_issues=",".join(runtime.readiness_issues()),
+        )
     return JSONResponse(content=json.loads(response.model_dump_json()), status_code=status_code)
 
 
@@ -95,15 +126,35 @@ async def ws_capture(ws: WebSocket) -> None:
     # 1. Hello handshake with deadline.
     try:
         first = await asyncio.wait_for(ws.receive_text(), timeout=runtime.settings.hello_deadline_s)
-    except (TimeoutError, WebSocketDisconnect):
-        log_event("warning", "capture_hello_missing")
+    except TimeoutError:
+        log_event(
+            "warning",
+            "capture_handshake_rejected",
+            client_host=ws.client.host if ws.client else "unknown",
+            reason="hello_timeout",
+            deadline_s=runtime.settings.hello_deadline_s,
+        )
         await ws.close()
+        return
+    except WebSocketDisconnect:
+        log_event(
+            "warning",
+            "capture_handshake_rejected",
+            client_host=ws.client.host if ws.client else "unknown",
+            reason="disconnected_before_hello",
+        )
         return
 
     try:
         hello = ClientHello.model_validate_json(first)
-    except ValueError:
-        log_event("warning", "capture_hello_rejected", reason="invalid_client_hello")
+    except ValueError as exc:
+        log_event(
+            "warning",
+            "capture_handshake_rejected",
+            client_host=ws.client.host if ws.client else "unknown",
+            reason="invalid_client_hello",
+            validation_error=str(exc),
+        )
         await _send_model(ws, Error(code="invalid_message", message="expected client_hello"))
         await ws.close()
         return
@@ -111,7 +162,8 @@ async def ws_capture(ws: WebSocket) -> None:
     if not runtime.is_expected_device(hello.device_id):
         log_event(
             "warning",
-            "capture_hello_rejected",
+            "capture_handshake_rejected",
+            client_host=ws.client.host if ws.client else "unknown",
             device_id=hello.device_id,
             reason="unauthorized_device",
         )
@@ -121,11 +173,15 @@ async def ws_capture(ws: WebSocket) -> None:
 
     token = runtime.register_capture(hello.device_id, ws.send_text)
     log_event(
-        "info",
-        "capture_device_connected",
+        "info" if runtime.is_ready() else "warning",
+        "capture_handshake_accepted",
+        client_host=ws.client.host if ws.client else "unknown",
         device_id=hello.device_id,
         session_id=str(hello.session_id),
         app_version=hello.app_version,
+        backend_ready=runtime.is_ready(),
+        readiness_issues=",".join(runtime.readiness_issues()),
+        provisional_bootstrap_available=runtime.settings.allow_uncalibrated_single_view,
     )
     await _send_model(
         ws,

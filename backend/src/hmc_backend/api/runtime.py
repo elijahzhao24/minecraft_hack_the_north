@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from hmc_backend.api.hub import CharacterHub
 from hmc_backend.calibration.model import RigCalibration, rig_to_json
+from hmc_backend.calibration.provisional import build_provisional_rig
 from hmc_backend.capture.clock import ClockEstimator
 from hmc_backend.capture.pairing import Pairer
 from hmc_backend.capture.recording import save_capture_packet
@@ -67,6 +68,7 @@ class AppRuntime:
     ) -> None:
         self._settings = settings
         self._calibration = calibration
+        self._provisional_calibration = False
         self._server_session_id = uuid4()
         self._store = store or SnapshotStore()
         self._hub = CharacterHub()
@@ -111,6 +113,30 @@ class AppRuntime:
 
     def is_ready(self) -> bool:
         return self._calibration is not None and self._processor is not None
+
+    def readiness_issues(self) -> tuple[str, ...]:
+        """Return stable diagnostic reasons that prevent capture processing."""
+        issues = []
+        if self._calibration is None:
+            issues.append(
+                "provisional_calibration_pending"
+                if self._settings.allow_uncalibrated_single_view
+                else "calibration_missing"
+            )
+        if self._processor is None:
+            issues.append("processor_unavailable")
+        if self._calibration is not None and not any(
+            device_id in self._calibration.cameras for device_id in self._devices
+        ):
+            issues.append("no_configured_device_calibration")
+        return tuple(issues)
+
+    def _can_bootstrap_single_view(self) -> bool:
+        return (
+            self._settings.allow_uncalibrated_single_view
+            and self._calibration is None
+            and self._processor is None
+        )
 
     async def shutdown(self) -> None:
         self._live_desired = False
@@ -206,25 +232,42 @@ class AppRuntime:
         )
 
     def _capture_device_ids(self, *, require_clock: bool) -> tuple[str, ...]:
-        if self._calibration is None:
-            return ()
         selected = []
         for device_id, state in self._devices.items():
-            if device_id not in self._calibration.cameras:
+            if self._calibration is not None and device_id not in self._calibration.cameras:
                 continue
             if not state.connected or state.send_text is None:
                 continue
             if require_clock and not self._clock_ready(state):
                 continue
             selected.append(device_id)
+        if self._calibration is None:
+            return tuple(selected[:1]) if self._can_bootstrap_single_view() else ()
         return tuple(selected)
 
     async def dispatch_capture(self, capture_id: UUID, mode: str) -> tuple[bool, str]:
         if not self.is_ready():
+            log_event(
+                "warning",
+                "capture_dispatch_rejected",
+                capture_id=str(capture_id),
+                mode=mode,
+                reason="backend_not_ready",
+                readiness_issues=",".join(self.readiness_issues()),
+            )
             return False, "not_ready"
         capture_mode = Mode(mode)
         device_ids = self._capture_device_ids(require_clock=capture_mode is Mode.LIVE)
         if len(device_ids) < self._settings.min_capture_devices:
+            log_event(
+                "warning",
+                "capture_dispatch_rejected",
+                capture_id=str(capture_id),
+                mode=capture_mode.value,
+                reason="devices_unavailable",
+                available_devices=len(device_ids),
+                required_devices=self._settings.min_capture_devices,
+            )
             return False, "devices_unavailable"
         self._pending_captures[capture_id] = PendingCapture(
             capture_mode, time.monotonic(), device_ids
@@ -294,7 +337,7 @@ class AppRuntime:
         return self.live_state_message(request_id=request_id)
 
     def _live_prerequisite_error(self) -> str | None:
-        if not self.is_ready():
+        if not self.is_ready() and not self._can_bootstrap_single_view():
             return "backend_not_ready"
         connected = self._capture_device_ids(require_clock=False)
         if len(connected) < self._settings.min_capture_devices:
@@ -312,7 +355,10 @@ class AppRuntime:
                 await self._set_live_state("paused", reason)
                 await asyncio.sleep(0.1)
                 continue
-            await self._set_live_state("running", None)
+            if self._can_bootstrap_single_view():
+                await self._set_live_state("starting", "awaiting_first_frame")
+            else:
+                await self._set_live_state("running", None)
             now = time.monotonic()
             if self._live_outstanding is not None:
                 pending = self._pending_captures.get(self._live_outstanding)
@@ -365,7 +411,9 @@ class AppRuntime:
             reason=reason,
             live_session_id=str(self._live_session_id) if self._live_session_id else None,
             connected_devices=sum(device.connected for device in self._devices.values()),
-            expected_devices=len(self._devices),
+            configured_devices=len(self._devices),
+            minimum_devices=self._settings.min_capture_devices,
+            selected_devices=len(self._capture_device_ids(require_clock=True)),
         )
         payload = self.live_state_message(request_id=request_id).model_dump_json()
         await asyncio.gather(
@@ -409,6 +457,34 @@ class AppRuntime:
             tracking_state=decoded.header.tracking_state.value,
             buffer_count=len(decoded.header.buffers),
         )
+
+        if self._can_bootstrap_single_view():
+            try:
+                self._calibration = build_provisional_rig(decoded)
+                self._pairer = build_pairer(self._settings)
+                self._processor = build_processor(self._settings, self._calibration)
+                self._provisional_calibration = True
+                log_event(
+                    "warning",
+                    "provisional_single_view_calibration_created",
+                    device_id=device_id,
+                    calibration_id=str(self._calibration.calibration_id),
+                    session_id=str(decoded.header.session_id),
+                    warning="camera_relative_debug_mode_not_valid_for_multi_view_merge",
+                )
+                if self._live_desired:
+                    await self._set_live_state("running", None)
+            except Exception as exc:
+                log_event(
+                    "error",
+                    "provisional_calibration_failed",
+                    device_id=device_id,
+                    error_type=type(exc).__name__,
+                    reason=str(exc),
+                )
+                if self._live_desired:
+                    await self._set_live_state("paused", "provisional_calibration_failed")
+                raise
 
         if capture_mode is Mode.SNAPSHOT:
             recording_dir = save_capture_packet(
@@ -563,7 +639,9 @@ class AppRuntime:
         response = HealthResponse(
             status=status,
             calibration=CalibrationHealth(
-                loaded=calib is not None, calibration_id=calib.calibration_id if calib else None
+                loaded=calib is not None,
+                calibration_id=calib.calibration_id if calib else None,
+                provisional=self._provisional_calibration,
             ),
             models=models,
             devices=devices,

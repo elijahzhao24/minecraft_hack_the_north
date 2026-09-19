@@ -172,3 +172,61 @@ async def test_ready_second_phone_is_automatically_selected_for_future_captures(
         "side-phone",
     )
     await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_one_phone_bootstraps_provisional_calibration_for_live_capture(tmp_path, monkeypatch):
+    settings = Settings(
+        recording_root=str(tmp_path),
+        live_target_fps=20.0,
+        live_capture_lead_ms=1.0,
+        live_pair_timeout_ms=100.0,
+    )
+    runtime = AppRuntime(settings, None)
+    messages: list[dict] = []
+    events: list[tuple[str, dict]] = []
+
+    def capture_log(level: str, message: str, **attributes) -> None:
+        events.append((message, attributes))
+
+    monkeypatch.setattr(runtime_module, "log_event", capture_log)
+
+    async def send(raw: str) -> None:
+        messages.append(json.loads(raw))
+
+    runtime.register_capture("front-phone", send)
+    state = runtime._devices["front-phone"]
+    for index in range(settings.live_clock_samples):
+        base = 100.0 + index
+        state.clock.record_pong(str(index), base, base, base, base)
+
+    await runtime.request_live(uuid4(), True)
+    for _ in range(100):
+        requests = [message for message in messages if message["type"] == "capture_request"]
+        if requests:
+            break
+        await asyncio.sleep(0.01)
+
+    request = requests[0]
+    capture_id = UUID(request["capture_id"])
+    source_rig = build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120))
+    packet = build_capture_packets(source_rig, capture_id=capture_id)["front-phone"]
+    await runtime.handle_rgbd(packet, expected_device_id="front-phone")
+    for _ in range(100):
+        if runtime.store.latest is not None:
+            break
+        await asyncio.sleep(0.01)
+
+    frame = runtime.store.latest
+    assert frame is not None
+    assert frame.quality.point_count > 0
+    assert [source.device_id for source in frame.source_frames] == ["front-phone"]
+    health = runtime.health()[0]
+    assert health.calibration.loaded is True
+    assert health.calibration.provisional is True
+    assert health.live.state == "running"
+    event_names = {name for name, _attributes in events}
+    assert "provisional_single_view_calibration_created" in event_names
+    assert "character_published" in event_names
+    await runtime.request_live(uuid4(), False)
+    await runtime.shutdown()
