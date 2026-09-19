@@ -40,6 +40,8 @@ public final class HumanCraftKeybindings {
 	private final KeyMapping anchorReset = key("anchor_reset", GLFW.GLFW_KEY_B);
 	private final KeyMapping scaleUp = key("scale_up", GLFW.GLFW_KEY_EQUAL);
 	private final KeyMapping scaleDown = key("scale_down", GLFW.GLFW_KEY_MINUS);
+	private final KeyMapping pointSizeUp = key("point_size_up", GLFW.GLFW_KEY_PERIOD);
+	private final KeyMapping pointSizeDown = key("point_size_down", GLFW.GLFW_KEY_COMMA);
 
 	public HumanCraftKeybindings(HumanCraftConfig config, ClientSnapshotCoordinator coordinator) {
 		this.config = config;
@@ -86,6 +88,16 @@ public final class HumanCraftKeybindings {
 		consume(anchorReset, () -> coordinator.resetAnchor(client));
 		consume(scaleUp, () -> coordinator.scaleBy(1.1));
 		consume(scaleDown, () -> coordinator.scaleBy(1.0 / 1.1));
+		consume(pointSizeUp, () -> {
+			config.pointSize = Math.min(16f, config.pointSize + 0.5f);
+			coordinator.refreshRenderer();
+			savedMessage(String.format(java.util.Locale.ROOT, "point size: %.1f", config.pointSize), true);
+		});
+		consume(pointSizeDown, () -> {
+			config.pointSize = Math.max(1f, config.pointSize - 0.5f);
+			coordinator.refreshRenderer();
+			savedMessage(String.format(java.util.Locale.ROOT, "point size: %.1f", config.pointSize), true);
+		});
 	}
 
 	private static void consume(KeyMapping key, Runnable action) {

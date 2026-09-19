@@ -187,7 +187,37 @@ public final class ClientSnapshotCoordinator {
 		} catch (RuntimeException e) {
 			clearLocal("renderer upload failed");
 			Telemetry.captureException(e, "client.renderer.upload");
+			return;
 		}
+		announceActive();
+	}
+
+	/** Tells the player where the figure is so a snapshot can never be "invisible" without a clue. */
+	private void announceActive() {
+		Minecraft client = Minecraft.getInstance();
+		if (active == null || client.player == null) {
+			return;
+		}
+		var cloud = active.stageCloud();
+		int n = cloud.count();
+		double sx = 0, sy = 0, sz = 0;
+		for (int i = 0; i < n; i++) {
+			sx += cloud.x(i);
+			sy += cloud.y(i);
+			sz += cloud.z(i);
+		}
+		// Cloud centroid in world blocks (falls back to the anchor for an empty cloud).
+		double cx = config.anchorX, cy = config.anchorY, cz = config.anchorZ;
+		if (n > 0) {
+			cx += sx / n * config.blocksPerMeter;
+			cy += sy / n * config.blocksPerMeter;
+			cz += sz / n * config.blocksPerMeter;
+		}
+		double dist = Math.hypot(cx - client.player.getX(), cz - client.player.getZ());
+		message(Component.literal(String.format(Locale.ROOT,
+				"HumanCraft: frame %d, %d points centred at (%.0f, %.0f, %.0f), %.0f blocks away%s",
+				active.frameId(), n, cx, cy, cz, dist,
+				dist > 12 ? " [press B to bring it in front of you]" : "")));
 	}
 
 	public void onProbeResult(HumanCraftPayloads.ProbeResult result) {
@@ -207,8 +237,14 @@ public final class ClientSnapshotCoordinator {
 	public void tick(Minecraft client) {
 		if (anchorPendingTicks > 0) {
 			anchorPendingTicks--;
-			if (anchorPendingTicks == 0 && setAutomaticAnchor(client)) {
-				persistAndReinstall("anchor ready");
+			if (anchorPendingTicks == 0) {
+				if (setAutomaticAnchor(client)) {
+					persistAndReinstall("anchor ready");
+				} else {
+					// Position still not synced (slow world load); keep retrying
+					// instead of leaving the persisted anchor below the world.
+					anchorPendingTicks = ANCHOR_SETTLE_TICKS;
+				}
 			}
 		}
 		if (active != null && active.mode() == Mode.LIVE
@@ -313,6 +349,16 @@ public final class ClientSnapshotCoordinator {
 		// below the terrain. Anything at or under the build floor is not a real
 		// standing position.
 		if (!Double.isFinite(y) || y <= client.level.getMinBuildHeight()) {
+			return false;
+		}
+		// The placeholder (y = -60) is above the 1.21 build floor (-64), so the
+		// height check alone is not enough: also require the player's chunk to
+		// be loaded and the player to be standing on something (or to have
+		// been in the world long enough that the spawn packet must have landed).
+		if (!client.level.hasChunkAt(client.player.blockPosition())) {
+			return false;
+		}
+		if (!client.player.onGround() && client.player.tickCount < 60) {
 			return false;
 		}
 		Vec3 look = client.player.getLookAngle();
