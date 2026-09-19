@@ -26,3 +26,4 @@ backend/models/*.task
 
 # Local capture recordings (may contain personal RGB/depth data)
 backend/data/recordings/
+.worktrees/
