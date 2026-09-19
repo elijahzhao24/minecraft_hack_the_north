@@ -1,0 +1,143 @@
+{
+  "sha256": "ba3724b6daafb297b8c1a4e7eb14466bcc695bc17b95767ca0cb875fc2298fef",
+  "total_bytes": 119277,
+  "frame_id": 42,
+  "session_id": "25b981d5-b9a6-4df5-8495-c95c5a9a65d9",
+  "calibration_id": "f766f462-d405-4c30-89f9-f626da70547b",
+  "mode": "snapshot",
+  "point_count": 6000,
+  "landmark_count": 77,
+  "collider_count": 15,
+  "sample_points": [
+    {
+      "index": 0,
+      "x": 0.09113358,
+      "y": 1.5761067,
+      "z": -0.023220943,
+      "rgba": "9d784aff"
+    },
+    {
+      "index": 1,
+      "x": -0.026186284,
+      "y": 1.6695386,
+      "z": -0.074658364,
+      "rgba": "9d784aff"
+    },
+    {
+      "index": 3000,
+      "x": 0.26421902,
+      "y": 0.895682,
+      "z": 0.069215894,
+      "rgba": "9d784aff"
+    },
+    {
+      "index": 5999,
+      "x": -0.19618133,
+      "y": 0.33591178,
+      "z": 0.031610753,
+      "rgba": "1a1717ff"
+    }
+  ],
+  "cloud_min_stage_m": [
+    -0.32021892070770264,
+    -0.010566813871264458,
+    -0.15999668836593628
+  ],
+  "cloud_max_stage_m": [
+    0.32080674171447754,
+    1.729575276374817,
+    0.2001640647649765
+  ],
+  "colliders": [
+    {
+      "id": "head",
+      "body_part": "head",
+      "type": "sphere",
+      "valid": true
+    },
+    {
+      "id": "torso",
+      "body_part": "torso",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "pelvis",
+      "body_part": "pelvis",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "arm.left.upper",
+      "body_part": "left_upper_arm",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "arm.left.forearm",
+      "body_part": "left_forearm",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "hand.left",
+      "body_part": "left_hand",
+      "type": "obb",
+      "valid": true
+    },
+    {
+      "id": "leg.left.thigh",
+      "body_part": "left_thigh",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "leg.left.shin",
+      "body_part": "left_shin",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "foot.left",
+      "body_part": "left_foot",
+      "type": "obb",
+      "valid": true
+    },
+    {
+      "id": "arm.right.upper",
+      "body_part": "right_upper_arm",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "arm.right.forearm",
+      "body_part": "right_forearm",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "hand.right",
+      "body_part": "right_hand",
+      "type": "obb",
+      "valid": true
+    },
+    {
+      "id": "leg.right.thigh",
+      "body_part": "right_thigh",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "leg.right.shin",
+      "body_part": "right_shin",
+      "type": "capsule",
+      "valid": true
+    },
+    {
+      "id": "foot.right",
+      "body_part": "right_foot",
+      "type": "obb",
+      "valid": true
+    }
+  ]
+}

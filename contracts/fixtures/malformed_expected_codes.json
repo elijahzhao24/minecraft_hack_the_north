@@ -1,0 +1,21 @@
+{
+  "wrong_magic": "invalid_message",
+  "unsupported_envelope_version": "unsupported_version",
+  "rgbd_message_type": "invalid_message",
+  "truncated_payload": "invalid_message",
+  "short_header": "invalid_message",
+  "payload_over_limit": "frame_too_large",
+  "overlapping_buffers": "invalid_buffer_range",
+  "buffer_past_payload": "invalid_buffer_range",
+  "invalid_utf8_header": "invalid_message",
+  "nan_in_header": "invalid_message",
+  "non_finite_point": "non_finite_geometry",
+  "zero_radius_collider": "invalid_collider_geometry",
+  "oversized_collider": "invalid_collider_geometry",
+  "non_orthonormal_obb": "invalid_collider_geometry",
+  "unknown_header_field": "invalid_message",
+  "unknown_mode_enum": "invalid_message",
+  "future_schema_version": "unsupported_version",
+  "too_many_colliders": "limit_exceeded",
+  "too_many_points": "invalid_buffer_range"
+}
