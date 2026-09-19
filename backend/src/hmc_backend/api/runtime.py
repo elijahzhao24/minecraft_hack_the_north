@@ -28,6 +28,7 @@ from hmc_backend.contracts.control import (
 )
 from hmc_backend.contracts.enums import HealthStatus, Mode
 from hmc_backend.contracts.internal import CharacterFrame
+from hmc_backend.observability import log_event, span, transaction
 from hmc_backend.pipeline.factory import build_pairer, build_processor
 from hmc_backend.pipeline.processor import CharacterProcessor
 from hmc_backend.pipeline.snapshot_store import SnapshotStore
@@ -164,15 +165,43 @@ class AppRuntime:
 
         outcome = self._pairer.offer(frame, self._calibration.calibration_id)
         if outcome.paired is None:
+            if outcome.rejected_reason is not None:
+                log_event(
+                    "warning",
+                    "pair_rejected",
+                    device_id=device_id,
+                    capture_id=str(decoded.header.capture_id),
+                    reason=outcome.rejected_reason,
+                )
             return None
 
         pair = outcome.paired
-        # Run the CPU-heavy stages off the event loop.
-        character = await asyncio.to_thread(self._processor.process, pair, mode=mode)
-        encoded = await asyncio.to_thread(encode_character_frame, character)
-        # Publish only after successful serialization (all-or-nothing).
-        self._store.publish(character, encoded)
-        self._hub.broadcast(encoded)
+        with transaction(
+            "character.snapshot",
+            op="capture.process",
+            capture_id=str(pair.first.capture_id),
+            calibration_id=str(self._calibration.calibration_id),
+            pair_skew_ms=round(pair.pair_skew_ms, 2),
+        ):
+            # Run the CPU-heavy stages off the event loop.
+            with span("collider.fit_and_reconstruct", "detect+reconstruct+fit"):
+                character = await asyncio.to_thread(self._processor.process, pair, mode=mode)
+            with span("character.serialize", "encode CHARACTER_FRAME"):
+                encoded = await asyncio.to_thread(encode_character_frame, character)
+            # Publish only after successful serialization (all-or-nothing).
+            with span("character.publish", "store + broadcast"):
+                self._store.publish(character, encoded)
+                self._hub.broadcast(encoded)
+
+        log_event(
+            "info",
+            "character_published",
+            frame_id=character.frame_id,
+            calibration_id=str(character.calibration_id),
+            point_count=character.quality.point_count,
+            valid_collider_count=character.quality.valid_collider_count,
+            pair_skew_ms=round(pair.pair_skew_ms, 2),
+        )
         return character
 
     # --- health -----------------------------------------------------------

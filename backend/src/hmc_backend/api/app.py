@@ -25,6 +25,7 @@ from hmc_backend.contracts.control import (
     Error,
     ServerHello,
 )
+from hmc_backend.observability import configure_sentry, flush_sentry
 from hmc_backend.protocol.envelope import EnvelopeError
 from hmc_backend.settings import Settings, load_settings
 
@@ -42,9 +43,16 @@ def build_runtime(settings: Settings) -> AppRuntime:
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
+    configure_sentry(
+        settings.sentry_dsn,
+        environment=settings.environment,
+        release=settings.release,
+        traces_sample_rate=settings.traces_sample_rate,
+    )
     app.state.runtime = build_runtime(settings)
     yield
-    # Shutdown: nothing durable to flush in the MVP (Sentry flush added later).
+    # Shutdown: flush any pending Sentry events with a short timeout.
+    flush_sentry()
 
 
 app = FastAPI(title="hmc-backend", lifespan=lifespan)
