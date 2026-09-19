@@ -1,0 +1,571 @@
+{
+  "schema": "hmc.collider_geometry_golden",
+  "schema_version": 1,
+  "epsilon": 1e-09,
+  "tolerance": 1e-06,
+  "note": "Reference results from backend/src/hmc_backend/colliders/geometry.py. Rays use the unit direction; expected_t is the nearest t >= 0 or null. OBB axes are row vectors; Java must enter the local frame with the transpose.",
+  "shapes": {
+    "head": {
+      "id": "head",
+      "type": "sphere",
+      "center_stage_m": [
+        0.0,
+        1.7,
+        0.0
+      ],
+      "radius_m": 0.11,
+      "a_stage_m": null,
+      "b_stage_m": null,
+      "axes_row_major": null,
+      "half_extents_m": null
+    },
+    "forearm": {
+      "id": "arm.left.forearm",
+      "type": "capsule",
+      "center_stage_m": null,
+      "radius_m": 0.05,
+      "a_stage_m": [
+        -0.2,
+        1.3,
+        0.0
+      ],
+      "b_stage_m": [
+        -0.5,
+        1.3,
+        0.0
+      ],
+      "axes_row_major": null,
+      "half_extents_m": null
+    },
+    "hand_axis_aligned": {
+      "id": "hand.left",
+      "type": "obb",
+      "center_stage_m": [
+        -0.6,
+        1.3,
+        0.0
+      ],
+      "radius_m": null,
+      "a_stage_m": null,
+      "b_stage_m": null,
+      "axes_row_major": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "half_extents_m": [
+        0.09,
+        0.02,
+        0.045
+      ]
+    },
+    "foot_turned": {
+      "id": "foot.right",
+      "type": "obb",
+      "center_stage_m": [
+        0.0,
+        0.05,
+        0.0
+      ],
+      "radius_m": null,
+      "a_stage_m": null,
+      "b_stage_m": null,
+      "axes_row_major": [
+        0.766044443,
+        0.0,
+        0.64278761,
+        0.0,
+        1.0,
+        0.0,
+        -0.64278761,
+        0.0,
+        0.766044443
+      ],
+      "half_extents_m": [
+        0.13,
+        0.04,
+        0.05
+      ]
+    }
+  },
+  "rays": [
+    {
+      "name": "sphere_direct",
+      "shape": "head",
+      "origin": [
+        0.0,
+        1.7,
+        2.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": 1.89,
+      "expected_hit": true
+    },
+    {
+      "name": "sphere_miss",
+      "shape": "head",
+      "origin": [
+        0.5,
+        1.7,
+        2.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": null,
+      "expected_hit": false
+    },
+    {
+      "name": "sphere_tangent",
+      "shape": "head",
+      "origin": [
+        0.11,
+        1.7,
+        2.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": 2.0,
+      "expected_hit": true
+    },
+    {
+      "name": "sphere_inside_origin",
+      "shape": "head",
+      "origin": [
+        0.0,
+        1.7,
+        0.0
+      ],
+      "direction": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "direction_unit": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "expected_t": 0.11,
+      "expected_hit": true
+    },
+    {
+      "name": "sphere_behind",
+      "shape": "head",
+      "origin": [
+        0.0,
+        1.7,
+        2.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "expected_t": null,
+      "expected_hit": false
+    },
+    {
+      "name": "capsule_cylinder_hit",
+      "shape": "forearm",
+      "origin": [
+        -0.35,
+        1.3,
+        1.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": 0.95,
+      "expected_hit": true
+    },
+    {
+      "name": "capsule_cap_hit",
+      "shape": "forearm",
+      "origin": [
+        -0.7,
+        1.3,
+        0.0
+      ],
+      "direction": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "direction_unit": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "expected_t": 0.15,
+      "expected_hit": true
+    },
+    {
+      "name": "capsule_miss_beyond_cap",
+      "shape": "forearm",
+      "origin": [
+        -0.6,
+        1.3,
+        1.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": null,
+      "expected_hit": false
+    },
+    {
+      "name": "capsule_parallel_inside",
+      "shape": "forearm",
+      "origin": [
+        -0.3,
+        1.3,
+        0.0
+      ],
+      "direction": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "direction_unit": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "expected_t": 0.25,
+      "expected_hit": true
+    },
+    {
+      "name": "capsule_oblique",
+      "shape": "forearm",
+      "origin": [
+        -0.35,
+        1.6,
+        0.6
+      ],
+      "direction": [
+        0.0,
+        -1.0,
+        -2.0
+      ],
+      "direction_unit": [
+        0.0,
+        -0.447213595,
+        -0.894427191
+      ],
+      "expected_t": 0.620820393,
+      "expected_hit": true
+    },
+    {
+      "name": "obb_direct",
+      "shape": "hand_axis_aligned",
+      "origin": [
+        -0.6,
+        1.3,
+        1.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": 0.955,
+      "expected_hit": true
+    },
+    {
+      "name": "obb_edge_miss",
+      "shape": "hand_axis_aligned",
+      "origin": [
+        -0.6,
+        1.33,
+        1.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": null,
+      "expected_hit": false
+    },
+    {
+      "name": "obb_inside_origin",
+      "shape": "hand_axis_aligned",
+      "origin": [
+        -0.6,
+        1.3,
+        0.0
+      ],
+      "direction": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "direction_unit": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "expected_t": 0.09,
+      "expected_hit": true
+    },
+    {
+      "name": "obb_turned_hit",
+      "shape": "foot_turned",
+      "origin": [
+        0.0,
+        0.05,
+        1.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": 0.934729636,
+      "expected_hit": true
+    },
+    {
+      "name": "obb_turned_corner_miss",
+      "shape": "foot_turned",
+      "origin": [
+        0.14,
+        0.05,
+        1.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": null,
+      "expected_hit": false
+    },
+    {
+      "name": "obb_scaled_direction",
+      "shape": "hand_axis_aligned",
+      "origin": [
+        -0.6,
+        1.3,
+        1.0
+      ],
+      "direction": [
+        0.0,
+        0.0,
+        -3.0
+      ],
+      "direction_unit": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "expected_t": 0.955,
+      "expected_hit": true
+    }
+  ],
+  "cubes": [
+    {
+      "name": "sphere_touching_face",
+      "shape": "head",
+      "box_min": [
+        0.11,
+        1.5,
+        -0.5
+      ],
+      "box_max": [
+        1.11,
+        2.5,
+        0.5
+      ],
+      "expected_overlap": true
+    },
+    {
+      "name": "sphere_clear",
+      "shape": "head",
+      "box_min": [
+        0.2,
+        1.5,
+        -0.5
+      ],
+      "box_max": [
+        1.2,
+        2.5,
+        0.5
+      ],
+      "expected_overlap": false
+    },
+    {
+      "name": "capsule_through_cube",
+      "shape": "forearm",
+      "box_min": [
+        -0.4,
+        1.0,
+        -0.5
+      ],
+      "box_max": [
+        -0.3,
+        2.0,
+        0.5
+      ],
+      "expected_overlap": true
+    },
+    {
+      "name": "capsule_cap_touch",
+      "shape": "forearm",
+      "box_min": [
+        -1.55,
+        0.8,
+        -0.5
+      ],
+      "box_max": [
+        -0.55,
+        1.8,
+        0.5
+      ],
+      "expected_overlap": true
+    },
+    {
+      "name": "capsule_clear",
+      "shape": "forearm",
+      "box_min": [
+        -0.4,
+        1.4,
+        -0.5
+      ],
+      "box_max": [
+        -0.3,
+        2.4,
+        0.5
+      ],
+      "expected_overlap": false
+    },
+    {
+      "name": "obb_axis_aligned_overlap",
+      "shape": "hand_axis_aligned",
+      "box_min": [
+        -0.55,
+        1.29,
+        -0.5
+      ],
+      "box_max": [
+        0.45,
+        2.29,
+        0.5
+      ],
+      "expected_overlap": true
+    },
+    {
+      "name": "obb_turned_aabb_only",
+      "shape": "foot_turned",
+      "box_min": [
+        0.11,
+        0.0,
+        0.11
+      ],
+      "box_max": [
+        1.11,
+        1.0,
+        1.11
+      ],
+      "expected_overlap": false
+    },
+    {
+      "name": "obb_turned_real_overlap",
+      "shape": "foot_turned",
+      "box_min": [
+        0.08,
+        0.0,
+        -0.5
+      ],
+      "box_max": [
+        1.08,
+        1.0,
+        0.5
+      ],
+      "expected_overlap": true
+    }
+  ],
+  "nearest_hit": {
+    "origin": [
+      -0.35,
+      1.3,
+      2.0
+    ],
+    "direction": [
+      0.0,
+      0.0,
+      -1.0
+    ],
+    "expected_id": "arm.left.forearm",
+    "expected_t": 1.95
+  }
+}
