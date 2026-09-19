@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+.env.*
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Model weights (pinned via manifest + checksum, fetched separately)
+backend/models/*.task
+
+# Local capture recordings (may contain personal RGB/depth data)
+backend/data/recordings/
+.worktrees/

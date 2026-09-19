@@ -329,12 +329,12 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5G4X695CB8;
+				DEVELOPMENT_TEAM = 85CXC23NDS;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HumansCapture/Resources/Info.plist;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.hmc.HumansCapture;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonathan.HumansCapture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -351,11 +351,11 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5G4X695CB8;
+				DEVELOPMENT_TEAM = 85CXC23NDS;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HumansCapture/Resources/Info.plist;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.hmc.HumansCapture;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonathan.HumansCapture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -428,7 +428,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = D00100000000000000000001 /* Project object */;
 }

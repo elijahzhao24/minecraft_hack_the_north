@@ -34,13 +34,13 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
-	<key>UIRequiresFullScreen</key>
-	<true/>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>
 		<string>arkit</string>
 	</array>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeRight</string>
