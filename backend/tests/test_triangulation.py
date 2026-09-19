@@ -65,11 +65,16 @@ def test_triangulate_rejects_points_behind_camera(rig):
     assert s < 0
 
 
-def test_depth_veto_only_from_well_supported_observations():
-    t = tri.Triangulated((0.0, 1.0, 0.0), 40.0, 1.0, 0.001)
-    far = ((0.0, 1.0, 0.3), 12)
-    weak_far = ((0.0, 1.0, 0.3), 2)
-    near = ((0.0, 1.02, 0.0), 12)
-    assert tri.compatible_with_depth(t, [near], CFG)
-    assert tri.compatible_with_depth(t, [weak_far], CFG)
-    assert not tri.compatible_with_depth(t, [far], CFG)
+def test_depth_veto_is_directional_and_support_gated(rig):
+    cam = rig.camera("front-phone")  # on +Z looking toward -Z
+    joint = (0.0, 1.1, 0.0)
+    t = tri.Triangulated(joint, 40.0, 1.0, 0.001)
+    z_joint = tri.optical_depth(joint, cam)
+    surface_in_front = z_joint - 0.11  # e.g. the chest surface over a shoulder joint
+    assert tri.compatible_with_depth(t, [(surface_in_front, 12, cam)], CFG)
+    # Surface *behind* the triangulated point: the point would float in the air.
+    assert not tri.compatible_with_depth(t, [(z_joint + 0.10, 12, cam)], CFG)
+    # Way behind the surface: not an interior joint anymore.
+    assert not tri.compatible_with_depth(t, [(z_joint - 0.40, 12, cam)], CFG)
+    # Weakly supported samples never veto.
+    assert tri.compatible_with_depth(t, [(z_joint + 0.10, 2, cam)], CFG)

@@ -23,7 +23,11 @@ from hmc_backend.contracts.internal import CameraCalibration
 class TriangulationConfig:
     min_ray_angle_deg: float = 4.0
     max_reprojection_px: float = 6.0
-    max_depth_disagreement_m: float = 0.08
+    # A triangulated joint may lie *behind* the visible surface (interior joint;
+    # e.g. the far hip seen across the pelvis) by up to roughly a body width
+    # along the camera ray, but never in front of it.
+    max_behind_surface_m: float = 0.35
+    max_in_front_of_surface_m: float = 0.03
     min_depth_support_for_veto: int = 6
 
 
@@ -135,16 +139,31 @@ def triangulate(
     )
 
 
+def optical_depth(p_stage, calibration: CameraCalibration) -> float:
+    """Optical-Z (camera-plane distance) of a stage point in this camera."""
+    t = calibration.T_stage_from_optical
+    p_opt = t[:3, :3].T @ (np.asarray(p_stage, dtype=np.float64) - t[:3, 3])
+    return float(p_opt[2])
+
+
 def compatible_with_depth(
     tri: Triangulated,
-    depth_positions: list[tuple[tuple[float, float, float], int]],
+    depth_samples: list[tuple[float, int, CameraCalibration]],
     cfg: TriangulationConfig,
 ) -> bool:
-    """False when a well-supported depth observation disagrees beyond the threshold."""
-    p = np.asarray(tri.position_stage_m)
-    for pos, support in depth_positions:
+    """Directional check against well-supported surface depth samples.
+
+    Each sample is ``(depth_m, support, calibration)`` for the camera that
+    observed it. Along that camera's ray the triangulated point must not be
+    closer than the visible surface (beyond a small tolerance) and may be
+    behind it only by an anatomically plausible margin.
+    """
+    for depth_m, support, calib in depth_samples:
         if support < cfg.min_depth_support_for_veto:
             continue
-        if float(np.linalg.norm(p - np.asarray(pos))) > cfg.max_depth_disagreement_m:
+        z = optical_depth(tri.position_stage_m, calib)
+        if z < depth_m - cfg.max_in_front_of_surface_m:
+            return False
+        if z > depth_m + cfg.max_behind_surface_m:
             return False
     return True
