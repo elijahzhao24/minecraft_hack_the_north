@@ -247,6 +247,13 @@ public final class ClientSnapshotCoordinator {
 		persistAndReinstall("scale changed");
 	}
 
+	/** Rebuilds GPU buffers after a render-only debug option (for example source-color mode) changes. */
+	public void refreshRenderer() {
+		if (active != null) {
+			renderer.activate(active);
+		}
+	}
+
 	private void persistAndReinstall(String reason) {
 		config.save(FabricLoader.getInstance().getConfigDir());
 		if (joined && latestDecoded != null) {
