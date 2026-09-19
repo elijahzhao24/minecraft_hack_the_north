@@ -6,7 +6,10 @@ This runbook joins the four workflow documents. Workflow 4 is implemented under 
 
 - Mac/Xcode and two physical LiDAR-capable iPhones for the hardware gate.
 - Python 3.12 and `uv` on the processing laptop.
-- JDK 21 for Minecraft 1.21.1/Fabric development.
+- JDK 21 for Minecraft 1.21.1/Fabric development. Homebrew installs it *off*
+  `PATH`, so `java -version` can fail while the JDK is present. Export it before
+  any Gradle command:
+  `export JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH="$JAVA_HOME/bin:$PATH"`.
 - Printed, measured ChArUco board; tape/marks for the stage origin and phone tripods.
 - Minecraft Java Edition account/profile and a test world.
 - All devices on a trusted local network that permits device-to-laptop connections.
@@ -82,7 +85,7 @@ Use traces/logs to identify one real bottleneck or geometry/integration defect, 
 ```bash
 cd backend
 uv sync --frozen
-uv run uvicorn hmc_backend.main:app --host 0.0.0.0 --port 8000 --workers 1
+uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
 Verify `http://<laptop-ip>:8000/health` reports calibration/models ready.
@@ -176,3 +179,69 @@ Keep a reproducible directory or release artifact containing:
 - Ten-minute soak notes.
 - Local diagnostic/measurement before-and-after evidence.
 - Known limitations and which acceptance gates are verified vs unverified.
+
+## 10. Hardware-free rehearsal
+
+Everything below runs with **no phones, no tripods, and no calibration board**.
+Do it before the rig exists — it exercises the same sockets, decoders, pairing,
+and publication path the real capture uses, so what it proves keeps holding.
+
+### 10.1 Full capture-to-subscriber smoke test
+
+```bash
+cd backend
+
+# 1. Write a rig the backend and the fake phones both agree on.
+uv run python scripts/fake_phone.py --write-calibration data/calibration.json
+
+# 2. Start the backend (single worker; it loads that calibration at startup).
+uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
+
+# 3. In another shell: connect two fake phones, fire one capture, and verify
+#    a CharacterFrame comes back on /ws/character. Exits non-zero on failure.
+uv run python scripts/fake_phone.py --once --expect-frame
+```
+
+The harness connects as real WebSocket clients, answers `clock_ping`, and
+honours `capture_request` — so once Minecraft is attached, **F7 drives a real
+synchronized capture**. Use `--interval 2` for live streaming, and `--skew-ms`
+to push the pairer toward its budget.
+
+Received frames are validated with the strict decoder, which applies the same
+rules as the mod's `CharacterFrameDecoder`. A clean run means the backend's
+bytes are acceptable to the Java consumer.
+
+### 10.2 Minecraft without a backend
+
+`fixtureOnStart=true` renders a synthetic human immediately, so the whole
+Minecraft half can be checked on its own:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH="$JAVA_HOME/bin:$PATH"
+cd minecraft-mod
+./gradlew test      # 60 tests: geometry, probe, contact, snapshot store, payloads
+./gradlew runClient
+```
+
+Confirm the HUD shows decoded/pending/**active** IDs, `P` probes a body part,
+`O`/`I`/`U` toggle layers, and `F8` clears.
+
+### 10.3 Contract gates
+
+```bash
+cd backend
+uv run pytest tests/test_cross_language_fixtures.py tests/test_rgbd_fixtures.py
+```
+
+Python decodes the Java-authored CHARACTER_FRAME goldens and the RGBD goldens,
+and rejects every malformed fixture with the declared code. Run this after any
+change to `contracts/`, and regenerate RGBD fixtures only deliberately:
+`uv run python scripts/write_rgbd_fixtures.py` (review the diff — they are
+frozen).
+
+### 10.4 What this cannot prove
+
+A clean rehearsal says the *software* agrees with itself end to end. It says
+nothing about sensor accuracy, real lens distortion, motion blur, lighting,
+clock behaviour across two physical devices, or whether the tripods see the
+subject. Gates 3–6 still require the rig.
