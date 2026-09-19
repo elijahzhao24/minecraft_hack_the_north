@@ -38,6 +38,8 @@ public final class ClientSnapshotCoordinator {
 
 	private CharacterWebSocket backend;
 	private CharacterFrame latestDecoded;
+	private volatile long lastBackendFrameId = -1;
+	private UUID lastBackendSession;
 	private WorldSnapshot pending;
 	private WorldSnapshot active;
 	private long activeSinceMs;
@@ -65,6 +67,11 @@ public final class ClientSnapshotCoordinator {
 		return latestDecoded == null ? -1 : latestDecoded.frameId();
 	}
 
+	/** Cursor advertised to the backend; deliberately excludes the local frame-0 fixture. */
+	public long lastBackendFrameId() {
+		return lastBackendFrameId;
+	}
+
 	public long activeFrameId() {
 		return active == null ? -1 : active.frameId();
 	}
@@ -90,6 +97,16 @@ public final class ClientSnapshotCoordinator {
 			}
 			receive(SyntheticHuman.frame(pose, 0, Mode.SNAPSHOT));
 		}
+	}
+
+	public void receiveBackend(CharacterFrame frame) {
+		if (!frame.header().sessionId().equals(lastBackendSession)) {
+			lastBackendSession = frame.header().sessionId();
+			lastBackendFrameId = frame.frameId();
+		} else {
+			lastBackendFrameId = Math.max(lastBackendFrameId, frame.frameId());
+		}
+		receive(frame);
 	}
 
 	public void onDisconnect() {

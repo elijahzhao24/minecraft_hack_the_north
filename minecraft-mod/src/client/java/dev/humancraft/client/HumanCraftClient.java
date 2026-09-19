@@ -28,8 +28,8 @@ public final class HumanCraftClient implements ClientModInitializer {
 		ClientSnapshotCoordinator snapshots = new ClientSnapshotCoordinator(config, renderer);
 		CharacterWebSocket backend = new CharacterWebSocket(
 				config,
-				snapshots::lastDecodedFrameId,
-				frame -> Minecraft.getInstance().execute(() -> snapshots.receive(frame)),
+				snapshots::lastBackendFrameId,
+				frame -> Minecraft.getInstance().execute(() -> snapshots.receiveBackend(frame)),
 				status -> Minecraft.getInstance().execute(() -> snapshots.setBackendStatus(status)));
 		snapshots.setBackend(backend);
 
