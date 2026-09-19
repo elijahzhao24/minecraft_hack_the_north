@@ -187,37 +187,7 @@ public final class ClientSnapshotCoordinator {
 		} catch (RuntimeException e) {
 			clearLocal("renderer upload failed");
 			Telemetry.captureException(e, "client.renderer.upload");
-			return;
 		}
-		announceActive();
-	}
-
-	/** Tells the player where the figure is so a snapshot can never be "invisible" without a clue. */
-	private void announceActive() {
-		Minecraft client = Minecraft.getInstance();
-		if (active == null || client.player == null) {
-			return;
-		}
-		var cloud = active.stageCloud();
-		int n = cloud.count();
-		double sx = 0, sy = 0, sz = 0;
-		for (int i = 0; i < n; i++) {
-			sx += cloud.x(i);
-			sy += cloud.y(i);
-			sz += cloud.z(i);
-		}
-		// Cloud centroid in world blocks (falls back to the anchor for an empty cloud).
-		double cx = config.anchorX, cy = config.anchorY, cz = config.anchorZ;
-		if (n > 0) {
-			cx += sx / n * config.blocksPerMeter;
-			cy += sy / n * config.blocksPerMeter;
-			cz += sz / n * config.blocksPerMeter;
-		}
-		double dist = Math.hypot(cx - client.player.getX(), cz - client.player.getZ());
-		message(Component.literal(String.format(Locale.ROOT,
-				"HumanCraft: frame %d, %d points centred at (%.0f, %.0f, %.0f), %.0f blocks away%s",
-				active.frameId(), n, cx, cy, cz, dist,
-				dist > 12 ? " [press B to bring it in front of you]" : "")));
 	}
 
 	public void onProbeResult(HumanCraftPayloads.ProbeResult result) {
@@ -333,7 +303,7 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	/**
-	 * Places the anchor three blocks in front of the player at their feet.
+	 * Places the figure three blocks in front of the player with its feet on the ground.
 	 *
 	 * <p>Returns {@code false} and leaves the anchor untouched when the player's
 	 * position is not trustworthy yet, so a snapshot is never anchored below the
@@ -365,9 +335,27 @@ public final class ClientSnapshotCoordinator {
 		double length = Math.hypot(look.x, look.z);
 		double dx = length > 1e-6 ? look.x / length : 0;
 		double dz = length > 1e-6 ? look.z / length : 1;
-		config.anchorX = Math.floor(client.player.getX() + dx * 3.0) + 0.5;
-		config.anchorY = Math.floor(y);
-		config.anchorZ = Math.floor(client.player.getZ() + dz * 3.0) + 0.5;
+		// Target: the figure itself (not the stage origin) stands three blocks
+		// ahead with its lowest point on the ground. The cloud is offset from the
+		// stage origin by however far the subject stood from the camera, so
+		// anchoring the origin alone can leave the figure beside or behind you.
+		double offX = 0, offY = 0, offZ = 0;
+		if (latestDecoded != null && latestDecoded.cloud().count() > 0) {
+			var cloud = latestDecoded.cloud();
+			int n = cloud.count();
+			double sx = 0, sz = 0, minY = Double.POSITIVE_INFINITY;
+			for (int i = 0; i < n; i++) {
+				sx += cloud.x(i);
+				sz += cloud.z(i);
+				minY = Math.min(minY, cloud.y(i));
+			}
+			offX = sx / n * config.blocksPerMeter;
+			offZ = sz / n * config.blocksPerMeter;
+			offY = minY * config.blocksPerMeter;
+		}
+		config.anchorX = Math.floor(client.player.getX() + dx * 3.0) + 0.5 - offX;
+		config.anchorY = Math.floor(y) - offY;
+		config.anchorZ = Math.floor(client.player.getZ() + dz * 3.0) + 0.5 - offZ;
 		return true;
 	}
 
