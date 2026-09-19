@@ -7,7 +7,7 @@ the environment and are never echoed by ``/health``.
 
 from __future__ import annotations
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
