@@ -82,6 +82,24 @@ public sealed interface ControlMessage {
 		}
 	}
 
+	/** Minecraft → backend: start or stop the backend-driven live capture loop. */
+	record LiveControl(UUID requestId, boolean enabled, double rateHz) implements ControlMessage {
+		@Override
+		public String type() {
+			return enabled ? "live_start" : "live_stop";
+		}
+
+		@Override
+		public JsonObject toJson() {
+			JsonObject o = base(this);
+			o.addProperty("request_id", requestId.toString());
+			if (enabled) {
+				o.addProperty("rate_hz", rateHz);
+			}
+			return o;
+		}
+	}
+
 	/** Backend → Minecraft: generic acknowledgement of a request. */
 	record Ack(Optional<UUID> requestId, boolean accepted, String code, Optional<String> detail) implements ControlMessage {
 		@Override

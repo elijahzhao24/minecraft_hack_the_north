@@ -31,7 +31,8 @@ public final class HumanCraftConfig {
 	/** Largest binary WebSocket message accepted (bytes); capped to the protocol maximum. */
 	public int maxBinaryBytes = 16 + 65_536 + 8 * 1024 * 1024;
 	/** Live frames older than this stop being interactive and are hidden. */
-	public int liveFrameTtlMs = 500;
+	public int liveFrameTtlMs = 1500;
+	public double liveRateHz = 8.0;
 	/** Server reach used for probes when positive; otherwise the vanilla block interaction range. */
 	public double probeReachBlocks = 0;
 
@@ -132,6 +133,10 @@ public final class HumanCraftConfig {
 		reconnectMaxMs = Math.max(reconnectMinMs, reconnectMaxMs);
 		maxBinaryBytes = Math.min(Math.max(1024, maxBinaryBytes), dev.humancraft.contract.ProtocolLimits.MAX_MESSAGE_BYTES);
 		liveFrameTtlMs = Math.max(50, liveFrameTtlMs);
+		if (!Double.isFinite(liveRateHz) || liveRateHz <= 0) {
+			liveRateHz = 8.0;
+		}
+		liveRateHz = Math.min(30.0, liveRateHz);
 		if (!(blocksPerMeter > 0) || !Double.isFinite(blocksPerMeter)) {
 			blocksPerMeter = 1.0;
 		}

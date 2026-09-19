@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.runtime = build_runtime(settings)
     start_discovery(port=settings.port)
     yield
+    app.state.runtime.stop_live()
     stop_discovery()
     # Shutdown: flush any pending Sentry events with a short timeout.
     flush_sentry()
@@ -154,6 +155,8 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
         return
+    if _handle_live_control(runtime, obj):
+        return
     if obj.get("type") == "clock_pong":
         # Backend records its own receive time on arrival.
         import time
@@ -239,6 +242,13 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
         return
+    if _handle_live_control(runtime, obj):
+        from uuid import UUID, uuid4
+
+        request_id = UUID(obj["request_id"]) if "request_id" in obj else uuid4()
+        code = "live_started" if runtime.live_active else "live_stopped"
+        await _send_model(ws, Ack(request_id=request_id, accepted=True, code=code))
+        return
     if obj.get("type") == "request_capture":
         from uuid import UUID, uuid4
 
@@ -249,6 +259,19 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
             ws,
             Ack(request_id=request_id, accepted=accepted, code=code),
         )
+
+
+def _handle_live_control(runtime: AppRuntime, obj: dict) -> bool:
+    """Apply a live_start/live_stop control message; True if it was one."""
+    kind = obj.get("type")
+    if kind == "live_start":
+        rate = obj.get("rate_hz")
+        runtime.start_live(float(rate) if isinstance(rate, (int, float)) else None)
+        return True
+    if kind == "live_stop":
+        runtime.stop_live()
+        return True
+    return False
 
 
 async def _send_model(ws: WebSocket, model) -> None:

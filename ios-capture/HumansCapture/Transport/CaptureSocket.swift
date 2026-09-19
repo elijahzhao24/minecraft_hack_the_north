@@ -103,6 +103,14 @@ actor CaptureSocket {
         ))
     }
 
+    func sendLiveControl(enabled: Bool, rateHz: Double?) async throws {
+        try await sendJSON(LiveControlMessage(
+            type: enabled ? "live_start" : "live_stop",
+            protocolVersion: 1,
+            rateHz: enabled ? rateHz : nil
+        ))
+    }
+
     private func sendJSON<T: Encodable>(_ value: T) async throws {
         guard let task else { throw CaptureSocketError.notReady }
         let data = try encoder.encode(value)

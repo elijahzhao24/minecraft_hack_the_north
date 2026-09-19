@@ -116,9 +116,20 @@ final class CaptureStore: ObservableObject {
     }
 
     func toggleLive() {
-        liveEnabled.toggle()
-        captureController.setLiveEnabled(liveEnabled)
-        lastStatus = liveEnabled ? "Live recapture enabled" : "Live recapture stopped"
+        // Live frames are requested by the backend so both phones share each
+        // capture_id; a phone-side timer would produce frames that never pair.
+        let next = !liveEnabled
+        Task { [weak self] in
+            do {
+                try await self?.pipeline.setLive(next)
+                await MainActor.run {
+                    self?.liveEnabled = next
+                    self?.lastStatus = next ? "Live capture requested" : "Live capture stopped"
+                }
+            } catch {
+                await MainActor.run { self?.lastStatus = "Live toggle failed: \(error.localizedDescription)" }
+            }
+        }
     }
 
     func handleScenePhase(_ phase: ScenePhase) {

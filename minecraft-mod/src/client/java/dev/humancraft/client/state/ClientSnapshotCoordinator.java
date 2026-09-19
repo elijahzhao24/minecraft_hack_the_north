@@ -43,6 +43,8 @@ public final class ClientSnapshotCoordinator {
 	private WorldSnapshot pending;
 	private WorldSnapshot active;
 	private long activeSinceMs;
+	private boolean liveRequested;
+	private Mode lastInstalledMode;
 	/** Client ticks to wait after JOIN before the player's position is trustworthy. */
 	private static final int ANCHOR_SETTLE_TICKS = 5;
 
@@ -149,12 +151,17 @@ public final class ClientSnapshotCoordinator {
 		// origin (wherever the subject stood), so while the anchor is automatic
 		// re-place it for this frame's cloud: the figure lands in front of the
 		// player every time, not only on the capture B happened to see.
-		if (config.anchorAuto && "decoded".equals(reason)) {
+		// In live mode only the first frame is placed; re-anchoring every frame
+		// would make the figure chase the player's crosshair.
+		boolean firstLive = frame.header().mode() == Mode.LIVE && lastInstalledMode != Mode.LIVE;
+		if (config.anchorAuto && "decoded".equals(reason)
+				&& (frame.header().mode() != Mode.LIVE || firstLive)) {
 			Minecraft client = Minecraft.getInstance();
 			if (setAutomaticAnchor(client)) {
 				config.save(FabricLoader.getInstance().getConfigDir());
 			}
 		}
+		lastInstalledMode = frame.header().mode();
 		StageToWorld transform = transform();
 		WorldSnapshot next = transform.snapshot(frame);
 		InstallRequest request = new InstallRequest(frame.frameId(), frame.header().sessionId(), frame.header().calibrationId(),
@@ -267,6 +274,26 @@ public final class ClientSnapshotCoordinator {
 		} else {
 			message(Component.literal("HumanCraft: backend is not connected"));
 		}
+	}
+
+	/** Starts or stops the backend-driven live loop; frames then arrive continuously. */
+	public void toggleLive() {
+		if (backend == null) {
+			message(Component.literal("HumanCraft: backend client not ready"));
+			return;
+		}
+		boolean next = !liveRequested;
+		if (backend.setLive(next, config.liveRateHz)) {
+			liveRequested = next;
+			serverStatus = next ? "live requested" : "live stop requested";
+			message(Component.literal("HumanCraft live: " + (next ? "on" : "off")));
+		} else {
+			message(Component.literal("HumanCraft: backend is not connected"));
+		}
+	}
+
+	public boolean isLiveRequested() {
+		return liveRequested;
 	}
 
 	public void reconnect() {

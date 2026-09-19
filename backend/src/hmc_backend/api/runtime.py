@@ -9,6 +9,7 @@ here is touched on the event loop only, matching the single-worker model.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
@@ -67,6 +68,12 @@ class AppRuntime:
         self._lock = asyncio.Lock()
 
         self._devices = {dev: DeviceState(dev) for dev in settings.expected_device_ids}
+        # capture_id -> mode for requests this backend dispatched, so a frame
+        # can be tagged live/snapshot when it comes back (the RGBD header has
+        # no mode field). Bounded: live mode issues several per second.
+        self._capture_modes: OrderedDict[UUID, str] = OrderedDict()
+        self._live_task: asyncio.Task[None] | None = None
+        self._live_rate_hz: float = settings.live_rate_hz
 
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
@@ -127,11 +134,53 @@ class AppRuntime:
         if not all(s.connected and s.send_text is not None for s in self._devices.values()):
             return False, "devices_unavailable"
         req = CaptureRequest(request_id=uuid4(), capture_id=capture_id, mode=Mode(mode))
+        self._capture_modes[capture_id] = mode
+        while len(self._capture_modes) > 256:
+            self._capture_modes.popitem(last=False)
         payload = req.model_dump_json()
         for state in self._devices.values():
             assert state.send_text is not None
             await state.send_text(payload)
         return True, "capture_dispatched"
+
+    # --- live mode --------------------------------------------------------
+
+    @property
+    def live_active(self) -> bool:
+        return self._live_task is not None and not self._live_task.done()
+
+    def start_live(self, rate_hz: float | None = None) -> None:
+        """Drive both phones with live capture_requests at ``rate_hz``.
+
+        Both devices answer with the same capture_id, so pairing is unchanged
+        from snapshot mode; the phones never need to invent their own ids.
+        """
+        if rate_hz is not None and rate_hz > 0:
+            self._live_rate_hz = min(rate_hz, 30.0)
+        if self.live_active:
+            return
+        self._live_task = asyncio.create_task(self._live_loop())
+        log_event("info", "live_started", rate_hz=self._live_rate_hz)
+
+    def stop_live(self) -> None:
+        task = self._live_task
+        self._live_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            log_event("info", "live_stopped")
+
+    async def _live_loop(self) -> None:
+        try:
+            while True:
+                interval = 1.0 / self._live_rate_hz
+                if any(self._pairer.pending_depth(d) >= 4 for d in self._devices) if self._pairer else False:
+                    # A phone is falling behind; do not pile requests on top.
+                    await asyncio.sleep(interval)
+                    continue
+                await self.dispatch_capture(uuid4(), "live")
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            pass
 
     def is_expected_device(self, device_id: str) -> bool:
         return device_id in self._devices
@@ -151,6 +200,7 @@ class AppRuntime:
         env = decode_envelope(raw)
         decoded = decode_rgbd_frame(env)
         device_id = decoded.header.device_id
+        mode = self._capture_modes.get(decoded.header.capture_id, mode)
         state = self._devices.get(device_id)
         if state is None:
             return None
@@ -186,6 +236,11 @@ class AppRuntime:
             # Run the CPU-heavy stages off the event loop.
             with span("collider.fit_and_reconstruct", "detect+reconstruct+fit"):
                 character = await asyncio.to_thread(self._processor.process, pair, mode=mode)
+            if mode == "live" and character.quality.point_count == 0:
+                # Nobody in frame; publishing an empty live frame only makes
+                # the client log a decode error and blank the figure.
+                log_event("info", "live_frame_empty", capture_id=str(pair.first.capture_id))
+                return None
             with span("character.serialize", "encode CHARACTER_FRAME"):
                 encoded = await asyncio.to_thread(encode_character_frame, character)
             # Publish only after successful serialization (all-or-nothing).

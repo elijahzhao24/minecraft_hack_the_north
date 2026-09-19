@@ -88,6 +88,10 @@ actor CapturePipeline {
         Task { await drain() }
     }
 
+    func setLive(_ enabled: Bool, rateHz: Double? = nil) async throws {
+        try await socket.sendLiveControl(enabled: enabled, rateHz: rateHz)
+    }
+
     func clear() {
         epoch &+= 1
         for source in queue.removeAll() {

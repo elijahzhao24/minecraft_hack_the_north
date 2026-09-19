@@ -258,6 +258,21 @@ struct CaptureRequest: Codable, Sendable {
     }
 }
 
+/// Phone -> backend: start or stop the backend-driven live capture loop.
+/// The backend then issues `capture_request`s to every device at `rate_hz`,
+/// so both cameras answer with the same capture_id and pair as usual.
+struct LiveControlMessage: Codable, Sendable {
+    let type: String
+    let protocolVersion: Int
+    let rateHz: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion = "protocol_version"
+        case rateHz = "rate_hz"
+    }
+}
+
 struct AckMessage: Codable, Sendable {
     let type: String
     let protocolVersion: Int
