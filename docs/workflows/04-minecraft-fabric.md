@@ -25,7 +25,7 @@ Use JDK 25 and Gradle/toolchain settings from the matching official Fabric 26.2 
 2. Generate/copy the Fabric example project for Minecraft 26.2 into `minecraft-mod/`.
 3. Set mod ID `hmc`, Maven group `dev.hmc`, Java package `dev.hmc`, and environment `*` because common logical-server code and client code are both required.
 4. Keep separate `main` and `client` entrypoints in `fabric.mod.json`.
-5. Add the Sentry Java dependency only after verifying its version supports Logs; keep DSN/config external. Prefer JDK `java.net.http.WebSocket` and the JSON library already selected by the project rather than adding a second networking stack.
+5. Prefer JDK `java.net.http.WebSocket` and the JSON library already selected by the project rather than adding a second networking stack.
 6. Confirm the untouched skeleton works:
 
 ```bash
@@ -195,11 +195,9 @@ This is a query/indicator, not physical collision response.
 
 Provide bindings for reconnect, recapture request, clear, probe, toggle cloud, toggle skeleton, toggle colliders, toggle source colors, and move/reset anchor. Any anchor/scale change must reinstall and wait for ack before becoming visible/active.
 
-## Sentry
+## Diagnostics
 
-Initialize Sentry Java with release/environment, trace sampling, and Logs enabled only when DSN is configured. Instrument WebSocket decode, GPU upload CPU duration, snapshot install/ack, broad/narrow phase, block occlusion, and contact query. Never label draw submission as GPU duration unless an actual GPU timer query exists.
-
-Log one structured event per deliberate demo probe with frame ID, body part, result code, distance, and collider ID. Rate-limit connection/rejection repeats. The mod remains fully usable with no Sentry network access.
+Log one structured local event per deliberate demo probe with frame ID, body part, result code, distance, and collider ID. Rate-limit connection/rejection repeats. Track WebSocket decode, GPU upload CPU duration, snapshot install/ack, broad/narrow phase, block occlusion, and contact query. Never label draw submission as GPU duration unless an actual GPU timer query exists.
 
 ## Tests and completion gate
 

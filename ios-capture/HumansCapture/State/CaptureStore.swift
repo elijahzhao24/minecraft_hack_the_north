@@ -24,7 +24,7 @@ final class CaptureStore: ObservableObject {
     let captureController: ARCaptureController
     private let socket: CaptureSocket
     private let pipeline: CapturePipeline
-    private let telemetry = CaptureTelemetry.shared
+    private let diagnostics = CaptureEventLogger.shared
     private var wantsConnection = false
     private var reconnectAttempt = 0
     private var reconnectTask: Task<Void, Never>?
@@ -86,14 +86,14 @@ final class CaptureStore: ObservableObject {
             return
         }
         let captureID = UUID()
-        telemetry.beginCapture(captureID: captureID, mode: .snapshot, attributes: commonAttributes())
+        diagnostics.beginCapture(captureID: captureID, mode: .snapshot, attributes: commonAttributes())
         Task {
             if await captureController.requestCapture(captureID: captureID) {
                 lastStatus = "Snapshot requested"
             } else {
                 let error = PipelineError.snapshotQueueFull
-                telemetry.log(.warning, "capture.request.rejected", attributes: ["reason": error.localizedDescription])
-                telemetry.finishCapture(captureID: captureID, error: error, captureError: false)
+                diagnostics.log(.warning, "capture.request.rejected", attributes: ["reason": error.localizedDescription])
+                diagnostics.finishCapture(captureID: captureID, error: error)
                 lastStatus = error.localizedDescription
             }
         }
@@ -103,11 +103,6 @@ final class CaptureStore: ObservableObject {
         liveEnabled.toggle()
         captureController.setLiveEnabled(liveEnabled)
         lastStatus = liveEnabled ? "Live recapture enabled" : "Live recapture stopped"
-    }
-
-    func validateSentry() {
-        telemetry.captureValidationError()
-        lastStatus = telemetry.isConfigured ? "Sentry validation event emitted" : "Sentry is disabled; configure a DSN first"
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
@@ -138,20 +133,20 @@ final class CaptureStore: ObservableObject {
             sessionID = newSessionID
             lastSequence = nil
             lastStatus = "AR session running"
-            telemetry.log(.info, "capture.session.started", attributes: commonAttributes())
+            diagnostics.log(.info, "capture.session.started", attributes: commonAttributes())
             Task { await pipeline.updateDeviceID(deviceID.trimmingCharacters(in: .whitespacesAndNewlines)) }
             if wantsConnection { connectCurrentSession() }
         case .stopped:
             isRunning = false
             liveEnabled = false
-            telemetry.log(.info, "capture.session.stopped", attributes: commonAttributes())
+            diagnostics.log(.info, "capture.session.stopped", attributes: commonAttributes())
             lastStatus = "Capture stopped"
         case .unsupportedSceneDepth:
             isRunning = false
             lastStatus = "This device does not support ARKit scene depth."
-            telemetry.log(.error, "capture.scene_depth.unsupported", attributes: commonAttributes())
+            diagnostics.log(.error, "capture.scene_depth.unsupported", attributes: commonAttributes())
         case .missingDepth:
-            telemetry.log(
+            diagnostics.log(
                 .warning,
                 "capture.depth.missing",
                 attributes: commonAttributes(),
@@ -160,7 +155,7 @@ final class CaptureStore: ObservableObject {
         case .trackingChanged(let state):
             trackingState = state
             if state != .normal {
-                telemetry.log(
+                diagnostics.log(
                     .warning,
                     "capture.tracking.degraded",
                     attributes: commonAttributes().merging(["tracking_state": state.rawValue]) { _, new in new },
@@ -179,15 +174,15 @@ final class CaptureStore: ObservableObject {
             }
         case .frameReady(let source):
             if source.intent.mode == .live {
-                telemetry.beginCapture(captureID: source.intent.captureID, mode: .live, attributes: commonAttributes())
+                diagnostics.beginCapture(captureID: source.intent.captureID, mode: .live, attributes: commonAttributes())
             }
-            let acquireSpan = telemetry.startSpan(captureID: source.intent.captureID, operation: "capture.acquire")
+            let acquireSpan = diagnostics.startSpan(captureID: source.intent.captureID, operation: "capture.acquire")
             acquireSpan?.setData(value: source.sequence, key: "sequence")
             acquireSpan?.finish(status: .ok)
             Task { await pipeline.submit(source) }
         case .failed(let message):
             lastStatus = message
-            telemetry.log(.error, "capture.session.failed", attributes: ["error": message])
+            diagnostics.log(.error, "capture.session.failed", attributes: ["error": message])
         }
     }
 
@@ -199,10 +194,10 @@ final class CaptureStore: ObservableObject {
             case .ready:
                 reconnectAttempt = 0
                 lastStatus = "Backend connected"
-                telemetry.log(.info, "capture.websocket.connected", attributes: commonAttributes())
+                diagnostics.log(.info, "capture.websocket.connected", attributes: commonAttributes())
             case .failed(let message):
                 lastStatus = "Connection lost: \(message)"
-                telemetry.log(.warning, "capture.websocket.reconnect", attributes: [
+                diagnostics.log(.warning, "capture.websocket.reconnect", attributes: [
                     "device_id": deviceID,
                     "reconnect_attempt": reconnectAttempt,
                     "error": message
@@ -213,8 +208,8 @@ final class CaptureStore: ObservableObject {
             }
         case .clockPing(let ping, let receivedAt):
             let transactionID = UUID()
-            telemetry.beginCapture(captureID: transactionID, mode: .live, attributes: ["clock_probe_id": ping.requestID.uuidString.lowercased()])
-            let span = telemetry.startSpan(captureID: transactionID, operation: "capture.clock_reply")
+            diagnostics.beginCapture(captureID: transactionID, mode: .live, attributes: ["clock_probe_id": ping.requestID.uuidString.lowercased()])
+            let span = diagnostics.startSpan(captureID: transactionID, operation: "capture.clock_reply")
             Task {
                 do {
                     let sentAt = ProcessInfo.processInfo.systemUptime
@@ -225,15 +220,15 @@ final class CaptureStore: ObservableObject {
                         phoneSendTimeSeconds: sentAt
                     ))
                     span?.finish(status: .ok)
-                    telemetry.log(.debug, "capture.clock.reply", attributes: ["clock_probe_id": ping.requestID.uuidString.lowercased()])
-                    telemetry.finishCapture(captureID: transactionID)
+                    diagnostics.log(.debug, "capture.clock.reply", attributes: ["clock_probe_id": ping.requestID.uuidString.lowercased()])
+                    diagnostics.finishCapture(captureID: transactionID)
                 } catch {
                     span?.finish(status: .internalError)
-                    telemetry.finishCapture(captureID: transactionID, error: error)
+                    diagnostics.finishCapture(captureID: transactionID, error: error)
                 }
             }
         case .captureRequest(let request):
-            telemetry.beginCapture(captureID: request.captureID, mode: request.mode, attributes: commonAttributes())
+            diagnostics.beginCapture(captureID: request.captureID, mode: request.mode, attributes: commonAttributes())
             Task {
                 let accepted = await captureController.requestCapture(
                     captureID: request.captureID,
@@ -242,10 +237,9 @@ final class CaptureStore: ObservableObject {
                     notBeforePhoneTimeSeconds: request.notBeforePhoneTimeSeconds
                 )
                 if !accepted {
-                    telemetry.finishCapture(
+                    diagnostics.finishCapture(
                         captureID: request.captureID,
-                        error: PipelineError.snapshotQueueFull,
-                        captureError: false
+                        error: PipelineError.snapshotQueueFull
                     )
                 }
                 try? await socket.sendAcknowledgement(
@@ -260,7 +254,7 @@ final class CaptureStore: ObservableObject {
             lastStatus = acknowledgement.accepted ? "Backend accepted capture" : "Backend rejected capture: \(acknowledgement.code)"
         case .serverError(let error):
             lastStatus = "Backend error: \(error.code) — \(error.message)"
-            telemetry.log(.warning, "capture.backend.error", attributes: [
+            diagnostics.log(.warning, "capture.backend.error", attributes: [
                 "code": error.code,
                 "retryable": error.retryable
             ])

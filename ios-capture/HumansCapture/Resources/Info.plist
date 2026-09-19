@@ -29,16 +29,6 @@
 	<string>Capture synchronized color and LiDAR depth for the Humans in Minecraft demo.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Send RGBD capture packets to the processing laptop on your local network.</string>
-	<key>SENTRY_DSN</key>
-	<string>$(SENTRY_DSN)</string>
-	<key>SENTRY_ENVIRONMENT</key>
-	<string>$(SENTRY_ENVIRONMENT)</string>
-	<key>SENTRY_LIVE_TRACE_SAMPLE_RATE</key>
-	<string>$(SENTRY_LIVE_TRACE_SAMPLE_RATE)</string>
-	<key>SENTRY_RELEASE</key>
-	<string>$(SENTRY_RELEASE)</string>
-	<key>SENTRY_TRACES_SAMPLE_RATE</key>
-	<string>$(SENTRY_TRACES_SAMPLE_RATE)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

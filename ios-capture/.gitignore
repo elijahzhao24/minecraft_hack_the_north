@@ -1,4 +1,3 @@
-Config/Secrets.xcconfig
 .build/
 DerivedData/
 __pycache__/

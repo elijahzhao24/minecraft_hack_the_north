@@ -12,7 +12,7 @@ The authoritative DTOs are in [../contracts.md](../contracts.md). Any Swift mode
 - ARKit `ARWorldTrackingConfiguration` with `.sceneDepth`.
 - Core Image or VideoToolbox/ImageIO for correct bi-planar YCbCr-to-JPEG conversion.
 - `URLSessionWebSocketTask` for text and binary WebSocket messages.
-- `os.Logger` locally plus Sentry Cocoa 9.24.0 for Tracing, structured Logs, and error monitoring. The DSN remains optional at runtime; observability failure must never block capture.
+- `os.Logger` for local, rate-limited capture diagnostics and duration measurements.
 
 Apple documents that scene depth is populated alongside `capturedImage` on supported LiDAR devices and must be gated with `supportsFrameSemantics`. See [scene depth](https://developer.apple.com/documentation/arkit/arconfiguration/framesemantics-swift.struct/scenedepth) and Apple's [point-cloud sample](https://developer.apple.com/documentation/arkit/displaying-a-point-cloud-using-scene-depth).
 
@@ -159,4 +159,4 @@ Physical-device acceptance:
 - Repeated capture for ten minutes does not grow memory or pending sends.
 - Disconnect/reconnect never reuses the prior session's queued frames.
 
-The software target and unit-test bundle compile, but the lane is not hardware-complete if it only works with a simulator or a synthetic depth fixture. Follow `ios-capture/README.md` for device and Sentry validation.
+The software target and unit-test bundle compile, but the lane is not hardware-complete if it only works with a simulator or a synthetic depth fixture. Follow `ios-capture/README.md` for device validation.

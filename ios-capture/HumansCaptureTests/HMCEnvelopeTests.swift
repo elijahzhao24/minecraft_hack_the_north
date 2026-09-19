@@ -38,7 +38,6 @@ final class HMCEnvelopeTests: XCTestCase {
             depth: header.depth,
             rgbDepthMapping: header.rgbDepthMapping,
             arkitWorldFromCameraRowMajor: header.arkitWorldFromCameraRowMajor,
-            trace: nil,
             buffers: [BufferDescriptor(name: "rgb", encoding: "jpeg", offset: 4, length: 1, shape: nil)]
         )
         XCTAssertThrowsError(try HMCEnvelope.encode(header: header, buffers: buffers))
@@ -61,7 +60,6 @@ final class HMCEnvelopeTests: XCTestCase {
             depth: DepthMetadata(width: 1, height: 1, unit: "meter", confidenceEncoding: nil),
             rgbDepthMapping: .normalizedUncropped,
             arkitWorldFromCameraRowMajor: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-            trace: nil,
             buffers: try HMCEnvelope.descriptors(for: buffers)
         )
         let encoded = try JSONEncoder().encode(header)
@@ -88,7 +86,6 @@ final class HMCEnvelopeTests: XCTestCase {
             depth: valid.depth,
             rgbDepthMapping: valid.rgbDepthMapping,
             arkitWorldFromCameraRowMajor: valid.arkitWorldFromCameraRowMajor,
-            trace: nil,
             buffers: valid.buffers
         )
         XCTAssertThrowsError(try HMCEnvelope.encode(header: invalid, buffers: buffers))
@@ -110,7 +107,6 @@ final class HMCEnvelopeTests: XCTestCase {
             depth: DepthMetadata(width: 2, height: 2, unit: "meter", confidenceEncoding: nil),
             rgbDepthMapping: .normalizedUncropped,
             arkitWorldFromCameraRowMajor: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-            trace: nil,
             buffers: try HMCEnvelope.descriptors(for: buffers)
         )
     }

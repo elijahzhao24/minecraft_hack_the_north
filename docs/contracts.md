@@ -293,7 +293,6 @@ The backend accepts it only when both configured phones are connected, clock-rea
     "depth_crop": null
   },
   "T_arkit_world_from_camera_row_major": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.2, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-  "trace": {"sentry_trace": null, "baggage": null},
   "buffers": [
     {"name": "rgb", "encoding": "jpeg", "offset": 0, "length": 412381},
     {"name": "depth", "encoding": "float32_le", "offset": 412381, "length": 196608, "shape": [192, 256]},
@@ -311,7 +310,6 @@ Invariants:
 - Confidence has exactly `width * height` bytes. ARKit values are 0/1/2; unknown values are rejected in v1.
 - Raster orientation is locked per session. A change requires a new session and calibration.
 - The ARKit pose is diagnostic and not calibration truth.
-- `trace` is optional observability context. Its absence does not invalidate capture. When present, receivers may extract `sentry_trace` and `baggage`; they must not treat frame-ID correlation alone as a connected distributed trace.
 
 ## 5. Python internal data structures
 
@@ -395,11 +393,6 @@ class FrameQuality:
     warnings: tuple[str, ...]
 
 @dataclass(frozen=True, slots=True)
-class TraceContext:
-    sentry_trace: str | None
-    baggage: str | None
-
-@dataclass(frozen=True, slots=True)
 class CharacterFrame:
     session_id: UUID                 # backend character-stream session
     calibration_id: UUID
@@ -412,7 +405,6 @@ class CharacterFrame:
     cloud: ColoredPointCloud
     landmarks: tuple[Landmark3D, ...]
     colliders: tuple[Collider, ...]
-    trace: TraceContext
 ```
 
 Array invariants are checked at module boundaries: C-contiguous, expected rank/shape/dtype, same point count, finite XYZ, alpha 255, and arrays set read-only before publication.
@@ -444,7 +436,6 @@ Landmarks and colliders stay in the JSON header because they are small and inspe
   },
   "landmarks": [],
   "colliders": [],
-  "trace": {"sentry_trace": null, "baggage": null},
   "buffers": [
     {"name": "points", "encoding": "xyzrgba16_le", "offset": 0, "length": 614736, "shape": [38421]}
   ]

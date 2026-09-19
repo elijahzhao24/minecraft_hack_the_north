@@ -22,8 +22,8 @@ The original product and acceptance brief remains in [minecraft_human_mvp_agent_
 
 These are implementation decisions, not evidence of existing code:
 
-- iOS: Xcode 16.4, Swift 6, iOS 17+, SwiftUI, ARKit scene depth, `URLSessionWebSocketTask`, Sentry Cocoa 9.24.0, and physical LiDAR-capable iPhones.
-- Backend: Python 3.12, FastAPI, Uvicorn, Pydantic v2, NumPy, OpenCV, MediaPipe Tasks, and Sentry.
+- iOS: Xcode 16.4, Swift 6, iOS 17+, SwiftUI, ARKit scene depth, `URLSessionWebSocketTask`, and physical LiDAR-capable iPhones.
+- Backend: Python 3.12, FastAPI, Uvicorn, Pydantic v2, NumPy, OpenCV, and MediaPipe Tasks.
 - Game: Minecraft Java 26.2, Fabric Loader 0.19.5, Fabric API `0.160.0+26.2`, Fabric Loom `1.17-SNAPSHOT`, and JDK 25. Those values match the official Fabric example template checked on 2026-09-19; keep all pins together and upgrade them as one tested set.
 - Transport: versioned `HMC1` binary messages over WebSockets. Bulk images, depth, and points remain binary; small commands and results are JSON text messages.
 - Units/frame: meters in a calibrated stage frame until the Minecraft boundary; one shared transform converts every point, landmark, and collider to blocks.

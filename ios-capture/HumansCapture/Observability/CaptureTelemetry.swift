@@ -1,4 +1,3 @@
-@preconcurrency import Sentry
 import Foundation
 import os
 
@@ -6,97 +5,83 @@ enum CaptureLogLevel {
     case debug, info, warning, error
 }
 
-final class CaptureTelemetry: @unchecked Sendable {
-    static let shared = CaptureTelemetry()
+enum CaptureSpanStatus: String {
+    case ok
+    case internalError = "internal_error"
+}
 
-    private let localLogger = Logger(subsystem: "dev.hmc.HumansCapture", category: "telemetry")
+final class CaptureDiagnosticSpan: @unchecked Sendable {
+    private let operation: String
+    private let captureID: UUID
+    private let startedAt = ProcessInfo.processInfo.systemUptime
+    private let logger: Logger
     private let lock = NSLock()
-    private var transactions: [UUID: Span] = [:]
+    private var attributes: [String: Any] = [:]
+    private var finished = false
+
+    init(operation: String, captureID: UUID, logger: Logger) {
+        self.operation = operation
+        self.captureID = captureID
+        self.logger = logger
+    }
+
+    func setData(value: Any, key: String) {
+        lock.withLock { attributes[key] = value }
+    }
+
+    func finish(status: CaptureSpanStatus) {
+        let result = lock.withLock { () -> (Bool, [String: Any]) in
+            guard !finished else { return (false, [:]) }
+            finished = true
+            return (true, attributes)
+        }
+        guard result.0 else { return }
+        let durationMS = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+        logger.debug(
+            "\(self.operation, privacy: .public) capture_id=\(self.captureID.uuidString.lowercased(), privacy: .public) status=\(status.rawValue, privacy: .public) duration_ms=\(durationMS, privacy: .public) attributes=\(String(describing: result.1), privacy: .private(mask: .hash))"
+        )
+    }
+}
+
+final class CaptureEventLogger: @unchecked Sendable {
+    static let shared = CaptureEventLogger()
+
+    private let localLogger = Logger(subsystem: "dev.hmc.HumansCapture", category: "capture")
+    private let lock = NSLock()
+    private var capturesStartedAt: [UUID: TimeInterval] = [:]
     private var lastWarningAt: [String: TimeInterval] = [:]
-    private var configured = false
-    private var liveTraceSampleRate = 0.1
 
     private init() {}
 
-    static func configure(bundle: Bundle = .main, processInfo: ProcessInfo = .processInfo) {
-        let info = bundle.infoDictionary ?? [:]
-        let environment = processInfo.environment
-        let dsn = (environment["SENTRY_DSN"] ?? info["SENTRY_DSN"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let traceRateString = environment["SENTRY_TRACES_SAMPLE_RATE"]
-            ?? info["SENTRY_TRACES_SAMPLE_RATE"] as? String
-        let liveRateString = environment["SENTRY_LIVE_TRACE_SAMPLE_RATE"]
-            ?? info["SENTRY_LIVE_TRACE_SAMPLE_RATE"] as? String
-        let traceRate = Self.unitRate(traceRateString) ?? 1.0
-        let liveRate = Self.unitRate(liveRateString) ?? 0.1
-
-        shared.lock.withLock {
-            shared.liveTraceSampleRate = liveRate
-            shared.configured = !(dsn?.isEmpty ?? true)
-        }
-        guard let dsn, !dsn.isEmpty else {
-            shared.localLogger.notice("Sentry disabled because no DSN is configured")
-            return
-        }
-
-        SentrySDK.start { options in
-            options.dsn = dsn
-            options.environment = environment["SENTRY_ENVIRONMENT"]
-                ?? info["SENTRY_ENVIRONMENT"] as? String
-                ?? "development"
-            options.releaseName = environment["SENTRY_RELEASE"]
-                ?? info["SENTRY_RELEASE"] as? String
-                ?? Self.defaultRelease(bundle: bundle)
-            options.tracesSampleRate = NSNumber(value: traceRate)
-            options.enableLogs = true
-            options.enableAutoPerformanceTracing = false
-            options.enableNetworkTracking = false
-            options.sendDefaultPii = false
-            options.attachScreenshot = false
-            options.attachViewHierarchy = false
-        }
-        shared.log(.info, "capture.telemetry.started", attributes: [
-            "environment": environment["SENTRY_ENVIRONMENT"] ?? info["SENTRY_ENVIRONMENT"] as? String ?? "development",
-            "trace_sample_rate": traceRate,
-            "live_trace_sample_rate": liveRate
-        ])
-    }
-
     func beginCapture(captureID: UUID, mode: CaptureMode, attributes: [String: Any]) {
-        guard isConfigured else { return }
-        if mode == .live && Double.random(in: 0...1) > liveTraceSampleRate { return }
-        let transaction = SentrySDK.startTransaction(
-            name: mode == .snapshot ? "rgbd.snapshot" : "rgbd.live_frame",
-            operation: "capture"
-        )
-        transaction.setTag(value: mode.rawValue, key: "capture_mode")
-        transaction.setData(value: captureID.uuidString.lowercased(), key: "capture_id")
-        attributes.forEach { transaction.setData(value: $0.value, key: $0.key) }
-        lock.withLock { transactions[captureID] = transaction }
-    }
-
-    func startSpan(captureID: UUID, operation: String, description: String? = nil) -> Span? {
-        let transaction = lock.withLock { transactions[captureID] }
-        return transaction?.startChild(operation: operation, description: description)
-    }
-
-    func traceContext(captureID: UUID) -> TraceContext? {
-        guard let transaction = lock.withLock({ transactions[captureID] }) else { return nil }
-        return TraceContext(
-            sentryTrace: transaction.toTraceHeader().value(),
-            baggage: transaction.baggageHttpHeader()
+        lock.withLock { capturesStartedAt[captureID] = ProcessInfo.processInfo.systemUptime }
+        log(
+            .debug,
+            "capture.started",
+            attributes: attributes.merging([
+                "capture_id": captureID.uuidString.lowercased(),
+                "capture_mode": mode.rawValue
+            ]) { _, new in new }
         )
     }
 
-    func finishCapture(captureID: UUID, error: Error? = nil, captureError: Bool = true) {
-        guard let transaction = lock.withLock({ transactions.removeValue(forKey: captureID) }) else { return }
-        if let error {
-            transaction.setData(value: error.localizedDescription, key: "failure_reason")
-            transaction.finish(status: .internalError)
-            if captureError { SentrySDK.capture(error: error) }
-        } else {
-            transaction.finish(status: .ok)
+    func startSpan(captureID: UUID, operation: String, description: String? = nil) -> CaptureDiagnosticSpan? {
+        let span = CaptureDiagnosticSpan(operation: operation, captureID: captureID, logger: localLogger)
+        if let description { span.setData(value: description, key: "description") }
+        return span
+    }
+
+    func finishCapture(captureID: UUID, error: Error? = nil) {
+        let startedAt = lock.withLock { capturesStartedAt.removeValue(forKey: captureID) }
+        var attributes: [String: Any] = ["capture_id": captureID.uuidString.lowercased()]
+        if let startedAt {
+            attributes["duration_ms"] = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
         }
+        if let error {
+            attributes["error"] = error.localizedDescription
+        }
+        attributes["status"] = error == nil ? "ok" : "failed"
+        log(.debug, "capture.finished", attributes: attributes)
     }
 
     func log(
@@ -116,37 +101,10 @@ final class CaptureTelemetry: @unchecked Sendable {
             guard shouldEmit else { return }
         }
 
-        localLogger.log(level: level.osLogType, "\(message, privacy: .public) \(String(describing: attributes), privacy: .private(mask: .hash))")
-        guard isConfigured else { return }
-        switch level {
-        case .debug: SentrySDK.logger.debug(message, attributes: attributes)
-        case .info: SentrySDK.logger.info(message, attributes: attributes)
-        case .warning: SentrySDK.logger.warn(message, attributes: attributes)
-        case .error: SentrySDK.logger.error(message, attributes: attributes)
-        }
-    }
-
-    func captureValidationError() {
-        let error = NSError(
-            domain: "dev.hmc.HumansCapture.SentryValidation",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Deliberate non-fatal Sentry validation event"]
+        localLogger.log(
+            level: level.osLogType,
+            "\(message, privacy: .public) \(String(describing: attributes), privacy: .private(mask: .hash))"
         )
-        if isConfigured { SentrySDK.capture(error: error) }
-        log(.info, "capture.telemetry.validation_error_emitted", attributes: ["test_only": true])
-    }
-
-    var isConfigured: Bool { lock.withLock { configured } }
-
-    private static func unitRate(_ value: String?) -> Double? {
-        guard let value, let rate = Double(value), (0...1).contains(rate) else { return nil }
-        return rate
-    }
-
-    private static func defaultRelease(bundle: Bundle) -> String {
-        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-        return "dev.hmc.HumansCapture@\(version)+\(build)"
     }
 }
 

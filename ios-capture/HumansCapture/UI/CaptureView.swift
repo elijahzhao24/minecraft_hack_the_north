@@ -74,10 +74,6 @@ struct CaptureView: View {
                         metric("Sequence", store.lastSequence.map(String.init) ?? "—")
                         Text(store.lastStatus).font(.footnote)
                     }
-
-                    Section("Diagnostics") {
-                        Button("Emit safe Sentry test error") { store.validateSentry() }
-                    }
                 }
                 .frame(width: 400)
             }

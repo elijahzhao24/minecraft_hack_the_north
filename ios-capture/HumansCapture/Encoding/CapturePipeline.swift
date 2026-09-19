@@ -19,7 +19,7 @@ actor CapturePipeline {
     private let encoder: FrameEncoder
     private let socket: CaptureSocket
     private let recorder: FixtureRecorder
-    private let telemetry: CaptureTelemetry
+    private let diagnostics: CaptureEventLogger
     private var deviceID: String
     private var queue = CaptureBackpressureQueue<CapturedFrameSource>(maximumSnapshots: 2)
     private var draining = false
@@ -36,13 +36,13 @@ actor CapturePipeline {
         socket: CaptureSocket,
         encoder: FrameEncoder = FrameEncoder(),
         recorder: FixtureRecorder = FixtureRecorder(),
-        telemetry: CaptureTelemetry = .shared
+        diagnostics: CaptureEventLogger = .shared
     ) {
         self.deviceID = deviceID
         self.socket = socket
         self.encoder = encoder
         self.recorder = recorder
-        self.telemetry = telemetry
+        self.diagnostics = diagnostics
     }
 
     func setEventHandler(_ handler: @escaping @Sendable (CapturePipelineEvent) -> Void) {
@@ -56,27 +56,25 @@ actor CapturePipeline {
     func submit(_ source: CapturedFrameSource) {
         if source.intent.mode == .snapshot {
             guard case .accepted = queue.enqueueSnapshot(source) else {
-                telemetry.log(.warning, "capture.queue.snapshot_rejected", attributes: [
+                diagnostics.log(.warning, "capture.queue.snapshot_rejected", attributes: [
                     "capture_id": source.intent.captureID.uuidString.lowercased(),
                     "queue_depth": statistics.queueDepth
                 ])
                 eventHandler?(.snapshotRejected(captureID: source.intent.captureID, reason: "snapshot queue is full"))
-                telemetry.finishCapture(
+                diagnostics.finishCapture(
                     captureID: source.intent.captureID,
-                    error: PipelineError.snapshotQueueFull,
-                    captureError: false
+                    error: PipelineError.snapshotQueueFull
                 )
                 return
             }
         } else {
             if case .replacedLive(let replaced) = queue.enqueueLive(source) {
                 statistics.droppedLiveFrames &+= 1
-                telemetry.finishCapture(
+                diagnostics.finishCapture(
                     captureID: replaced.intent.captureID,
-                    error: PipelineError.supersededLiveFrame,
-                    captureError: false
+                    error: PipelineError.supersededLiveFrame
                 )
-                telemetry.log(
+                diagnostics.log(
                     .warning,
                     "capture.queue.live_frame_replaced",
                     attributes: ["dropped_frame_count": statistics.droppedLiveFrames],
@@ -93,10 +91,9 @@ actor CapturePipeline {
     func clear() {
         epoch &+= 1
         for source in queue.removeAll() {
-            telemetry.finishCapture(
+            diagnostics.finishCapture(
                 captureID: source.intent.captureID,
-                error: PipelineError.sessionEnded,
-                captureError: false
+                error: PipelineError.sessionEnded
             )
         }
         publishStatistics()
@@ -107,11 +104,11 @@ actor CapturePipeline {
             let captureID = source.intent.captureID
             let sourceEpoch = epoch
             do {
-                let queueSpan = telemetry.startSpan(captureID: captureID, operation: "capture.queue_wait")
+                let queueSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.queue_wait")
                 queueSpan?.setData(value: statistics.queueDepth, key: "queue_depth")
                 queueSpan?.finish(status: .ok)
 
-                let encodeSpan = telemetry.startSpan(captureID: captureID, operation: "capture.encode")
+                let encodeSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.encode")
                 let start = ProcessInfo.processInfo.systemUptime
                 let encoded = try encoder.encode(source: source, deviceID: deviceID)
                 let encodeDurationMS = (ProcessInfo.processInfo.systemUptime - start) * 1_000
@@ -122,7 +119,7 @@ actor CapturePipeline {
                 if source.intent.mode == .snapshot {
                     let fixture = try await recorder.save(envelope: encoded.envelope, header: encoded.header)
                     statistics.lastFixture = fixture
-                    telemetry.log(.info, "capture.fixture.saved", attributes: [
+                    diagnostics.log(.info, "capture.fixture.saved", attributes: [
                         "device_id": deviceID,
                         "session_id": source.sessionID.uuidString.lowercased(),
                         "sequence": source.sequence,
@@ -132,7 +129,7 @@ actor CapturePipeline {
                 }
                 guard sourceEpoch == epoch else { throw PipelineError.sessionEnded }
 
-                let sendSpan = telemetry.startSpan(captureID: captureID, operation: "capture.websocket_send")
+                let sendSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.websocket_send")
                 let sendStart = ProcessInfo.processInfo.systemUptime
                 do {
                     try await socket.sendFrame(encoded.envelope)
@@ -163,25 +160,24 @@ actor CapturePipeline {
                     "dropped_frame_count": statistics.droppedLiveFrames
                 ]
                 if source.intent.mode == .snapshot {
-                    telemetry.log(.info, "capture.frame.sent", attributes: frameAttributes)
+                    diagnostics.log(.info, "capture.frame.sent", attributes: frameAttributes)
                 } else {
                     liveSentSinceAggregate &+= 1
                     emitLiveAggregateIfNeeded(frameAttributes: frameAttributes)
                 }
-                telemetry.finishCapture(captureID: captureID)
+                diagnostics.finishCapture(captureID: captureID)
                 eventHandler?(.frameSent(captureID: captureID, sequence: source.sequence))
             } catch {
-                telemetry.log(.error, "capture.frame.failed", attributes: [
+                diagnostics.log(.error, "capture.frame.failed", attributes: [
                     "device_id": deviceID,
                     "session_id": source.sessionID.uuidString.lowercased(),
                     "sequence": source.sequence,
                     "capture_mode": source.intent.mode.rawValue,
                     "error": error.localizedDescription
                 ])
-                telemetry.finishCapture(
+                diagnostics.finishCapture(
                     captureID: captureID,
-                    error: error,
-                    captureError: !(error is PipelineError) && !(error is CaptureSocketError)
+                    error: error
                 )
                 eventHandler?(.failed(captureID: captureID, message: error.localizedDescription))
             }
@@ -212,7 +208,7 @@ actor CapturePipeline {
         attributes["aggregate_period_s"] = now - lastLiveAggregateTime
         attributes["frames_sent"] = liveSentSinceAggregate
         attributes["frames_dropped"] = statistics.droppedLiveFrames - liveDroppedAtLastAggregate
-        telemetry.log(.info, "capture.live.aggregate", attributes: attributes)
+        diagnostics.log(.info, "capture.live.aggregate", attributes: attributes)
         liveSentSinceAggregate = 0
         liveDroppedAtLastAggregate = statistics.droppedLiveFrames
         lastLiveAggregateTime = now

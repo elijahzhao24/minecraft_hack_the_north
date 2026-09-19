@@ -27,7 +27,7 @@ The first acceptance demo is **capture, hold, inspect, and interact**:
 
 A frozen snapshot is the first milestone, not the only input path. Keep capture streaming available for recapture and later slow live refresh. Do not spend the MVP budget on walking controls, jumping, locomotion, gesture commands, temporal prediction, or high-speed animation. Body pose can change between captures while the game anchor stays fixed.
 
-Required: real RGB/depth capture, person-only point cloud, body and hand landmarks, separate hand and foot colliders, actual hit/contact queries, and Sentry Tracing plus Logs.
+Required: real RGB/depth capture, person-only point cloud, body and hand landmarks, separate hand and foot colliders, and actual hit/contact queries.
 
 Deferred: full finger physics, grabbing players, standing on the captured person's hand, arbitrary terrain collision response, vanilla weapon/projectile compatibility, multiplayer distribution, photorealistic mesh reconstruction, and guaranteed 360-degree coverage. Two cameras still leave occluded surfaces. A missing measurement must remain unknown rather than becoming a fabricated body part.
 
@@ -45,7 +45,7 @@ LiDAR does not directly label wrists, fingers, or toes. A pose detector does not
 | 1 — iPhone capture | Swift app, RGB/depth acquisition, metadata, phone transport | Reproducible RGBD frames from both devices |
 | 2 — Calibration and reconstruction | Python ingress, shared coordinates, frame pairing, foreground cloud, output assembly | Calibrated, person-only colored cloud |
 | 3 — Landmarks and hit volumes | Pose/hand detection, segmentation mask, 3D joint fitting, collider fitting | Named 3D landmarks and confidence-aware colliders |
-| 4 — Minecraft and integration | Java client rendering, integrated-server hit tests, debug controls, Sentry integration | A human in Minecraft with working part-specific hits and contacts |
+| 4 — Minecraft and integration | Java client rendering, integrated-server hit tests, debug controls | A human in Minecraft with working part-specific hits and contacts |
 
 Proposed stack: native Swift/ARKit, Python with NumPy/OpenCV and MediaPipe Tasks, binary WebSockets, Minecraft Java with Fabric. Choose one supported Minecraft/Fabric/JDK combination and pin exact versions before coding. Use the documentation matching those versions; current Fabric examples may use different rendering APIs and mappings from older releases.
 
@@ -99,7 +99,6 @@ The completed `CharacterFrame` contains:
 - Colored points: packed XYZ float32 plus RGBA uint8, 16 bytes per point.
 - Named landmarks: position in stage meters, `valid`, observation source, and available confidence/visibility information. Use `null` for unavailable confidence; do not invent per-joint probabilities absent from the model.
 - Colliders: stable ID, body-part label, type, geometry, validity, and the same frame/calibration IDs.
-- Optional Sentry trace context for sampled frames.
 
 Collider schema supports `sphere(center, radius)`, `capsule(a, b, radius)`, and `obb(center, axes[3], half_extents)`. OBB axes must be orthonormal. An enclosing AABB may be cached for broad-phase rejection; it is not the final hit shape.
 
@@ -226,48 +225,6 @@ Concrete fitting starting points:
 
 **Acceptance:** a hand probe reports the correct hand; a foot probe reports the correct foot; a ray through a gap misses; a nearer wall blocks the hit; a turned foot's contact result matches its oriented shape; changing scale/anchor moves cloud and hit volumes together. A visible wireframe by itself does not pass.
 
-## Sentry implementation across the four workflows
-
-The supplied HTN prize brief requires **two products beyond error monitoring** and evidence that the data improved the project. Use **Tracing and Logs**. Error monitoring is additional. Logs must appear in Sentry's Logs product; breadcrumbs or console output alone are not the same integration.
-
-Workflow 4 owns the overall setup and evidence; workflows 1–3 add instrumentation at their boundaries. Prioritize Python and Java, which cover reconstruction, landmark fitting, rendering handoff, and hit queries. Add the native Apple SDK to capture encoding/session problems if time permits. This project does not need Session Replay to satisfy the stated two-product requirement.
-
-### Tracing: where time is spent
-
-Create one transaction per explicit snapshot capture, and sample a fraction of live frames. Suggested operation names:
-
-| Stage | Spans |
-|---|---|
-| Input | `capture.encode`, `frame.receive`, `frame.decode`, `frame.pair_wait` |
-| Vision | `vision.pose`, `vision.hands`, `vision.mask` |
-| Geometry | `cloud.unproject`, `cloud.transform`, `cloud.merge`, `pose.register`, `collider.fit` |
-| Output | `character.serialize`, `character.publish`, `minecraft.decode`, `minecraft.upload` |
-| Interaction | `hit.broad_phase`, `hit.narrow_phase`, `hit.block_occlusion`, `contact.query` |
-
-Do not describe CPU time submitting a draw call as GPU render time. Use a real GPU timer only if one is implemented; otherwise label CPU upload/draw-submission measurements accurately.
-
-Initialize the Python SDK with a DSN, release, environment, tracing sample rate, and structured logs enabled for the pinned SDK. Use `start_transaction`, `start_span`, and `sentry_sdk.logger` with the current documented APIs. In Java, configure `Sentry.init`, a trace sample rate, `options.getLogs().setEnabled(true)`, and `Sentry.logger()` calls. Pin versions supporting those features and verify in the Sentry UI. References: [Python custom tracing](https://docs.sentry.io/platforms/python/tracing/instrumentation/custom-instrumentation/), [Python Logs](https://docs.sentry.io/platforms/python/logs/), and [Java Logs](https://docs.sentry.io/platforms/java/logs/).
-
-WebSocket application messages do not automatically become one distributed trace. Put supported `sentry-trace` and `baggage` context in the selected snapshot's metadata, extract it at the receiving boundary, and continue it using the receiving SDK. For two input camera traces, choose one parent and retain both source frame IDs rather than fabricating two parents. Correlation by frame ID is still useful if full propagation is not finished, but label it as correlation rather than a connected trace. See [manual propagation](https://docs.sentry.io/platforms/python/tracing/distributed-tracing/custom-instrumentation/).
-
-### Logs: why geometry or interaction is wrong
-
-Use structured scalar attributes such as `session_id`, `frame_id`, `calibration_id`, `device_id`, `body_part`, `pair_skew_ms`, `clock_uncertainty_ms`, `valid_depth_fraction`, `points_in`, `points_out`, `queue_depth`, `landmark_valid`, `reprojection_error_px`, `collider_radius_m`, `frame_age_ms`, and `hit_result`.
-
-Useful events: calibration accepted/rejected, RGB/depth mapping mismatch, inconsistent hand assignment, missing foot depth, collider disabled, source frame mismatch, rejected stale frame, reconnect, and probe hit/miss. An occluded hand is normally a warning/quality event, not an exception to flood error monitoring with.
-
-Rate-limit repeated warnings and emit aggregate live-frame statistics periodically. Record every deliberate probe in the small demo. Never emit a log per point or perform synchronous network logging in capture/render loops. Log metadata and derived measurements; keep bulk RGB/depth data in the local replay fixtures rather than Sentry event payloads.
-
-### Evidence for judging
-
-Build a saved view of processing duration, dropped/rejected frames, invalid hands/feet, and calibration residuals. Preserve one real before/after case discovered during development. Good candidates include:
-
-- A trace reveals excessive JPEG/serialization time; change encoding or point count and measure again on the same capture.
-- Logs reveal hand depth occasionally came from the background; add masked neighborhood selection and show the reduction in bad hand placements on a saved validation set.
-- Frame IDs expose newer colliders being shown with an older cloud; fix snapshot publication and demonstrate that mismatches disappear.
-
-These are candidate investigations, not results to claim in advance. Save the actual trace/log evidence, relevant code change, and measured comparison. SDK installation alone is not the judging story.
-
 ## Build order and acceptance gates
 
 | Gate | Required proof |
@@ -278,7 +235,7 @@ These are candidate investigations, not results to claim in advance. Save the ac
 | 4. Minecraft snapshot | Real cloud renders with the same landmark/collider snapshot; probe hits work |
 | 5. Two-camera geometry | Independent calibration validation and a merged cloud without double limbs |
 | 6. Interaction validation | Correct hands/feet, empty-space misses, wall occlusion, and target-cube contact |
-| 7. Sponsor evidence | Tracing + Logs show a real defect or bottleneck and its measured improvement |
+| 7. Engineering evidence | Local diagnostics and saved measurements show a real defect or bottleneck and its measured improvement |
 
 Lanes should use fixtures while waiting for dependencies. A basic Minecraft renderer and analytic hit-query implementation can start at Gate 1. Do not leave all game integration until the phones are perfect.
 

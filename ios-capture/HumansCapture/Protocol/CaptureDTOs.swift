@@ -133,16 +133,6 @@ struct RGBDepthMapping: Codable, Equatable, Sendable {
     )
 }
 
-struct TraceContext: Codable, Equatable, Sendable {
-    let sentryTrace: String?
-    let baggage: String?
-
-    enum CodingKeys: String, CodingKey {
-        case sentryTrace = "sentry_trace"
-        case baggage
-    }
-}
-
 struct RGBDFrameHeader: Codable, Equatable, Sendable {
     let schema: String
     let schemaVersion: UInt16
@@ -158,7 +148,6 @@ struct RGBDFrameHeader: Codable, Equatable, Sendable {
     let depth: DepthMetadata
     let rgbDepthMapping: RGBDepthMapping
     let arkitWorldFromCameraRowMajor: [Double]
-    let trace: TraceContext?
     let buffers: [BufferDescriptor]
 
     enum CodingKeys: String, CodingKey {
@@ -175,7 +164,7 @@ struct RGBDFrameHeader: Codable, Equatable, Sendable {
         case rgb, depth
         case rgbDepthMapping = "rgb_depth_mapping"
         case arkitWorldFromCameraRowMajor = "T_arkit_world_from_camera_row_major"
-        case trace, buffers
+        case buffers
     }
 }
 

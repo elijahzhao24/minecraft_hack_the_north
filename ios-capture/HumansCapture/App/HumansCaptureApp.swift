@@ -6,7 +6,6 @@ struct HumansCaptureApp: App {
     @StateObject private var store: CaptureStore
 
     init() {
-        CaptureTelemetry.configure()
         _store = StateObject(wrappedValue: CaptureStore())
     }
 

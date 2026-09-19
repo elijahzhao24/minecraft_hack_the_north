@@ -22,7 +22,7 @@ In scope:
 - Two-camera calibration into one metric stage frame.
 - Person masking, body and hand landmarks, point-cloud reconstruction, and analytic colliders.
 - Minecraft point rendering, collider debug rendering, server-authoritative ray hits, and hand/foot contact with one full cube.
-- Sentry Tracing and structured Logs at service boundaries.
+- Local, rate-limited diagnostics at service boundaries.
 
 Out of scope for the MVP: locomotion, gestures as controls, finger physics, physical push-out, standing on the human, arbitrary voxel collision, multiplayer distribution, weapon/projectile compatibility, mesh reconstruction, and fabricated geometry for occluded surfaces.
 

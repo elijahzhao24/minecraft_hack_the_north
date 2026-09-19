@@ -10,15 +10,15 @@ struct EncodedRGBDFrame: Sendable {
 
 final class FrameEncoder: @unchecked Sendable {
     private let rgbEncoder = RGBEncoder()
-    private let telemetry: CaptureTelemetry
+    private let diagnostics: CaptureEventLogger
 
-    init(telemetry: CaptureTelemetry = .shared) {
-        self.telemetry = telemetry
+    init(diagnostics: CaptureEventLogger = .shared) {
+        self.diagnostics = diagnostics
     }
 
     func encode(source: CapturedFrameSource, deviceID: String) throws -> EncodedRGBDFrame {
         let captureID = source.intent.captureID
-        let rgbSpan = telemetry.startSpan(captureID: captureID, operation: "capture.convert_rgb")
+        let rgbSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.convert_rgb")
         let jpeg: Data
         do {
             jpeg = try rgbEncoder.encodeJPEG(source.rgbPixelBuffer)
@@ -29,7 +29,7 @@ final class FrameEncoder: @unchecked Sendable {
             throw error
         }
 
-        let copySpan = telemetry.startSpan(captureID: captureID, operation: "capture.copy_buffers")
+        let copySpan = diagnostics.startSpan(captureID: captureID, operation: "capture.copy_buffers")
         let encodedDepth: EncodedDepth
         do {
             encodedDepth = try DepthEncoder.encode(
@@ -92,11 +92,10 @@ final class FrameEncoder: @unchecked Sendable {
             ),
             rgbDepthMapping: .normalizedUncropped,
             arkitWorldFromCameraRowMajor: MatrixWireEncoding.rowMajor(source.arkitWorldFromCamera),
-            trace: telemetry.traceContext(captureID: captureID),
             buffers: descriptors
         )
 
-        let serializeSpan = telemetry.startSpan(captureID: captureID, operation: "capture.serialize")
+        let serializeSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.serialize")
         do {
             let envelope = try HMCEnvelope.encode(header: header, buffers: buffers)
             serializeSpan?.setData(value: envelope.count, key: "payload_bytes")
