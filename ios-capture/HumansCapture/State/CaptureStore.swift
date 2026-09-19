@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 @MainActor
 final class CaptureStore: ObservableObject {
@@ -22,6 +23,7 @@ final class CaptureStore: ObservableObject {
     @Published private(set) var lastFixtureURL: URL?
 
     let captureController: ARCaptureController
+    let discovery = BackendDiscovery()
     private let socket: CaptureSocket
     private let pipeline: CapturePipeline
     private let diagnostics = CaptureEventLogger.shared
@@ -30,12 +32,19 @@ final class CaptureStore: ObservableObject {
     private var reconnectTask: Task<Void, Never>?
     private var wasRunningBeforeBackground = false
 
+    private func updateIdleTimer() {
+        // Prevent screen from turning off/locking when connected to backend or actively capturing
+        UIApplication.shared.isIdleTimerDisabled = (socketState == .ready || isRunning)
+    }
+
     init() {
         let controller = ARCaptureController()
         let captureSocket = CaptureSocket()
         captureController = controller
         socket = captureSocket
         pipeline = CapturePipeline(deviceID: "front-phone", socket: captureSocket)
+
+        discovery.start()
 
         controller.eventHandler = { [weak self] event in
             Task { @MainActor [weak self] in self?.handleCaptureEvent(event) }
@@ -48,6 +57,11 @@ final class CaptureStore: ObservableObject {
                 Task { @MainActor [weak self] in self?.handlePipelineEvent(event) }
             }
         }
+    }
+
+    func selectDiscoveredBackend(_ backend: DiscoveredBackend) {
+        backendURL = backend.url.absoluteString
+        connect()
     }
 
     func start() {
@@ -65,6 +79,7 @@ final class CaptureStore: ObservableObject {
             await socket.disconnect()
             await pipeline.clear()
         }
+        updateIdleTimer()
     }
 
     func connect() {
@@ -78,6 +93,7 @@ final class CaptureStore: ObservableObject {
         wantsConnection = false
         reconnectTask?.cancel()
         Task { await socket.disconnect() }
+        updateIdleTimer()
     }
 
     func captureSnapshot() {
@@ -109,6 +125,8 @@ final class CaptureStore: ObservableObject {
         switch phase {
         case .background:
             wasRunningBeforeBackground = isRunning
+            discovery.stop()
+            UIApplication.shared.isIdleTimerDisabled = false
             if wasRunningBeforeBackground {
                 captureController.stop()
                 Task {
@@ -117,6 +135,8 @@ final class CaptureStore: ObservableObject {
                 }
             }
         case .active:
+            discovery.start()
+            updateIdleTimer()
             if wasRunningBeforeBackground || wantsConnection {
                 wasRunningBeforeBackground = false
                 captureController.start()
@@ -136,15 +156,18 @@ final class CaptureStore: ObservableObject {
             diagnostics.log(.info, "capture.session.started", attributes: commonAttributes())
             Task { await pipeline.updateDeviceID(deviceID.trimmingCharacters(in: .whitespacesAndNewlines)) }
             if wantsConnection { connectCurrentSession() }
+            updateIdleTimer()
         case .stopped:
             isRunning = false
             liveEnabled = false
             diagnostics.log(.info, "capture.session.stopped", attributes: commonAttributes())
             lastStatus = "Capture stopped"
+            updateIdleTimer()
         case .unsupportedSceneDepth:
             isRunning = false
             lastStatus = "This device does not support ARKit scene depth."
             diagnostics.log(.error, "capture.scene_depth.unsupported", attributes: commonAttributes())
+            updateIdleTimer()
         case .missingDepth:
             diagnostics.log(
                 .warning,
@@ -190,6 +213,7 @@ final class CaptureStore: ObservableObject {
         switch event {
         case .stateChanged(let state):
             socketState = state
+            updateIdleTimer()
             switch state {
             case .ready:
                 reconnectAttempt = 0
@@ -294,7 +318,7 @@ final class CaptureStore: ObservableObject {
                     sessionID: sessionID,
                     appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
                     supportsSceneDepth: ARCaptureController.supportsSceneDepth,
-                    imageOrientation: .landscapeRight
+                    imageOrientation: UIDevice.current.orientation.isLandscape ? .landscapeRight : .portrait
                 ))
             } catch {
                 await MainActor.run {

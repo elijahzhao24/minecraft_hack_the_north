@@ -21,7 +21,8 @@ final class FrameEncoder: @unchecked Sendable {
         let rgbSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.convert_rgb")
         let jpeg: Data
         do {
-            jpeg = try rgbEncoder.encodeJPEG(source.rgbPixelBuffer)
+            let quality = source.intent.mode == .live ? 0.65 : 0.85
+            jpeg = try rgbEncoder.encodeJPEG(source.rgbPixelBuffer, quality: quality)
             rgbSpan?.setData(value: jpeg.count, key: "encoded_rgb_bytes")
             rgbSpan?.finish(status: .ok)
         } catch {
@@ -76,7 +77,7 @@ final class FrameEncoder: @unchecked Sendable {
             captureID: captureID,
             sequence: source.sequence,
             captureTimestampSeconds: source.captureTimestampSeconds,
-            imageOrientation: .landscapeRight,
+            imageOrientation: .portrait,
             mirrored: false,
             trackingState: source.trackingState,
             rgb: RGBMetadata(

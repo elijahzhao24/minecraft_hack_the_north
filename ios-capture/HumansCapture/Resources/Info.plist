@@ -29,6 +29,10 @@
 	<string>Capture synchronized color and LiDAR depth for the Humans in Minecraft demo.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Send RGBD capture packets to the processing laptop on your local network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_hmc._tcp</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -43,10 +47,12 @@
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
+		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
+		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 </dict>

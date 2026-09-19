@@ -37,6 +37,33 @@ struct CaptureView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
+
+                        if !store.discovery.backends.isEmpty {
+                            ForEach(store.discovery.backends) { backend in
+                                Button {
+                                    store.selectDiscoveredBackend(backend)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "bonjour")
+                                        VStack(alignment: .leading) {
+                                            Text(backend.name).font(.subheadline.bold())
+                                            Text(backend.url.absoluteString).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text("Connect").font(.caption.bold())
+                                    }
+                                }
+                            }
+                        } else if store.discovery.isSearching {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Text("Searching for HMC backends…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
                         HStack {
                             Button(store.isRunning ? "Stop" : "Start") {
                                 store.isRunning ? store.stop() : store.start()

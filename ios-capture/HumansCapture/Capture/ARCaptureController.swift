@@ -12,7 +12,7 @@ final class ARCaptureController: NSObject, @unchecked Sendable {
     private var pendingSnapshots: [CaptureIntent] = []
     private var liveEnabled = false
     private var lastLiveCaptureTime = -Double.infinity
-    private let liveIntervalSeconds = 0.15
+    private let liveIntervalSeconds = 0.066
     private let maximumPendingRequests = 2
     private var lastTrackingState: CaptureTrackingState?
     private var lastPreviewTime = -Double.infinity
@@ -74,6 +74,9 @@ final class ARCaptureController: NSObject, @unchecked Sendable {
                 guard let self, self.pendingSnapshots.count < self.maximumPendingRequests else {
                     continuation.resume(returning: false)
                     return
+                }
+                if mode == .live {
+                    self.liveEnabled = true
                 }
                 self.pendingSnapshots.append(CaptureIntent(
                 captureID: captureID,

@@ -319,8 +319,8 @@ extension RGBDFrameHeader {
         guard captureTimestampSeconds.isFinite, captureTimestampSeconds >= 0 else {
             throw HMCEnvelopeError.invalidHeader("capture_timestamp_s is not a non-negative finite value")
         }
-        guard imageOrientation == .landscapeRight, mirrored == false else {
-            throw HMCEnvelopeError.invalidHeader("v1 capture must be unmirrored landscape_right")
+        guard (imageOrientation == .landscapeRight || imageOrientation == .portrait), mirrored == false else {
+            throw HMCEnvelopeError.invalidHeader("v1 capture must be unmirrored landscape_right or portrait")
         }
         guard (1...UInt32(HMCProtocol.maximumRasterDimension)).contains(rgb.width),
               (1...UInt32(HMCProtocol.maximumRasterDimension)).contains(rgb.height),
