@@ -1,0 +1,87 @@
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	// Loom adds the Fabric, Mojang and Maven Central repositories automatically.
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"humancraft" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Sentry (Tracing + Logs). Bundled into the mod jar via Loom's jar-in-jar.
+	implementation "io.sentry:sentry:${project.sentry_version}"
+	include "io.sentry:sentry:${project.sentry_version}"
+
+	testImplementation "org.junit.jupiter:junit-jupiter:${project.junit_version}"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+	it.options.encoding = "UTF-8"
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+test {
+	useJUnitPlatform()
+	testLogging {
+		events "passed", "skipped", "failed"
+		exceptionFormat "full"
+	}
+}
+
+// Writes the golden synthetic fixture (.hmc + decoded summary + sha256) into ../contracts/fixtures.
+tasks.register('writeFixtures', JavaExec) {
+	group = 'humancraft'
+	description = 'Regenerate the deterministic HMC1 CHARACTER_FRAME fixtures under contracts/fixtures.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'dev.humancraft.fixture.FixtureWriter'
+	args = [project.rootDir.toPath().resolve('../contracts/fixtures').toAbsolutePath().normalize().toString()]
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+	repositories {
+	}
+}
