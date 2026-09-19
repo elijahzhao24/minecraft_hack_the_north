@@ -73,11 +73,25 @@ def test_hand_obb_is_oriented_and_covers_hand(side):
 
 def test_hand_without_orientation_is_disabled():
     sk = skel.neutral_skeleton()
+    # No index MCP from either model: the transverse seed is unobservable.
     drop = {hand_name("left", "middle_mcp"), body_name("left_index"), hand_name("left", "index_mcp")}
     lms, xyz, assignment, segments, subject = _setup(sk, drop=drop)
     out = fit_hand.fit_hand("left", lms, xyz, assignment, segments, subject, CFG)
     assert isinstance(out.collider, DisabledCollider)
-    assert out.collider.reason in {"missing_wrist_or_mcp", "missing_mcp_span"}
+    assert out.collider.reason == "missing_wrist_or_mcp"
+
+
+def test_hand_orientation_falls_back_to_pose_model_seeds():
+    sk = skel.neutral_skeleton()
+    drop = {hand_name("left", n) for n in sk.hands["left"]}  # whole hand model missing
+    lms, _, _, segments, subject = _setup(sk, drop=drop, xyz=EMPTY)
+    out = fit_hand.fit_hand("left", lms, EMPTY, np.zeros(0, np.int64), segments, subject, CFG)
+    box = out.collider
+    assert isinstance(box, ObbCollider), out.report
+    assert out.report["orientation_from"] == "pose_model"
+    assert box.fit_source is FitSource.GLOBAL_DEFAULT
+    _, truth_axes = skel.hand_frame(sk, "left")
+    assert _axes_match(box.axes_array(), truth_axes, 8.0)
 
 
 def test_hand_with_orientation_but_no_fingers_uses_labelled_subject_dims():

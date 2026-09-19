@@ -21,6 +21,8 @@ Gates:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -54,20 +56,42 @@ def _weakest(*sources: FitSource) -> FitSource:
     return max(sources, key=order.index)
 
 
-def hand_axes(side: Side, lms: LandmarkMap, cfg: FitConfig) -> tuple[NDArray, str] | tuple[None, str]:
-    """Row axes for the hand box, or ``(None, reason)`` when orientation is unobserved."""
-    wrist, mcp = pos(lms, hand_name(side, "wrist")), pos(lms, hand_name(side, "middle_mcp"))
+@dataclass(frozen=True, slots=True)
+class HandSeeds:
+    wrist: NDArray
+    middle_mcp: NDArray
+    index_mcp: NDArray
+    pinky_mcp: NDArray
+    from_hand_model: bool  # False when the pose model's wrist/index/pinky supplied them
+
+
+def hand_seeds(side: Side, lms: LandmarkMap) -> HandSeeds | None:
+    """Orientation seeds from the hand model, falling back to the pose model's
+    wrist/index/pinky (middle MCP taken as the index/pinky midpoint)."""
+    wrist = pos(lms, hand_name(side, "wrist"))
+    mcp = pos(lms, hand_name(side, "middle_mcp"))
+    index = pos(lms, hand_name(side, "index_mcp"))
+    pinky = pos(lms, hand_name(side, "pinky_mcp"))
+    from_hand = mcp is not None
     if wrist is None:
         wrist = pos(lms, body_name(f"{side}_wrist"))
-    if wrist is None or mcp is None:
-        return None, "missing_wrist_or_mcp"
-    index, pinky = pos(lms, hand_name(side, "index_mcp")), pos(lms, hand_name(side, "pinky_mcp"))
     if index is None:
         index = pos(lms, body_name(f"{side}_index"))
     if pinky is None:
         pinky = pos(lms, body_name(f"{side}_pinky"))
-    if index is None or pinky is None:
-        return None, "missing_mcp_span"
+    if mcp is None and index is not None and pinky is not None:
+        mcp = (index + pinky) / 2.0
+    if wrist is None or mcp is None or index is None or pinky is None:
+        return None
+    return HandSeeds(wrist, mcp, index, pinky, from_hand)
+
+
+def hand_axes(side: Side, lms: LandmarkMap, cfg: FitConfig) -> tuple[NDArray, str] | tuple[None, str]:
+    """Row axes for the hand box, or ``(None, reason)`` when orientation is unobserved."""
+    seeds = hand_seeds(side, lms)
+    if seeds is None:
+        return None, "missing_wrist_or_mcp"
+    wrist, mcp, index, pinky = seeds.wrist, seeds.middle_mcp, seeds.index_mcp, seeds.pinky_mcp
     if np.linalg.norm(mcp - wrist) < cfg.hand_min_wrist_mcp_m:
         return None, "degenerate_wrist_mcp"
     if np.linalg.norm(index - pinky) < cfg.hand_min_mcp_span_m:
@@ -91,13 +115,12 @@ def fit_hand(
     body_part = SPEC_BY_ID[cid].body_part
     rep: dict = {}
     axes, reason = hand_axes(side, lms, cfg)
-    if axes is None:
+    seeds = hand_seeds(side, lms)
+    if axes is None or seeds is None:
         rep["reason"] = reason
         return FitOutcome(disabled(cid, reason), report=rep)
-    wrist = pos(lms, hand_name(side, "wrist"))
-    if wrist is None:
-        wrist = pos(lms, body_name(f"{side}_wrist"))
-    assert wrist is not None  # guaranteed by hand_axes
+    wrist, mcp = seeds.wrist, seeds.middle_mcp
+    rep["orientation_from"] = "hand_model" if seeds.from_hand_model else "pose_model"
 
     # Landmarks in the local frame.
     lm_pts = [p for n in HAND_LANDMARK_NAMES if (p := pos(lms, hand_name(side, n))) is not None]
@@ -110,8 +133,6 @@ def fit_hand(
     seg_idx = next((i for i, s in enumerate(segments) if s.key == cid), -1)
     mine = xyz[assignment == seg_idx] if seg_idx >= 0 and xyz.shape[0] else np.zeros((0, 3), np.float32)
     if mine.shape[0]:
-        mcp = pos(lms, hand_name(side, "middle_mcp"))
-        assert mcp is not None
         far = wrist + (mcp - wrist) * PALM_TO_HAND_LENGTH
         d, _ = point_segment_distance(mine, wrist, far)
         mine = mine[d <= cfg.hand_search_radius_m]
@@ -121,15 +142,21 @@ def fit_hand(
     support = int(surf_local.shape[0])
     rep["support"] = support
 
-    conf = landmark_conf(lms, hand_name(side, "wrist"), hand_name(side, "middle_mcp"))
+    conf_names = (
+        (hand_name(side, "wrist"), hand_name(side, "middle_mcp"))
+        if seeds.from_hand_model
+        else (body_name(f"{side}_wrist"), body_name(f"{side}_index"), body_name(f"{side}_pinky"))
+    )
+    conf = landmark_conf(lms, *conf_names)
     width_def = subject.as_subject_default("hand_width_m", side)
     thick_def = subject.as_subject_default("hand_thickness_m", side)
     updates: list[SubjectUpdate] = []
 
-    if finger_extent < cfg.hand_min_finger_extent_m and support < cfg.obb_min_support:
+    # Observed extent may come from hand landmarks or from the surface along the axis.
+    surface_extent = float(np.percentile(surf_local[:, 0], 100.0 - cfg.obb_bounds_percentile)) if support >= cfg.obb_min_support else 0.0
+    rep["surface_extent_m"] = surface_extent
+    if max(finger_extent, surface_extent) < cfg.hand_min_finger_extent_m:
         # Orientation observed, extent not: subject dimensions and palm-proportional length.
-        mcp = pos(lms, hand_name(side, "middle_mcp"))
-        assert mcp is not None
         length = float(np.linalg.norm(mcp - wrist)) * PALM_TO_HAND_LENGTH
         lo = np.array([-cfg.obb_padding_m, -width_def.value_m / 2.0, -thick_def.value_m / 2.0])
         hi = np.array([length + cfg.obb_padding_m, width_def.value_m / 2.0, thick_def.value_m / 2.0])

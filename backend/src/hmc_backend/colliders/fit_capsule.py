@@ -28,6 +28,7 @@ from hmc_backend.colliders.fit_common import (
     robust_percentile,
     source_quality,
 )
+from hmc_backend.colliders.fit_hand import hand_seeds
 from hmc_backend.colliders.geometry import point_segment_distance
 from hmc_backend.colliders.models import SPEC_BY_ID, disabled, make_capsule
 from hmc_backend.colliders.subject import DimensionEstimate, SubjectDimensions
@@ -76,8 +77,9 @@ def body_segments(lms: LandmarkMap, subject: SubjectDimensions) -> list[Segment]
     if head is not None:
         segs.append(Segment("head", head, head, subject.head_radius_m.value_m))
     for s in ("left", "right"):
-        w, mcp = pos(lms, f"hand.{s}.wrist"), pos(lms, f"hand.{s}.middle_mcp")
-        if w is not None and mcp is not None:
+        seeds = hand_seeds(s, lms)
+        if seeds is not None:
+            w, mcp = seeds.wrist, seeds.middle_mcp
             segs.append(Segment(f"hand.{s}", w, w + (mcp - w) * 2.0, subject.get("hand_width_m", s).value_m / 2.0))
         heel, toe = pos(lms, body_name(f"{s}_heel")), pos(lms, body_name(f"{s}_foot_index"))
         if heel is not None and toe is not None:
