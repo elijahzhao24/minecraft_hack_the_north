@@ -79,6 +79,24 @@ struct TransportTests {
         }
     }
 
+    @Test("Phone acknowledgement encodes the capture request join key")
+    func phoneAcknowledgementEncoding() throws {
+        let requestID = UUID(uuidString: "bd36780c-37ac-47ad-8cbc-dba00734859f")!
+        let acknowledgement = ClientAcknowledgement(
+            requestID: requestID,
+            accepted: true,
+            code: "capture_queued",
+            detail: nil
+        )
+
+        let data = try HMCJSON.encoder().encode(acknowledgement)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["type"] as? String == "ack")
+        #expect(object["request_id"] as? String == requestID.uuidString.lowercased())
+        #expect(object["accepted"] as? Bool == true)
+        #expect(object["code"] as? String == "capture_queued")
+    }
+
     private func pending(_ id: String, mode: CaptureMode) -> PendingCapture {
         PendingCapture(
             captureID: UUID(uuidString: id)!,

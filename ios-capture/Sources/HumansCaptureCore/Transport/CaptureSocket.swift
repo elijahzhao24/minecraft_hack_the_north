@@ -96,6 +96,18 @@ public actor CaptureSocket {
         return result
     }
 
+    public func acknowledge(_ acknowledgement: ClientAcknowledgement) async {
+        guard let socketTask else {
+            eventContinuation.yield(.localError("cannot acknowledge while disconnected"))
+            return
+        }
+        do {
+            try await sendJSON(acknowledgement, over: socketTask)
+        } catch {
+            await connectionFailed(error)
+        }
+    }
+
     private func openSocket() async {
         guard socketTask == nil else { return }
         transition(to: reconnectAttempt == 0 ? .connecting : .reconnecting(attempt: reconnectAttempt))

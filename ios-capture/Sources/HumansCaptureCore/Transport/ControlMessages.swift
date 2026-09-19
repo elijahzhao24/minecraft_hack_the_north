@@ -264,6 +264,39 @@ public struct Acknowledgement: Decodable, Equatable, Sendable {
     }
 }
 
+public struct ClientAcknowledgement: Encodable, Equatable, Sendable {
+    public let type = "ack"
+    public let protocolVersion = controlProtocolVersion
+    public let requestID: UUID
+    public let accepted: Bool
+    public let code: String
+    public let detail: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion = "protocol_version"
+        case requestID = "request_id"
+        case accepted, code, detail
+    }
+
+    public init(requestID: UUID, accepted: Bool, code: String, detail: String?) {
+        self.requestID = requestID
+        self.accepted = accepted
+        self.code = code
+        self.detail = detail
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(protocolVersion, forKey: .protocolVersion)
+        try container.encode(requestID.uuidString.lowercased(), forKey: .requestID)
+        try container.encode(accepted, forKey: .accepted)
+        try container.encode(code, forKey: .code)
+        try container.encodeIfPresent(detail, forKey: .detail)
+    }
+}
+
 public struct ServerErrorMessage: Decodable, Equatable, Sendable {
     public let requestID: UUID?
     public let code: String
