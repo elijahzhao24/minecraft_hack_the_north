@@ -7,13 +7,13 @@
       "filename": "pose_landmarker_full.task",
       "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
       "license": "Apache-2.0 (MediaPipe)",
-      "sha256": null
+      "sha256": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad"
     },
     "hands": {
       "filename": "hand_landmarker.task",
       "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
       "license": "Apache-2.0 (MediaPipe)",
-      "sha256": null
+      "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
     }
   }
 }

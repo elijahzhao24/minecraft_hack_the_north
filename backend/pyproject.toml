@@ -11,7 +11,11 @@ dependencies = [
     "pydantic-settings>=2.3",
     "numpy>=1.26",
     "opencv-contrib-python>=4.10",
-    "mediapipe>=0.10",
+    # Pinned: mediapipe 1.0.x macOS wheels abort inside TensorsToDetectionsCalculator
+    # ("Check failed: service_ Service is unavailable", Metal helper) for both the
+    # Pose and Hand landmarkers in IMAGE mode, CPU or GPU delegate. 0.10.14 is the
+    # newest release verified to run the pinned .task models on macOS arm64.
+    "mediapipe==0.10.14",
     "sentry-sdk>=2.0",
 ]
 
