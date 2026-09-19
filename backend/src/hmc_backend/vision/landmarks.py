@@ -166,7 +166,16 @@ def _fuse_observed(
 
     if not depth_here:
         return None
-    report["depth"] = [{"device": d.device_id, "support": d.support, "spread_m": d.spread_m, "quality": d.quality} for _, d in depth_here]
+    report["depth"] = [
+        {
+            "device": d.device_id,
+            "support": d.support,
+            "spread_m": d.spread_m,
+            "quality": d.quality,
+            "pixel_rgb": tuple(float(x) for x in d.pixel_rgb),
+        }
+        for _, d in depth_here
+    ]
     if len(depth_here) == 2:
         (ia, a), (ib, b) = depth_here
         if np.linalg.norm(np.subtract(a.position_stage_m, b.position_stage_m)) <= cfg.two_view_depth_agreement_m:
