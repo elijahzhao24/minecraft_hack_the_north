@@ -1,0 +1,134 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00100000000000000000001 /* HumansCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000001 /* HumansCaptureApp.swift */; };
+		A00100000000000000000002 /* ARCaptureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000002 /* ARCaptureController.swift */; };
+		A00100000000000000000003 /* CapturedFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000003 /* CapturedFrameSource.swift */; };
+		A00100000000000000000004 /* CaptureBackpressureQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000004 /* CaptureBackpressureQueue.swift */; };
+		A00100000000000000000005 /* CapturePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000005 /* CapturePipeline.swift */; };
+		A00100000000000000000006 /* DepthEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000006 /* DepthEncoder.swift */; };
+		A00100000000000000000007 /* FrameEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000007 /* FrameEncoder.swift */; };
+		A00100000000000000000008 /* RGBEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000008 /* RGBEncoder.swift */; };
+		A00100000000000000000009 /* CaptureTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000009 /* CaptureTelemetry.swift */; };
+		A0010000000000000000000A /* CaptureDTOs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000A /* CaptureDTOs.swift */; };
+		A0010000000000000000000B /* HMCEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000B /* HMCEnvelope.swift */; };
+		A0010000000000000000000C /* CaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000C /* CaptureStore.swift */; };
+		A0010000000000000000000D /* CaptureSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000D /* CaptureSocket.swift */; };
+		A0010000000000000000000E /* ARCameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000E /* ARCameraPreview.swift */; };
+		A0010000000000000000000F /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000F /* CaptureView.swift */; };
+		A00100000000000000000010 /* DepthPreviewRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000010 /* DepthPreviewRenderer.swift */; };
+		A00100000000000000000011 /* FixtureRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000011 /* FixtureRecorder.swift */; };
+		A00100000000000000000012 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = E00100000000000000000002 /* Sentry */; };
+		A00100000000000000000013 /* HMCEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000013 /* HMCEnvelopeTests.swift */; };
+		A00100000000000000000014 /* DepthEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000014 /* DepthEncoderTests.swift */; };
+		A00100000000000000000015 /* MatrixWireEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000015 /* MatrixWireEncodingTests.swift */; };
+		A00100000000000000000016 /* CaptureBackpressureQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000016 /* CaptureBackpressureQueueTests.swift */; };
+		A00100000000000000000017 /* ControlValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000001B /* ControlValidationTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C00100000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D00100000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D00100000000000000000002;
+			remoteInfo = HumansCapture;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		B00100000000000000000001 /* HumansCaptureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/App/HumansCaptureApp.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000002 /* ARCaptureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Capture/ARCaptureController.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000003 /* CapturedFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Capture/CapturedFrameSource.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000004 /* CaptureBackpressureQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Encoding/CaptureBackpressureQueue.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000005 /* CapturePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Encoding/CapturePipeline.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000006 /* DepthEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Encoding/DepthEncoder.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000007 /* FrameEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Encoding/FrameEncoder.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000008 /* RGBEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Encoding/RGBEncoder.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000009 /* CaptureTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Observability/CaptureTelemetry.swift; sourceTree = SOURCE_ROOT; };
+		B0010000000000000000000A /* CaptureDTOs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Protocol/CaptureDTOs.swift; sourceTree = SOURCE_ROOT; };
+		B0010000000000000000000B /* HMCEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Protocol/HMCEnvelope.swift; sourceTree = SOURCE_ROOT; };
+		B0010000000000000000000C /* CaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/State/CaptureStore.swift; sourceTree = SOURCE_ROOT; };
+		B0010000000000000000000D /* CaptureSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Transport/CaptureSocket.swift; sourceTree = SOURCE_ROOT; };
+		B0010000000000000000000E /* ARCameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/UI/ARCameraPreview.swift; sourceTree = SOURCE_ROOT; };
+		B0010000000000000000000F /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/UI/CaptureView.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000010 /* DepthPreviewRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/UI/DepthPreviewRenderer.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000011 /* FixtureRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Support/FixtureRecorder.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = HumansCapture/Resources/Info.plist; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000013 /* HMCEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCaptureTests/HMCEnvelopeTests.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000014 /* DepthEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCaptureTests/DepthEncoderTests.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000015 /* MatrixWireEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCaptureTests/MatrixWireEncodingTests.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000016 /* CaptureBackpressureQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCaptureTests/CaptureBackpressureQueueTests.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000017 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Base.xcconfig; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000018 /* Secrets.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Secrets.xcconfig.example; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000019 /* HumansCapture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HumansCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0010000000000000000001A /* HumansCaptureTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HumansCaptureTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0010000000000000000001B /* ControlValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCaptureTests/ControlValidationTests.swift; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C00200000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00100000000000000000012 /* Sentry in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
+		C00200000000000000000002 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C00300000000000000000001 = {isa = PBXGroup; children = (C00300000000000000000002 /* Sources */, C00300000000000000000003 /* Tests */, C00300000000000000000004 /* Configuration */, C00300000000000000000005 /* Products */,); sourceTree = "<group>"; };
+		C00300000000000000000002 /* Sources */ = {isa = PBXGroup; children = (B00100000000000000000001, B00100000000000000000002, B00100000000000000000003, B00100000000000000000004, B00100000000000000000005, B00100000000000000000006, B00100000000000000000007, B00100000000000000000008, B00100000000000000000009, B0010000000000000000000A, B0010000000000000000000B, B0010000000000000000000C, B0010000000000000000000D, B0010000000000000000000E, B0010000000000000000000F, B00100000000000000000010, B00100000000000000000011, B00100000000000000000012,); name = Sources; sourceTree = "<group>"; };
+		C00300000000000000000003 /* Tests */ = {isa = PBXGroup; children = (B00100000000000000000013, B00100000000000000000014, B00100000000000000000015, B00100000000000000000016, B0010000000000000000001B,); name = Tests; sourceTree = "<group>"; };
+		C00300000000000000000004 /* Configuration */ = {isa = PBXGroup; children = (B00100000000000000000017, B00100000000000000000018,); name = Configuration; sourceTree = "<group>"; };
+		C00300000000000000000005 /* Products */ = {isa = PBXGroup; children = (B00100000000000000000019, B0010000000000000000001A,); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D00100000000000000000002 /* HumansCapture */ = {isa = PBXNativeTarget; buildConfigurationList = F00100000000000000000002; buildPhases = (C00500000000000000000001, C00200000000000000000001, C00600000000000000000001,); buildRules = (); dependencies = (); name = HumansCapture; packageProductDependencies = (E00100000000000000000002 /* Sentry */,); productName = HumansCapture; productReference = B00100000000000000000019; productType = "com.apple.product-type.application"; };
+		D00100000000000000000003 /* HumansCaptureTests */ = {isa = PBXNativeTarget; buildConfigurationList = F00100000000000000000003; buildPhases = (C00500000000000000000002, C00200000000000000000002, C00600000000000000000002,); buildRules = (); dependencies = (C00700000000000000000001,); name = HumansCaptureTests; productName = HumansCaptureTests; productReference = B0010000000000000000001A; productType = "com.apple.product-type.bundle.unit-test"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D00100000000000000000001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1640; LastUpgradeCheck = 1640; TargetAttributes = {D00100000000000000000002 = {CreatedOnToolsVersion = 16.4; }; D00100000000000000000003 = {CreatedOnToolsVersion = 16.4; TestTargetID = D00100000000000000000002; }; }; }; buildConfigurationList = F00100000000000000000001; compatibilityVersion = "Xcode 16.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = C00300000000000000000001; minimizedProjectReferenceProxies = 1; packageReferences = (E00100000000000000000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,); preferredProjectObjectVersion = 77; productRefGroup = C00300000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (D00100000000000000000002, D00100000000000000000003,); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C00600000000000000000001 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		C00600000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C00500000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00100000000000000000001, A00100000000000000000002, A00100000000000000000003, A00100000000000000000004, A00100000000000000000005, A00100000000000000000006, A00100000000000000000007, A00100000000000000000008, A00100000000000000000009, A0010000000000000000000A, A0010000000000000000000B, A0010000000000000000000C, A0010000000000000000000D, A0010000000000000000000E, A0010000000000000000000F, A00100000000000000000010, A00100000000000000000011,); runOnlyForDeploymentPostprocessing = 0; };
+		C00500000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00100000000000000000013, A00100000000000000000014, A00100000000000000000015, A00100000000000000000016, A00100000000000000000017,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C00700000000000000000001 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = D00100000000000000000002 /* HumansCapture */; targetProxy = C00100000000000000000001 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		F00200000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = B00100000000000000000017; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; }; name = Debug; };
+		F00200000000000000000002 /* Release */ = {isa = XCBuildConfiguration; baseConfigurationReference = B00100000000000000000017; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 6.0; }; name = Release; };
+		F00200000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = B00100000000000000000017; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; ENABLE_TESTABILITY = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = HumansCapture/Resources/Info.plist; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = dev.hmc.HumansCapture; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_STRICT_CONCURRENCY = minimal; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		F00200000000000000000004 /* Release */ = {isa = XCBuildConfiguration; baseConfigurationReference = B00100000000000000000017; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = HumansCapture/Resources/Info.plist; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = dev.hmc.HumansCapture; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_STRICT_CONCURRENCY = minimal; TARGETED_DEVICE_FAMILY = "1,2"; VALIDATE_PRODUCT = YES; }; name = Release; };
+		F00200000000000000000005 /* Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = B00100000000000000000017; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = dev.hmc.HumansCaptureTests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_STRICT_CONCURRENCY = minimal; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HumansCapture.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HumansCapture"; }; name = Debug; };
+		F00200000000000000000006 /* Release */ = {isa = XCBuildConfiguration; baseConfigurationReference = B00100000000000000000017; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = dev.hmc.HumansCaptureTests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = minimal; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HumansCapture.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HumansCapture"; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F00100000000000000000001 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (F00200000000000000000001, F00200000000000000000002,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		F00100000000000000000002 /* Build configuration list for PBXNativeTarget "HumansCapture" */ = {isa = XCConfigurationList; buildConfigurations = (F00200000000000000000003, F00200000000000000000004,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		F00100000000000000000003 /* Build configuration list for PBXNativeTarget "HumansCaptureTests" */ = {isa = XCConfigurationList; buildConfigurations = (F00200000000000000000005, F00200000000000000000006,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E00100000000000000000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/getsentry/sentry-cocoa.git"; requirement = {kind = exactVersion; version = 9.24.0; }; };
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E00100000000000000000002 /* Sentry */ = {isa = XCSwiftPackageProductDependency; package = E00100000000000000000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */; productName = Sentry; };
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = D00100000000000000000001 /* Project object */;
+}

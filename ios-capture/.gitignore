@@ -1,0 +1,6 @@
+Config/Secrets.xcconfig
+.build/
+DerivedData/
+__pycache__/
+*.xcuserstate
+xcuserdata/

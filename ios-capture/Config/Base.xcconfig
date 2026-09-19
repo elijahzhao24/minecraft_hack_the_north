@@ -1,0 +1,7 @@
+SENTRY_DSN =
+SENTRY_ENVIRONMENT = development
+SENTRY_RELEASE = dev.hmc.HumansCapture@0.1.0+1
+SENTRY_TRACES_SAMPLE_RATE = 1.0
+SENTRY_LIVE_TRACE_SAMPLE_RATE = 0.1
+
+#include? "Secrets.xcconfig"
