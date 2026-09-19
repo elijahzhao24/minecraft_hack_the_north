@@ -65,6 +65,7 @@ class FakePhone:
         *,
         splat: int = 2,
         verbose: bool = True,
+        blank: bool = False,
     ) -> None:
         self.device_id = device_id
         self.url = url.rstrip("/") + "/ws/capture"
@@ -74,6 +75,7 @@ class FakePhone:
         self.sequence = 0
         self.splat = splat
         self.verbose = verbose
+        self.blank = blank
         self._views: dict[int, tuple] = {}
         self._ws: websockets.WebSocketClientProtocol | None = None
         self.captures_sent = 0
@@ -82,6 +84,13 @@ class FakePhone:
 
     def _view_for(self, pose_seed: int):
         """Render (and cache) this device's view of the synthetic person."""
+        if self.blank:
+            w, h = self.calib.rgb_size
+            return (
+                np.zeros((h, w, 3), np.uint8),
+                np.zeros((h, w), np.float32),
+                np.zeros((h, w), np.uint8),
+            )
         if pose_seed not in self._views:
             xyz, rgb = make_person_points(pose_seed)
             self._views[pose_seed] = project_to_view(xyz, rgb, self.calib, splat=self.splat)
@@ -301,7 +310,7 @@ async def _run(args) -> int:
     devices = tuple(d.strip() for d in args.devices.split(",") if d.strip())
     rig = _load_or_build_rig(args.calibration, devices)
 
-    phones = [FakePhone(d, args.url, rig, splat=args.splat) for d in devices]
+    phones = [FakePhone(d, args.url, rig, splat=args.splat, blank=args.blank) for d in devices]
     control = Rig(phones, skew_ms=args.skew_ms)
 
     async def on_capture_request(capture_id: UUID) -> None:
@@ -388,6 +397,7 @@ def main() -> int:
     parser.add_argument("--devices", default="front-phone,side-phone")
     parser.add_argument("--calibration", default="data/calibration.json")
     parser.add_argument("--splat", type=int, default=2, help="point splat radius when rendering")
+    parser.add_argument("--blank", action="store_true", help="send blank/empty frames (0 depth) so real phone is unpolluted")
     parser.add_argument("--once", action="store_true", help="fire one capture then exit")
     parser.add_argument("--interval", type=float, default=0.0, help="seconds between live captures")
     parser.add_argument("--linger", type=float, default=2.0, help="seconds to wait after --once")
