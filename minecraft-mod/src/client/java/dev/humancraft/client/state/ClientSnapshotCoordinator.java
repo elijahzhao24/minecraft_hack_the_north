@@ -145,6 +145,16 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	private void install(CharacterFrame frame, String reason) {
+		// Each capture's cloud sits somewhere different relative to the stage
+		// origin (wherever the subject stood), so while the anchor is automatic
+		// re-place it for this frame's cloud: the figure lands in front of the
+		// player every time, not only on the capture B happened to see.
+		if (config.anchorAuto && "decoded".equals(reason)) {
+			Minecraft client = Minecraft.getInstance();
+			if (setAutomaticAnchor(client)) {
+				config.save(FabricLoader.getInstance().getConfigDir());
+			}
+		}
 		StageToWorld transform = transform();
 		WorldSnapshot next = transform.snapshot(frame);
 		InstallRequest request = new InstallRequest(frame.frameId(), frame.header().sessionId(), frame.header().calibrationId(),
