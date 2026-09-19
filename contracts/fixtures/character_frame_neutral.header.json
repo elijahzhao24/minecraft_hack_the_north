@@ -1,0 +1,1675 @@
+{
+  "schema": "hmc.character_frame",
+  "schema_version": 1,
+  "session_id": "25b981d5-b9a6-4df5-8495-c95c5a9a65d9",
+  "calibration_id": "f766f462-d405-4c30-89f9-f626da70547b",
+  "frame_id": 42,
+  "source_frames": [
+    {
+      "device_id": "front-phone",
+      "session_id": "44487d7c-b847-49db-aa37-cf326ad76078",
+      "capture_id": "8fab0b2b-21df-36ea-9051-8baf932cbbab",
+      "sequence": 142
+    },
+    {
+      "device_id": "side-phone",
+      "session_id": "18619e93-736f-4f18-afdb-7f3ea369b7d5",
+      "capture_id": "8fab0b2b-21df-36ea-9051-8baf932cbbab",
+      "sequence": 242
+    }
+  ],
+  "normalized_capture_time_s": 61441.0,
+  "pair_skew_ms": 4.0,
+  "mode": "snapshot",
+  "quality": {
+    "valid": true,
+    "point_count": 6000,
+    "valid_landmark_count": 77,
+    "valid_collider_count": 15,
+    "warnings": [
+      "synthetic_fixture"
+    ]
+  },
+  "landmarks": [
+    {
+      "name": "body.nose",
+      "position_stage_m": [
+        0.0,
+        1.6,
+        0.13
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.814,
+      "visibility": 0.855,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.06
+    },
+    {
+      "name": "body.left_eye_inner",
+      "position_stage_m": [
+        0.02,
+        1.64,
+        0.11
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.856,
+      "visibility": 0.93,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.57
+    },
+    {
+      "name": "body.left_eye",
+      "position_stage_m": [
+        0.035,
+        1.64,
+        0.105
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.824,
+      "visibility": 0.917,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.312
+    },
+    {
+      "name": "body.left_eye_outer",
+      "position_stage_m": [
+        0.05,
+        1.64,
+        0.095
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.92,
+      "visibility": 0.86,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.168
+    },
+    {
+      "name": "body.right_eye_inner",
+      "position_stage_m": [
+        -0.02,
+        1.64,
+        0.11
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.887,
+      "visibility": 0.949,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.944
+    },
+    {
+      "name": "body.right_eye",
+      "position_stage_m": [
+        -0.035,
+        1.64,
+        0.105
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.947,
+      "visibility": 0.927,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.51
+    },
+    {
+      "name": "body.right_eye_outer",
+      "position_stage_m": [
+        -0.05,
+        1.64,
+        0.095
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.801,
+      "visibility": 0.879,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.542
+    },
+    {
+      "name": "body.left_ear",
+      "position_stage_m": [
+        0.08,
+        1.62,
+        0.02
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.864,
+      "visibility": 0.851,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.99
+    },
+    {
+      "name": "body.right_ear",
+      "position_stage_m": [
+        -0.08,
+        1.62,
+        0.02
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.837,
+      "visibility": 0.861,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.188
+    },
+    {
+      "name": "body.mouth_left",
+      "position_stage_m": [
+        0.025,
+        1.555,
+        0.11
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.918,
+      "visibility": 0.941,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.78
+    },
+    {
+      "name": "body.mouth_right",
+      "position_stage_m": [
+        -0.025,
+        1.555,
+        0.11
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.918,
+      "visibility": 0.878,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.522
+    },
+    {
+      "name": "body.left_shoulder",
+      "position_stage_m": [
+        0.19,
+        1.45,
+        0.0
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.888,
+      "visibility": 0.885,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.658
+    },
+    {
+      "name": "body.right_shoulder",
+      "position_stage_m": [
+        -0.19,
+        1.45,
+        0.0
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.818,
+      "visibility": 0.905,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.068
+    },
+    {
+      "name": "body.left_elbow",
+      "position_stage_m": [
+        0.25,
+        1.17,
+        0.02
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.898,
+      "visibility": 0.878,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.524
+    },
+    {
+      "name": "body.right_elbow",
+      "position_stage_m": [
+        -0.25,
+        1.17,
+        0.02
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.811,
+      "visibility": 0.879,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.546
+    },
+    {
+      "name": "body.left_wrist",
+      "position_stage_m": [
+        0.28,
+        0.92,
+        0.06
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.894,
+      "visibility": 0.891,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.788
+    },
+    {
+      "name": "body.right_wrist",
+      "position_stage_m": [
+        -0.28,
+        0.92,
+        0.06
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.807,
+      "visibility": 0.892,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.81
+    },
+    {
+      "name": "body.left_pinky",
+      "position_stage_m": [
+        0.2900732377632409,
+        0.8387435754431657,
+        0.09769513694370538
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.863,
+      "visibility": 0.859,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.14
+    },
+    {
+      "name": "body.right_pinky",
+      "position_stage_m": [
+        -0.2900732377632409,
+        0.8387435754431657,
+        0.09769513694370538
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.927,
+      "visibility": 0.86,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.162
+    },
+    {
+      "name": "body.left_index",
+      "position_stage_m": [
+        0.2783741301517584,
+        0.8323090662568503,
+        0.03919959888629304
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.94,
+      "visibility": 0.943,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.822
+    },
+    {
+      "name": "body.right_index",
+      "position_stage_m": [
+        -0.2783741301517584,
+        0.8323090662568503,
+        0.03919959888629304
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.853,
+      "visibility": 0.944,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.844
+    },
+    {
+      "name": "body.left_thumb",
+      "position_stage_m": [
+        0.2690935847004434,
+        0.850467915932499,
+        -0.0038070481259208228
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.872,
+      "visibility": 0.942,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.798
+    },
+    {
+      "name": "body.right_thumb",
+      "position_stage_m": [
+        -0.2690935847004434,
+        0.850467915932499,
+        -0.0038070481259208228
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.935,
+      "visibility": 0.943,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.82
+    },
+    {
+      "name": "body.left_hip",
+      "position_stage_m": [
+        0.1,
+        0.93,
+        0.0
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.883,
+      "visibility": 0.851,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.988
+    },
+    {
+      "name": "body.right_hip",
+      "position_stage_m": [
+        -0.1,
+        0.93,
+        0.0
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.856,
+      "visibility": 0.861,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.186
+    },
+    {
+      "name": "body.left_knee",
+      "position_stage_m": [
+        0.11,
+        0.5,
+        0.01
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.925,
+      "visibility": 0.944,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.836
+    },
+    {
+      "name": "body.right_knee",
+      "position_stage_m": [
+        -0.11,
+        0.5,
+        0.01
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.94,
+      "visibility": 0.886,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.678
+    },
+    {
+      "name": "body.left_ankle",
+      "position_stage_m": [
+        0.12,
+        0.09,
+        0.0
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.904,
+      "visibility": 0.89,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.756
+    },
+    {
+      "name": "body.right_ankle",
+      "position_stage_m": [
+        -0.12,
+        0.09,
+        0.0
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.817,
+      "visibility": 0.891,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.778
+    },
+    {
+      "name": "body.left_heel",
+      "position_stage_m": [
+        0.12,
+        0.03,
+        -0.05
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.922,
+      "visibility": 0.897,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.906
+    },
+    {
+      "name": "body.right_heel",
+      "position_stage_m": [
+        -0.12,
+        0.03,
+        -0.05
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.937,
+      "visibility": 0.939,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.748
+    },
+    {
+      "name": "body.left_foot_index",
+      "position_stage_m": [
+        0.13,
+        0.02,
+        0.18
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.935,
+      "visibility": 0.929,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.552
+    },
+    {
+      "name": "body.right_foot_index",
+      "position_stage_m": [
+        -0.13,
+        0.02,
+        0.18
+      ],
+      "valid": true,
+      "source": "depth_neighborhood",
+      "confidence": 0.813,
+      "visibility": 0.946,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.882
+    },
+    {
+      "name": "body.pelvis_center",
+      "position_stage_m": [
+        0.0,
+        0.95,
+        0.0
+      ],
+      "valid": true,
+      "source": "derived",
+      "confidence": 0.914,
+      "visibility": 0.871,
+      "observed_by": [],
+      "reprojection_error_px": null
+    },
+    {
+      "name": "body.head_center",
+      "position_stage_m": [
+        0.0,
+        1.62,
+        0.02
+      ],
+      "valid": true,
+      "source": "derived",
+      "confidence": 0.904,
+      "visibility": 0.895,
+      "observed_by": [],
+      "reprojection_error_px": null
+    },
+    {
+      "name": "hand.left.wrist",
+      "position_stage_m": [
+        0.28,
+        0.92,
+        0.06
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.863,
+      "visibility": 0.914,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.244
+    },
+    {
+      "name": "hand.left.thumb_cmc",
+      "position_stage_m": [
+        0.2765558688527716,
+        0.8980424997681576,
+        0.039850405854972376
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.859,
+      "visibility": 0.918,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.322
+    },
+    {
+      "name": "hand.left.thumb_mcp",
+      "position_stage_m": [
+        0.27253771584767184,
+        0.8724254161643414,
+        0.016342546019106806
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.906,
+      "visibility": 0.888,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.728
+    },
+    {
+      "name": "hand.left.thumb_ip",
+      "position_stage_m": [
+        0.2690935847004434,
+        0.850467915932499,
+        -0.0038070481259208228
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.904,
+      "visibility": 0.877,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.506
+    },
+    {
+      "name": "hand.left.thumb_tip",
+      "position_stage_m": [
+        0.26622347541108643,
+        0.8321699990726303,
+        -0.020598376580110503
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.893,
+      "visibility": 0.918,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.334
+    },
+    {
+      "name": "hand.left.index_mcp",
+      "position_stage_m": [
+        0.2783741301517584,
+        0.8323090662568503,
+        0.03919959888629304
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.942,
+      "visibility": 0.945,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.856
+    },
+    {
+      "name": "hand.left.index_pip",
+      "position_stage_m": [
+        0.2800511811348832,
+        0.7987680465943534,
+        0.042553700852542724
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.803,
+      "visibility": 0.858,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.134
+    },
+    {
+      "name": "hand.left.index_dip",
+      "position_stage_m": [
+        0.28116921512363313,
+        0.7764073668193555,
+        0.044789768830042515
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.873,
+      "visibility": 0.909,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.15
+    },
+    {
+      "name": "hand.left.index_tip",
+      "position_stage_m": [
+        0.28210091011425803,
+        0.7577734670068573,
+        0.04665315881129234
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.929,
+      "visibility": 0.875,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.462
+    },
+    {
+      "name": "hand.left.middle_mcp",
+      "position_stage_m": [
+        0.2822738326889192,
+        0.8344539026522888,
+        0.05869811157209715
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.861,
+      "visibility": 0.908,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.13
+    },
+    {
+      "name": "hand.left.middle_pip",
+      "position_stage_m": [
+        0.28406268707091903,
+        0.7986768150122922,
+        0.06227582033609681
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.872,
+      "visibility": 0.922,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.408
+    },
+    {
+      "name": "hand.left.middle_dip",
+      "position_stage_m": [
+        0.28525525665891893,
+        0.7748254232522944,
+        0.06466095951209659
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.942,
+      "visibility": 0.873,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.424
+    },
+    {
+      "name": "hand.left.middle_tip",
+      "position_stage_m": [
+        0.2862490646489188,
+        0.7549492634522963,
+        0.0666485754920964
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.848,
+      "visibility": 0.939,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.736
+    },
+    {
+      "name": "hand.left.ring_mcp",
+      "position_stage_m": [
+        0.2861735352260801,
+        0.8365987390477272,
+        0.07819662425790128
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.81,
+      "visibility": 0.875,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.468
+    },
+    {
+      "name": "hand.left.ring_pip",
+      "position_stage_m": [
+        0.2878505862092049,
+        0.8030577193852303,
+        0.08155072622415097
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.82,
+      "visibility": 0.889,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.746
+    },
+    {
+      "name": "hand.left.ring_dip",
+      "position_stage_m": [
+        0.28896862019795483,
+        0.7806970396102324,
+        0.08378679420165075
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.891,
+      "visibility": 0.94,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.762
+    },
+    {
+      "name": "hand.left.ring_tip",
+      "position_stage_m": [
+        0.2899003151885797,
+        0.7620631397977342,
+        0.08565018418290057
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.947,
+      "visibility": 0.905,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.074
+    },
+    {
+      "name": "hand.left.pinky_mcp",
+      "position_stage_m": [
+        0.2900732377632409,
+        0.8387435754431657,
+        0.09769513694370538
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.824,
+      "visibility": 0.909,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.15
+    },
+    {
+      "name": "hand.left.pinky_pip",
+      "position_stage_m": [
+        0.2914148785497408,
+        0.8119107597131682,
+        0.10037841851670513
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.834,
+      "visibility": 0.923,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.428
+    },
+    {
+      "name": "hand.left.pinky_dip",
+      "position_stage_m": [
+        0.2923093057407407,
+        0.7940222158931699,
+        0.10216727289870496
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.904,
+      "visibility": 0.874,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.444
+    },
+    {
+      "name": "hand.left.pinky_tip",
+      "position_stage_m": [
+        0.29305466173324063,
+        0.7791150960431713,
+        0.10365798488370481
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.811,
+      "visibility": 0.94,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.756
+    },
+    {
+      "name": "hand.right.wrist",
+      "position_stage_m": [
+        -0.28,
+        0.92,
+        0.06
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.94,
+      "visibility": 0.908,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.118
+    },
+    {
+      "name": "hand.right.thumb_cmc",
+      "position_stage_m": [
+        -0.2765558688527716,
+        0.8980424997681576,
+        0.039850405854972376
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.847,
+      "visibility": 0.876,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.492
+    },
+    {
+      "name": "hand.right.thumb_mcp",
+      "position_stage_m": [
+        -0.27253771584767184,
+        0.8724254161643414,
+        0.016342546019106806
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.894,
+      "visibility": 0.947,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.898
+    },
+    {
+      "name": "hand.right.thumb_ip",
+      "position_stage_m": [
+        -0.2690935847004434,
+        0.850467915932499,
+        -0.0038070481259208228
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.816,
+      "visibility": 0.869,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.344
+    },
+    {
+      "name": "hand.right.thumb_tip",
+      "position_stage_m": [
+        -0.26622347541108643,
+        0.8321699990726303,
+        -0.020598376580110503
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.881,
+      "visibility": 0.877,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.504
+    },
+    {
+      "name": "hand.right.index_mcp",
+      "position_stage_m": [
+        -0.2783741301517584,
+        0.8323090662568503,
+        0.03919959888629304
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.93,
+      "visibility": 0.938,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.73
+    },
+    {
+      "name": "hand.right.index_pip",
+      "position_stage_m": [
+        -0.2800511811348832,
+        0.7987680465943534,
+        0.042553700852542724
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.941,
+      "visibility": 0.852,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.008
+    },
+    {
+      "name": "hand.right.index_dip",
+      "position_stage_m": [
+        -0.28116921512363313,
+        0.7764073668193555,
+        0.044789768830042515
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.861,
+      "visibility": 0.903,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.024
+    },
+    {
+      "name": "hand.right.index_tip",
+      "position_stage_m": [
+        -0.28210091011425803,
+        0.7577734670068573,
+        0.04665315881129234
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.917,
+      "visibility": 0.868,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.336
+    },
+    {
+      "name": "hand.right.middle_mcp",
+      "position_stage_m": [
+        -0.2822738326889192,
+        0.8344539026522888,
+        0.05869811157209715
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.949,
+      "visibility": 0.892,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.808
+    },
+    {
+      "name": "hand.right.middle_pip",
+      "position_stage_m": [
+        -0.28406268707091903,
+        0.7986768150122922,
+        0.06227582033609681
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.809,
+      "visibility": 0.906,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.086
+    },
+    {
+      "name": "hand.right.middle_dip",
+      "position_stage_m": [
+        -0.28525525665891893,
+        0.7748254232522944,
+        0.06466095951209659
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.88,
+      "visibility": 0.857,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.102
+    },
+    {
+      "name": "hand.right.middle_tip",
+      "position_stage_m": [
+        -0.2862490646489188,
+        0.7549492634522963,
+        0.0666485754920964
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.936,
+      "visibility": 0.922,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.414
+    },
+    {
+      "name": "hand.right.ring_mcp",
+      "position_stage_m": [
+        -0.2861735352260801,
+        0.8365987390477272,
+        0.07819662425790128
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.819,
+      "visibility": 0.902,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.01
+    },
+    {
+      "name": "hand.right.ring_pip",
+      "position_stage_m": [
+        -0.2878505862092049,
+        0.8030577193852303,
+        0.08155072622415097
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.829,
+      "visibility": 0.916,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.288
+    },
+    {
+      "name": "hand.right.ring_dip",
+      "position_stage_m": [
+        -0.28896862019795483,
+        0.7806970396102324,
+        0.08378679420165075
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.899,
+      "visibility": 0.867,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.304
+    },
+    {
+      "name": "hand.right.ring_tip",
+      "position_stage_m": [
+        -0.2899003151885797,
+        0.7620631397977342,
+        0.08565018418290057
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.806,
+      "visibility": 0.933,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.616
+    },
+    {
+      "name": "hand.right.pinky_mcp",
+      "position_stage_m": [
+        -0.2900732377632409,
+        0.8387435754431657,
+        0.09769513694370538
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.864,
+      "visibility": 0.868,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.32
+    },
+    {
+      "name": "hand.right.pinky_pip",
+      "position_stage_m": [
+        -0.2914148785497408,
+        0.8119107597131682,
+        0.10037841851670513
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.875,
+      "visibility": 0.882,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.598
+    },
+    {
+      "name": "hand.right.pinky_dip",
+      "position_stage_m": [
+        -0.2923093057407407,
+        0.7940222158931699,
+        0.10216727289870496
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.945,
+      "visibility": 0.932,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 2.614
+    },
+    {
+      "name": "hand.right.pinky_tip",
+      "position_stage_m": [
+        -0.29305466173324063,
+        0.7791150960431713,
+        0.10365798488370481
+      ],
+      "valid": true,
+      "source": "triangulated",
+      "confidence": 0.851,
+      "visibility": 0.898,
+      "observed_by": [
+        "front-phone",
+        "side-phone"
+      ],
+      "reprojection_error_px": 1.926
+    }
+  ],
+  "colliders": [
+    {
+      "id": "head",
+      "body_part": "head",
+      "type": "sphere",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.91,
+      "center_stage_m": [
+        0.0,
+        1.62,
+        0.02
+      ],
+      "radius_m": 0.11
+    },
+    {
+      "id": "torso",
+      "body_part": "torso",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.88,
+      "a_stage_m": [
+        0.0,
+        1.4,
+        0.0
+      ],
+      "b_stage_m": [
+        0.0,
+        1.05,
+        0.0
+      ],
+      "radius_m": 0.16
+    },
+    {
+      "id": "pelvis",
+      "body_part": "pelvis",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.84,
+      "a_stage_m": [
+        0.1,
+        0.93,
+        0.0
+      ],
+      "b_stage_m": [
+        -0.1,
+        0.93,
+        0.0
+      ],
+      "radius_m": 0.13
+    },
+    {
+      "id": "arm.left.upper",
+      "body_part": "left_upper_arm",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.85,
+      "a_stage_m": [
+        0.19,
+        1.45,
+        0.0
+      ],
+      "b_stage_m": [
+        0.25,
+        1.17,
+        0.02
+      ],
+      "radius_m": 0.05
+    },
+    {
+      "id": "arm.left.forearm",
+      "body_part": "left_forearm",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.82,
+      "a_stage_m": [
+        0.25,
+        1.17,
+        0.02
+      ],
+      "b_stage_m": [
+        0.28,
+        0.92,
+        0.06
+      ],
+      "radius_m": 0.042
+    },
+    {
+      "id": "hand.left",
+      "body_part": "left_hand",
+      "type": "obb",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.78,
+      "center_stage_m": [
+        0.2847205879524996,
+        0.8255882409500089,
+        0.06944117590499911
+      ],
+      "axes_row_major": [
+        0.1949851268580412,
+        0.10724181977192265,
+        0.9749256342902058,
+        -0.97954666274848,
+        -0.029066666550400005,
+        0.19910666587024003,
+        0.04969039949999533,
+        -0.9938079899999066,
+        0.09938079899999067
+      ],
+      "half_extents_m": [
+        0.045,
+        0.018,
+        0.095
+      ]
+    },
+    {
+      "id": "leg.left.thigh",
+      "body_part": "left_thigh",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.86,
+      "a_stage_m": [
+        0.1,
+        0.93,
+        0.0
+      ],
+      "b_stage_m": [
+        0.11,
+        0.5,
+        0.01
+      ],
+      "radius_m": 0.08
+    },
+    {
+      "id": "leg.left.shin",
+      "body_part": "left_shin",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.83,
+      "a_stage_m": [
+        0.11,
+        0.5,
+        0.01
+      ],
+      "b_stage_m": [
+        0.12,
+        0.09,
+        0.0
+      ],
+      "radius_m": 0.055
+    },
+    {
+      "id": "foot.left",
+      "body_part": "left_foot",
+      "type": "obb",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.8,
+      "center_stage_m": [
+        0.125,
+        0.04,
+        0.06499999999999999
+      ],
+      "axes_row_major": [
+        0.9990561583550597,
+        2.168404344971009E-19,
+        -0.04343722427630699,
+        0.0018850149748540707,
+        0.9990579366726563,
+        0.043355344421643585,
+        0.04339630366027467,
+        -0.043396303660274624,
+        0.9981149841863164
+      ],
+      "half_extents_m": [
+        0.048,
+        0.045,
+        0.1302171862180291
+      ]
+    },
+    {
+      "id": "arm.right.upper",
+      "body_part": "right_upper_arm",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.85,
+      "a_stage_m": [
+        -0.19,
+        1.45,
+        0.0
+      ],
+      "b_stage_m": [
+        -0.25,
+        1.17,
+        0.02
+      ],
+      "radius_m": 0.05
+    },
+    {
+      "id": "arm.right.forearm",
+      "body_part": "right_forearm",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.82,
+      "a_stage_m": [
+        -0.25,
+        1.17,
+        0.02
+      ],
+      "b_stage_m": [
+        -0.28,
+        0.92,
+        0.06
+      ],
+      "radius_m": 0.042
+    },
+    {
+      "id": "hand.right",
+      "body_part": "right_hand",
+      "type": "obb",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.78,
+      "center_stage_m": [
+        -0.2847205879524996,
+        0.8255882409500089,
+        0.06944117590499911
+      ],
+      "axes_row_major": [
+        0.1949851268580412,
+        -0.10724181977192265,
+        -0.9749256342902058,
+        0.97954666274848,
+        -0.029066666550400005,
+        0.19910666587024003,
+        -0.04969039949999533,
+        -0.9938079899999066,
+        0.09938079899999067
+      ],
+      "half_extents_m": [
+        0.045,
+        0.018,
+        0.095
+      ]
+    },
+    {
+      "id": "leg.right.thigh",
+      "body_part": "right_thigh",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.86,
+      "a_stage_m": [
+        -0.1,
+        0.93,
+        0.0
+      ],
+      "b_stage_m": [
+        -0.11,
+        0.5,
+        0.01
+      ],
+      "radius_m": 0.08
+    },
+    {
+      "id": "leg.right.shin",
+      "body_part": "right_shin",
+      "type": "capsule",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.83,
+      "a_stage_m": [
+        -0.11,
+        0.5,
+        0.01
+      ],
+      "b_stage_m": [
+        -0.12,
+        0.09,
+        0.0
+      ],
+      "radius_m": 0.055
+    },
+    {
+      "id": "foot.right",
+      "body_part": "right_foot",
+      "type": "obb",
+      "valid": true,
+      "fit_source": "observed",
+      "quality": 0.8,
+      "center_stage_m": [
+        -0.125,
+        0.04,
+        0.06499999999999999
+      ],
+      "axes_row_major": [
+        0.9990561583550597,
+        -2.168404344971009E-19,
+        0.04343722427630699,
+        -0.0018850149748540707,
+        0.9990579366726563,
+        0.043355344421643585,
+        -0.04339630366027467,
+        -0.043396303660274624,
+        0.9981149841863164
+      ],
+      "half_extents_m": [
+        0.048,
+        0.045,
+        0.1302171862180291
+      ]
+    }
+  ],
+  "trace": {
+    "sentry_trace": null,
+    "baggage": null
+  },
+  "buffers": [
+    {
+      "name": "points",
+      "encoding": "xyzrgba16_le",
+      "offset": 0,
+      "length": 96000,
+      "shape": [
+        6000
+      ]
+    }
+  ]
+}

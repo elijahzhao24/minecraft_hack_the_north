@@ -11,6 +11,7 @@ This is true in singleplayer: Fabric's networking documentation notes that an in
 Pin this set together in `minecraft-mod/gradle.properties`:
 
 ```properties
+<<<<<<< HEAD
 minecraft_version=26.2
 loader_version=0.19.5
 loom_version=1.17-SNAPSHOT
@@ -24,6 +25,21 @@ Use JDK 25 and Gradle/toolchain settings from the matching official Fabric 26.2 
 1. Install a JDK 25 distribution and set the IDE project SDK/toolchain to it.
 2. Generate/copy the Fabric example project for Minecraft 26.2 into `minecraft-mod/`.
 3. Set mod ID `hmc`, Maven group `dev.hmc`, Java package `dev.hmc`, and environment `*` because common logical-server code and client code are both required.
+=======
+minecraft_version=1.21.1
+loader_version=0.19.5
+loom_version=1.17.21
+fabric_api_version=0.116.17+1.21.1
+```
+
+Use JDK 21 and the committed Gradle wrapper. This is the tested Workflow 4 baseline requested for HumanCraft. Fabric/Minecraft APIs change frequently; an upgrade means updating the whole set, `fabric.mod.json`, source APIs, fixtures, and this document after a clean build.
+
+## Bootstrap and run
+
+1. Install a JDK 21 distribution and set the IDE project SDK/toolchain to it.
+2. Use the committed project and Gradle wrapper under `minecraft-mod/`.
+3. The mod ID is `humancraft`, Maven group/package is `dev.humancraft`, and environment is `*` because common logical-server code and client code are both required. Fabric payload IDs retain the versioned contract's `hmc:*` namespace.
+>>>>>>> origin/main
 4. Keep separate `main` and `client` entrypoints in `fabric.mod.json`.
 5. Add the Sentry Java dependency only after verifying its version supports Logs; keep DSN/config external. Prefer JDK `java.net.http.WebSocket` and the JSON library already selected by the project rather than adding a second networking stack.
 6. Confirm the untouched skeleton works:
@@ -35,22 +51,37 @@ cd minecraft-mod
 ./gradlew build
 ```
 
+<<<<<<< HEAD
 The distributable JAR is the shortest normal JAR in `build/libs/`. For manual play, create a Minecraft 26.2 Fabric profile with compatible Loader and Fabric API, then place both the mod JAR and matching Fabric API JAR in the profile's `mods/` directory. The Gradle `runClient` task handles the development classpath automatically.
+=======
+The distributable JAR is the shortest normal JAR in `build/libs/`. For manual play, create a Minecraft 1.21.1 Fabric profile with compatible Loader and Fabric API, then place both the mod JAR and matching Fabric API JAR in the profile's `mods/` directory. The Gradle `runClient` task handles the development classpath automatically.
+>>>>>>> origin/main
 
 Suggested source layout:
 
 ```text
 src/
+<<<<<<< HEAD
 ├── main/java/dev/hmc/
 │   ├── HmcMod.java
 │   ├── config/HmcConfig.java
+=======
+├── main/java/dev/humancraft/
+│   ├── HumanCraft.java
+│   ├── config/HumanCraftConfig.java
+>>>>>>> origin/main
 │   ├── geometry/               # immutable world-space shapes and queries
 │   ├── payload/                # Fabric CustomPacketPayload records/codecs
 │   ├── server/ActiveSnapshotStore.java
 │   ├── server/ProbeService.java
 │   └── server/ContactService.java
+<<<<<<< HEAD
 ├── client/java/dev/hmc/client/
 │   ├── HmcClient.java
+=======
+├── client/java/dev/humancraft/client/
+│   ├── HumanCraftClient.java
+>>>>>>> origin/main
 │   ├── backend/CharacterWebSocket.java
 │   ├── backend/HmcDecoder.java
 │   ├── state/ClientSnapshotCoordinator.java
@@ -145,11 +176,19 @@ Do not create a block/entity per point. `PointCloudRenderer` owns one GPU vertex
 
 - Vertex: world position float32 plus RGBA8 (16 bytes if packed similarly).
 - Upload only when active frame changes, on the render thread.
+<<<<<<< HEAD
 - Draw all points in a batch using the supported Fabric 26.2 world-render event and a shader/render pipeline with normal depth testing.
 - Start with small camera-facing quads/point sprites. If point size portability is poor, instanced tiny cubes are a fallback; never issue tens of thousands of independent draw calls.
 - Release the old GPU buffer on replace/world unload.
 
 Rendering code is version-specific; implement against the [Fabric rendering guide](https://docs.fabricmc.net/develop/rendering/world) for the pinned version. Do not copy an older matrix stack/buffer builder snippet without compiling it against 26.2.
+=======
+- Draw all points in a batch using the supported Fabric 1.21.1 world-render event and a shader/render pipeline with normal depth testing.
+- Start with small camera-facing quads/point sprites. If point size portability is poor, instanced tiny cubes are a fallback; never issue tens of thousands of independent draw calls.
+- Release the old GPU buffer on replace/world unload.
+
+Rendering code is version-specific; implement against the [Fabric rendering guide](https://docs.fabricmc.net/develop/rendering/world) and compile it against the pinned 1.21.1 dependencies.
+>>>>>>> origin/main
 
 ### Debug geometry
 

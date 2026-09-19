@@ -1,0 +1,29 @@
+{
+	"schemaVersion": 1,
+	"id": "humancraft",
+	"version": "${version}",
+	"name": "HumanCraft",
+	"description": "Places a captured real person into Minecraft as a colored point cloud with server-authoritative body-part hit volumes.",
+	"authors": [
+		"Hack the North 2026 team"
+	],
+	"contact": {
+		"sources": "https://github.com/elijahzhao24/minecraft_hack_the_north"
+	},
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.humancraft.HumanCraft"
+		],
+		"client": [
+			"dev.humancraft.client.HumanCraftClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

@@ -1,12 +1,20 @@
 # End-to-end build and demo runbook
 
+<<<<<<< HEAD
 This runbook joins the four workflow documents. Commands referencing `backend/`, `minecraft-mod/`, or `ios-capture/` become runnable only after those projects are implemented; the current repository is documentation-only.
+=======
+This runbook joins the four workflow documents. Workflow 4 is implemented under `minecraft-mod/`; other commands become runnable as their owning workflows land.
+>>>>>>> origin/main
 
 ## 1. One-time prerequisites
 
 - Mac/Xcode and two physical LiDAR-capable iPhones for the hardware gate.
 - Python 3.12 and `uv` on the processing laptop.
+<<<<<<< HEAD
 - JDK 25 for Minecraft 26.2/Fabric 26.2 development.
+=======
+- JDK 21 for Minecraft 1.21.1/Fabric development.
+>>>>>>> origin/main
 - Printed, measured ChArUco board; tape/marks for the stage origin and phone tripods.
 - Minecraft Java Edition account/profile and a test world.
 - All devices on a trusted local network that permits device-to-laptop connections.
