@@ -325,13 +325,16 @@ public final class SyntheticHuman {
 		return Obb.fromForwardAndUp(center, f, rig.palmNormal.get(side), new Vector3(0.045, 0.018, 0.095));
 	}
 
-	/** Shoe-sized box from heel to toe, oriented along the observed foot direction. */
+	/**
+	 * Shoe-sized box from heel to toe, oriented along the observed foot direction. The sole sits ~5 mm below
+	 * the heel/toe landmark line so a planted foot actually meets the floor it is standing on.
+	 */
 	static Obb footBox(Rig rig, String side) {
 		Vector3 heel = rig.j(side + "_heel");
 		Vector3 toe = rig.j(side + "_foot_index");
 		Vector3 forward = toe.sub(heel);
 		Vector3 up = rig.footUp.get(side);
-		Vector3 center = heel.lerp(toe, 0.5).add(up.scale(0.03));
+		Vector3 center = heel.lerp(toe, 0.5).add(up.scale(0.015));
 		double halfLength = forward.length() / 2 + 0.015;
 		return Obb.fromForwardAndUp(center, forward, up, new Vector3(0.048, 0.045, halfLength));
 	}
