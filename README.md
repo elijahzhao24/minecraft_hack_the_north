@@ -4,7 +4,7 @@ Capture a real person with two LiDAR iPhones, reconstruct a colored 3D snapshot,
 
 ## Repository status
 
-This repository is currently an **implementation specification**, not a runnable application. It does not yet contain the Xcode app, Python service, Fabric mod, model assets, calibration, or fixtures. The documents below define the code that should be created and the contracts each implementation must satisfy.
+Workflow 1 now includes a runnable Xcode project under [`ios-capture/`](ios-capture/README.md). The Python service, Fabric mod, model assets, physical calibration, and real-device fixtures are not yet present. The documents below define the shared contracts and the remaining implementation lanes.
 
 The original product and acceptance brief remains in [minecraft_human_mvp_agent_brief.md](minecraft_human_mvp_agent_brief.md). Start implementation from the narrower documents in `docs/`:
 
@@ -22,7 +22,7 @@ The original product and acceptance brief remains in [minecraft_human_mvp_agent_
 
 These are implementation decisions, not evidence of existing code:
 
-- iOS: Swift 6, SwiftUI, ARKit scene depth, `URLSessionWebSocketTask`, physical LiDAR-capable iPhones.
+- iOS: Xcode 16.4, Swift 6, iOS 17+, SwiftUI, ARKit scene depth, `URLSessionWebSocketTask`, Sentry Cocoa 9.24.0, and physical LiDAR-capable iPhones.
 - Backend: Python 3.12, FastAPI, Uvicorn, Pydantic v2, NumPy, OpenCV, MediaPipe Tasks, and Sentry.
 - Game: Minecraft Java 26.2, Fabric Loader 0.19.5, Fabric API `0.160.0+26.2`, Fabric Loom `1.17-SNAPSHOT`, and JDK 25. Those values match the official Fabric example template checked on 2026-09-19; keep all pins together and upgrade them as one tested set.
 - Transport: versioned `HMC1` binary messages over WebSockets. Bulk images, depth, and points remain binary; small commands and results are JSON text messages.

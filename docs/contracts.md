@@ -274,6 +274,7 @@ The backend accepts it only when both configured phones are connected, clock-rea
   "sequence": 184,
   "capture_timestamp_s": 9922.107184,
   "image_orientation": "landscape_right",
+  "mirrored": false,
   "tracking_state": "normal",
   "rgb": {
     "width": 1920,
@@ -286,7 +287,13 @@ The backend accepts it only when both configured phones are connected, clock-rea
     "unit": "meter",
     "confidence_encoding": "arkit_0_1_2"
   },
+  "rgb_depth_mapping": {
+    "method": "normalized_uncropped_scale",
+    "rgb_crop": null,
+    "depth_crop": null
+  },
   "T_arkit_world_from_camera_row_major": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.2, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+  "trace": {"sentry_trace": null, "baggage": null},
   "buffers": [
     {"name": "rgb", "encoding": "jpeg", "offset": 0, "length": 412381},
     {"name": "depth", "encoding": "float32_le", "offset": 412381, "length": 196608, "shape": [192, 256]},
@@ -298,11 +305,13 @@ The backend accepts it only when both configured phones are connected, clock-rea
 Invariants:
 
 - RGB JPEG decodes to the stated RGB width/height and has no relied-upon EXIF rotation.
+- `mirrored` is `false` for the locked v1 capture path. `rgb_depth_mapping.method` is `normalized_uncropped_scale`: both rasters are uncropped/unmirrored and corresponding coordinates are related by normalized raster position. Any later crop/rotation requires a new versioned mapping method.
 - Intrinsics describe that transmitted RGB raster after any resize.
 - Depth has exactly `width * height * 4` bytes and positive finite values for valid samples. Invalid samples are `NaN` in memory but are normalized to `0.0` on the wire and rejected by confidence/mask; consumers must not unproject zero.
 - Confidence has exactly `width * height` bytes. ARKit values are 0/1/2; unknown values are rejected in v1.
 - Raster orientation is locked per session. A change requires a new session and calibration.
 - The ARKit pose is diagnostic and not calibration truth.
+- `trace` is optional observability context. Its absence does not invalidate capture. When present, receivers may extract `sentry_trace` and `baggage`; they must not treat frame-ID correlation alone as a connected distributed trace.
 
 ## 5. Python internal data structures
 
