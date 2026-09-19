@@ -13,9 +13,9 @@ from typing import Protocol
 from hmc_backend.contracts.internal import (
     CameraCalibration,
     CapturedFrame,
+    CaptureGroup,
     ColoredPointCloud,
     FittedCharacter,
-    PairedFrames,
     ViewDetection,
 )
 
@@ -42,7 +42,7 @@ class CharacterFitter(Protocol):
 
     def fit_character(
         self,
-        pair: PairedFrames,
+        group: CaptureGroup,
         detections: dict[str, ViewDetection],
         cloud: ColoredPointCloud,
         calibration: CameraCalibration,

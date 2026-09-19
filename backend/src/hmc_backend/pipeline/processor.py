@@ -1,6 +1,6 @@
-"""CharacterProcessor: run the CPU-heavy stages for one paired capture.
+"""CharacterProcessor: run the CPU-heavy stages for one capture group.
 
-``process(pair)`` runs detect -> reconstruct -> fit -> assemble synchronously.
+``process(group)`` runs detect -> reconstruct -> fit -> assemble synchronously.
 In the live backend this executes on one dedicated worker thread (MediaPipe
 objects are created and used only there); the async event loop never calls
 OpenCV/MediaPipe directly. Here the stages are injected as protocol objects so a
@@ -12,7 +12,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from hmc_backend.calibration.model import RigCalibration
-from hmc_backend.contracts.internal import CharacterFrame, PairedFrames, TraceContext
+from hmc_backend.contracts.internal import CaptureGroup, CharacterFrame, TraceContext
 from hmc_backend.pipeline.assembler import FrameAssembler
 from hmc_backend.reconstruction.reconstruct import CropBounds, merge_clouds, reconstruct_view
 from hmc_backend.vision.protocols import CharacterFitter, ViewDetector
@@ -46,15 +46,13 @@ class CharacterProcessor:
         self._live_voxel_size_m = live_voxel_size_m or voxel_size_m
         self._live_max_points = live_max_points or max_points
 
-    def process(self, pair: PairedFrames, *, mode: str = "snapshot") -> CharacterFrame:
+    def process(self, group: CaptureGroup, *, mode: str = "snapshot") -> CharacterFrame:
         """Run all stages and return one validated CharacterFrame."""
-        frames = {pair.first.device_id: pair.first, pair.second.device_id: pair.second}
-
         detections = {}
         clouds = []
         source_bit = 1
-        for device_id in (pair.first.device_id, pair.second.device_id):
-            frame = frames[device_id]
+        for frame in group.frames:
+            device_id = frame.device_id
             calib = self._calibration.camera(device_id)
             detection = self._detector.detect_view(frame)
             detections[device_id] = detection
@@ -69,7 +67,7 @@ class CharacterProcessor:
             clouds.append(cloud)
             source_bit <<= 1
 
-        seed = _seed_from_pair(pair)
+        seed = _seed_from_group(group)
         is_live = mode == "live"
         merged = merge_clouds(
             clouds,
@@ -79,17 +77,19 @@ class CharacterProcessor:
         )
 
         # Fit against the front camera's calibration (registration reference).
-        front_calib = self._calibration.camera(pair.first.device_id)
-        fitted = self._fitter.fit_character(pair, detections, merged, front_calib)
+        front_calib = self._calibration.camera(group.first.device_id)
+        fitted = self._fitter.fit_character(group, detections, merged, front_calib)
 
-        warnings = ()
+        warnings: tuple[str, ...] = ()
         if merged.count == 0:
             warnings = ("empty_cloud",)
         if is_live and not fitted.landmarks and not fitted.colliders:
             warnings += ("landmarks_and_colliders_not_implemented",)
+        if len(group.frames) == 1:
+            warnings += ("single_view",)
 
         return self._assembler.assemble(
-            pair,
+            group,
             merged,
             fitted,
             mode=mode,
@@ -104,9 +104,12 @@ class CharacterProcessor:
             close()
 
 
-def _seed_from_pair(pair: PairedFrames) -> int:
+def _seed_from_group(group: CaptureGroup) -> int:
     """Derive a deterministic subsample seed from the source frame IDs."""
-    return (int(pair.first.sequence) << 16) ^ int(pair.second.sequence) ^ _uuid_low(pair.pair_id)
+    seed = _uuid_low(group.group_id)
+    for index, frame in enumerate(group.frames):
+        seed ^= int(frame.sequence) << (index * 8)
+    return seed
 
 
 def _uuid_low(u: UUID) -> int:

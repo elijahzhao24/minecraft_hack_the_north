@@ -1,10 +1,9 @@
-"""Pair frames from the two devices within the skew budget.
+"""Collect one- or two-device frames into coordinated capture groups.
 
 Each device has a bounded deque of recently received, clock-normalized frames.
-When a new frame arrives, the pairer looks for the closest-in-time frame from
-the *other* device (sharing the same ``capture_id`` for explicit snapshots). If
-their normalized-time skew is within budget a single ``PairedFrames`` is emitted
-and both frames are consumed; a consumed frame is never reused.
+For a one-device request the frame is emitted immediately. For two devices the
+collector finds the closest matching frame from the other device and enforces
+the normalized-time skew budget. A consumed frame is never reused.
 """
 
 from __future__ import annotations
@@ -13,45 +12,46 @@ from collections import deque
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-from hmc_backend.contracts.internal import CapturedFrame, PairedFrames
+from hmc_backend.contracts.internal import CapturedFrame, CaptureGroup
 
 
 @dataclass(frozen=True, slots=True)
 class PairOutcome:
     """Result of offering one frame to the pairer."""
 
-    paired: PairedFrames | None
+    paired: CaptureGroup | None
     rejected_reason: str | None = None
 
 
 class Pairer:
-    """Two-device frame pairer. Owned by the event loop; not thread-safe."""
+    """One- or two-device frame collector. Owned by the event loop."""
 
     def __init__(
         self,
-        device_ids: tuple[str, str],
+        device_ids: tuple[str, ...],
         *,
         pair_skew_limit_ms: float,
         clock_uncertainty_limit_ms: float,
         require_capture_id: bool = True,
         window: int = 8,
     ) -> None:
-        if len(device_ids) != 2 or device_ids[0] == device_ids[1]:
-            raise ValueError("Pairer requires two distinct device IDs")
+        if not 1 <= len(device_ids) <= 2 or len(set(device_ids)) != len(device_ids):
+            raise ValueError("Pairer requires one or two distinct device IDs")
         self._device_ids = device_ids
         self._skew_limit_ms = pair_skew_limit_ms
         self._uncertainty_limit_ms = clock_uncertainty_limit_ms
         self._require_capture_id = require_capture_id
         self._queues: dict[str, deque[CapturedFrame]] = {
-            device_ids[0]: deque(maxlen=window),
-            device_ids[1]: deque(maxlen=window),
+            device_id: deque(maxlen=window) for device_id in device_ids
         }
 
-    def _other(self, device_id: str) -> str:
-        a, b = self._device_ids
-        return b if device_id == a else a
-
-    def offer(self, frame: CapturedFrame, calibration_id: UUID) -> PairOutcome:
+    def offer(
+        self,
+        frame: CapturedFrame,
+        calibration_id: UUID,
+        *,
+        required_device_ids: tuple[str, ...] | None = None,
+    ) -> PairOutcome:
         """Offer a clock-normalized frame; maybe emit a pair.
 
         ``calibration_id`` is the active rig calibration; it is stamped on the
@@ -62,7 +62,19 @@ class Pairer:
         if frame.clock_uncertainty_ms > self._uncertainty_limit_ms:
             return PairOutcome(None, "clock_uncertainty_exceeded")
 
-        other_id = self._other(frame.device_id)
+        required = required_device_ids or self._device_ids
+        if (
+            not 1 <= len(required) <= 2
+            or len(set(required)) != len(required)
+            or any(device_id not in self._queues for device_id in required)
+        ):
+            return PairOutcome(None, "invalid_capture_devices")
+        if frame.device_id not in required:
+            return PairOutcome(None, "unexpected_capture_device")
+        if len(required) == 1:
+            return PairOutcome(self._build_group((frame,), calibration_id), None)
+
+        other_id = next(device_id for device_id in required if device_id != frame.device_id)
         candidates = self._queues[other_id]
 
         best: CapturedFrame | None = None
@@ -77,34 +89,26 @@ class Pairer:
 
         if best is not None and best_skew_ms <= self._skew_limit_ms:
             candidates.remove(best)
-            pair = self._build_pair(frame, best, best_skew_ms, calibration_id)
-            return PairOutcome(pair, None)
+            ordered = tuple(
+                candidate
+                for device_id in self._device_ids
+                for candidate in (frame, best)
+                if candidate.device_id == device_id
+            )
+            return PairOutcome(self._build_group(ordered, calibration_id), None)
 
         # No acceptable partner yet: retain this frame in its own queue.
         self._queues[frame.device_id].append(frame)
         reason = "pair_skew_exceeded" if best is not None else None
         return PairOutcome(None, reason)
 
-    def _build_pair(
-        self,
-        arriving: CapturedFrame,
-        partner: CapturedFrame,
-        skew_ms: float,
-        calibration_id: UUID,
-    ) -> PairedFrames:
-        # Order deterministically by configured device order (front first).
-        first_id = self._device_ids[0]
-        if arriving.device_id == first_id:
-            first, second = arriving, partner
-        else:
-            first, second = partner, arriving
-        midpoint = (first.normalized_capture_time_s + second.normalized_capture_time_s) / 2.0
-        return PairedFrames(
-            pair_id=uuid4(),
-            first=first,
-            second=second,
-            normalized_capture_time_s=midpoint,
-            pair_skew_ms=skew_ms,
+    def _build_group(self, frames: tuple[CapturedFrame, ...], calibration_id: UUID) -> CaptureGroup:
+        times = [frame.normalized_capture_time_s for frame in frames]
+        return CaptureGroup(
+            group_id=uuid4(),
+            frames=frames,
+            normalized_capture_time_s=sum(times) / len(times),
+            pair_skew_ms=(max(times) - min(times)) * 1000.0,
             calibration_id=calibration_id,
         )
 

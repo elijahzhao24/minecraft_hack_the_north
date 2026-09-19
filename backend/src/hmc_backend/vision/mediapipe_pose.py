@@ -9,8 +9,8 @@ import numpy as np
 
 from hmc_backend.contracts.internal import (
     CapturedFrame,
+    CaptureGroup,
     FittedCharacter,
-    PairedFrames,
     ViewDetection,
 )
 
@@ -91,5 +91,5 @@ class MediaPipePoseMaskDetector:
 class EmptyCharacterFitter:
     """Mask-only milestone: never invent landmarks or interaction colliders."""
 
-    def fit_character(self, pair: PairedFrames, detections, cloud, calibration) -> FittedCharacter:
+    def fit_character(self, group: CaptureGroup, detections, cloud, calibration) -> FittedCharacter:
         return FittedCharacter(landmarks=(), colliders=())

@@ -14,11 +14,11 @@ import numpy as np
 from hmc_backend.contracts.internal import (
     CameraCalibration,
     CapturedFrame,
+    CaptureGroup,
     Collider,
     ColoredPointCloud,
     FittedCharacter,
     Landmark3D,
-    PairedFrames,
     ViewDetection,
 )
 
@@ -55,7 +55,7 @@ class FakeCharacterFitter:
 
     def fit_character(
         self,
-        pair: PairedFrames,
+        group: CaptureGroup,
         detections: dict[str, ViewDetection],
         cloud: ColoredPointCloud,
         calibration: CameraCalibration,

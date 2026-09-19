@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from hmc_backend.api import runtime as runtime_module
 from hmc_backend.api.runtime import AppRuntime
 from hmc_backend.calibration.synthetic import build_synthetic_rig
 from hmc_backend.fixtures.scene import build_capture_packets
@@ -65,7 +66,7 @@ async def test_phone_starts_coordinated_live_capture_and_live_frames_are_not_rec
 
 
 @pytest.mark.asyncio
-async def test_live_request_pauses_until_both_devices_are_clock_ready(tmp_path):
+async def test_live_request_pauses_until_a_connected_device_is_clock_ready(tmp_path):
     runtime = AppRuntime(Settings(recording_root=str(tmp_path)), build_synthetic_rig())
     sent: list[dict] = []
 
@@ -78,4 +79,96 @@ async def test_live_request_pauses_until_both_devices_are_clock_ready(tmp_path):
     assert runtime.health()[0].live.state == "paused"
     assert runtime.health()[0].live.last_publish_age_ms is None
     await runtime.request_live(uuid4(), False)
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_one_phone_live_capture_publishes_single_view_frame(tmp_path, monkeypatch):
+    settings = Settings(
+        recording_root=str(tmp_path),
+        live_target_fps=20.0,
+        live_capture_lead_ms=1.0,
+        live_pair_timeout_ms=100.0,
+    )
+    rig = build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120))
+    runtime = AppRuntime(settings, rig)
+    messages: list[dict] = []
+    events: list[tuple[str, dict]] = []
+
+    def capture_log(level: str, message: str, **attributes) -> None:
+        events.append((message, attributes))
+
+    monkeypatch.setattr(runtime_module, "log_event", capture_log)
+
+    async def send(raw: str) -> None:
+        messages.append(json.loads(raw))
+
+    runtime.register_capture("front-phone", send)
+    state = runtime._devices["front-phone"]
+    for index in range(settings.live_clock_samples):
+        base = 100.0 + index
+        state.clock.record_pong(str(index), base, base, base, base)
+
+    await runtime.request_live(uuid4(), True)
+    for _ in range(100):
+        requests = [message for message in messages if message["type"] == "capture_request"]
+        if requests:
+            break
+        await asyncio.sleep(0.01)
+
+    request = requests[0]
+    capture_id = UUID(request["capture_id"])
+    packet = build_capture_packets(rig, capture_id=capture_id)["front-phone"]
+    await runtime.handle_rgbd(packet, expected_device_id="front-phone")
+    for _ in range(100):
+        if runtime.store.latest is not None:
+            break
+        await asyncio.sleep(0.01)
+
+    frame = runtime.store.latest
+    assert frame is not None
+    assert [source.device_id for source in frame.source_frames] == ["front-phone"]
+    assert frame.pair_skew_ms == 0.0
+    assert "single_view" in frame.quality.warnings
+    assert runtime.health()[0].live.state == "running"
+    assert not list(tmp_path.rglob("*.hmc"))
+    event_names = {name for name, _attributes in events}
+    assert {
+        "capture_requests_scheduled",
+        "rgbd_packet_decoded",
+        "capture_group_ready",
+        "character_published",
+    } <= event_names
+    group_event = next(attributes for name, attributes in events if name == "capture_group_ready")
+    assert group_event["source_count"] == 1
+    assert group_event["device_ids"] == "front-phone"
+    await runtime.request_live(uuid4(), False)
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_ready_second_phone_is_automatically_selected_for_future_captures(tmp_path):
+    settings = Settings(recording_root=str(tmp_path))
+    runtime = AppRuntime(settings, build_synthetic_rig())
+
+    async def send(_raw: str) -> None:
+        pass
+
+    runtime.register_capture("front-phone", send)
+    front = runtime._devices["front-phone"]
+    for index in range(settings.live_clock_samples):
+        base = 100.0 + index
+        front.clock.record_pong(str(index), base, base, base, base)
+    assert runtime._capture_device_ids(require_clock=True) == ("front-phone",)
+
+    runtime.register_capture("side-phone", send)
+    assert runtime._capture_device_ids(require_clock=True) == ("front-phone",)
+    side = runtime._devices["side-phone"]
+    for index in range(settings.live_clock_samples):
+        base = 200.0 + index
+        side.clock.record_pong(str(index), base, base, base, base)
+    assert runtime._capture_device_ids(require_clock=True) == (
+        "front-phone",
+        "side-phone",
+    )
     await runtime.shutdown()

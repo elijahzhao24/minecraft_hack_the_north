@@ -42,7 +42,13 @@ uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 The backend must run as a **single Uvicorn worker** — device connections,
 calibration, queues, and subscribers are in-memory shared state.
 
-Once both phones report clock-ready, pressing **Start live recapture** on either phone starts a backend-paced 3 FPS session on both devices. Live frames are not stored under `data/recordings`; explicit snapshots are.
+Once at least one calibrated phone reports clock-ready, pressing **Start live recapture** starts a backend-paced 3 FPS session. With one connected phone the backend publishes a single-view LiDAR cloud and adds the `single_view` quality warning. When the second calibrated phone becomes ready, subsequent captures automatically use and merge both views. Live frames are not stored under `data/recordings`; explicit snapshots are.
+
+The default allows one or two configured devices and requires at least one for capture. Override this when strict two-phone operation is desired:
+
+```bash
+HMC_MIN_CAPTURE_DEVICES=2
+```
 
 ## Test
 

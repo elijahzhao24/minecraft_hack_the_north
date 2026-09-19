@@ -179,8 +179,21 @@ async def _handle_capture_text(
     elif obj.get("type") == "live_request":
         try:
             request = LiveRequest.model_validate(obj)
+            log_event(
+                "info",
+                "live_request_received",
+                device_id=device_id,
+                request_id=str(request.request_id),
+                enabled=request.enabled,
+            )
             await runtime.request_live(request.request_id, request.enabled)
         except ValueError:
+            log_event(
+                "warning",
+                "live_request_rejected",
+                device_id=device_id,
+                reason="invalid_live_request",
+            )
             await _send_model(ws, Error(code="invalid_message", message="invalid live_request"))
     elif obj.get("type") == "ack":
         # Capture-request acknowledgements are diagnostic; frame arrival is authoritative.

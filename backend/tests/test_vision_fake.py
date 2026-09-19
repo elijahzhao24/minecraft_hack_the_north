@@ -10,8 +10,8 @@ import numpy as np
 from hmc_backend.contracts.internal import (
     CameraCalibration,
     CapturedFrame,
+    CaptureGroup,
     ColoredPointCloud,
-    PairedFrames,
 )
 from hmc_backend.vision.fake import FakeCharacterFitter, FakePersonMaskDetector
 
@@ -56,7 +56,7 @@ def test_fake_fitter_produces_all_collider_types():
     cloud = ColoredPointCloud(xyz, rgba, np.zeros(500, np.uint8))
 
     f = _frame()
-    pair = PairedFrames(uuid4(), f, f, 0.0, 5.0, uuid4())
+    pair = CaptureGroup(uuid4(), (f,), 0.0, 0.0, uuid4())
     calib = CameraCalibration(
         uuid4(), "front-phone", (8, 8), (8, 8), np.eye(3), np.eye(4), 1.0, datetime.now(UTC)
     )
@@ -76,7 +76,7 @@ def test_fake_fitter_produces_all_collider_types():
 
 def test_fake_fitter_empty_cloud():
     f = _frame()
-    pair = PairedFrames(uuid4(), f, f, 0.0, 5.0, uuid4())
+    pair = CaptureGroup(uuid4(), (f,), 0.0, 0.0, uuid4())
     calib = CameraCalibration(
         uuid4(), "front-phone", (8, 8), (8, 8), np.eye(3), np.eye(4), 1.0, datetime.now(UTC)
     )

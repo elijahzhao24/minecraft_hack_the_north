@@ -28,7 +28,7 @@ from hmc_backend.contracts.control import (
     LiveState,
 )
 from hmc_backend.contracts.enums import HealthStatus, Mode
-from hmc_backend.contracts.internal import CharacterFrame, PairedFrames
+from hmc_backend.contracts.internal import CaptureGroup, CharacterFrame
 from hmc_backend.observability import log_event, span, transaction
 from hmc_backend.pipeline.factory import build_pairer, build_processor
 from hmc_backend.pipeline.processor import CharacterProcessor
@@ -52,6 +52,7 @@ class DeviceState:
 class PendingCapture:
     mode: Mode
     created_at: float
+    device_ids: tuple[str, ...]
 
 
 class AppRuntime:
@@ -86,7 +87,7 @@ class AppRuntime:
         self._live_outstanding: UUID | None = None
         self._live_task: asyncio.Task[None] | None = None
         self._live_worker: asyncio.Task[None] | None = None
-        self._pending_live_pair: PairedFrames | None = None
+        self._pending_live_group: CaptureGroup | None = None
         self._publish_times: deque[float] = deque(maxlen=30)
         self._last_publish_at: float | None = None
         self._missed_captures = 0
@@ -204,23 +205,58 @@ class AppRuntime:
             self._settings.live_clock_samples, self._settings.clock_uncertainty_limit_ms
         )
 
+    def _capture_device_ids(self, *, require_clock: bool) -> tuple[str, ...]:
+        if self._calibration is None:
+            return ()
+        selected = []
+        for device_id, state in self._devices.items():
+            if device_id not in self._calibration.cameras:
+                continue
+            if not state.connected or state.send_text is None:
+                continue
+            if require_clock and not self._clock_ready(state):
+                continue
+            selected.append(device_id)
+        return tuple(selected)
+
     async def dispatch_capture(self, capture_id: UUID, mode: str) -> tuple[bool, str]:
         if not self.is_ready():
             return False, "not_ready"
-        if not all(s.connected and s.send_text is not None for s in self._devices.values()):
-            return False, "devices_unavailable"
         capture_mode = Mode(mode)
-        self._pending_captures[capture_id] = PendingCapture(capture_mode, time.monotonic())
+        device_ids = self._capture_device_ids(require_clock=capture_mode is Mode.LIVE)
+        if len(device_ids) < self._settings.min_capture_devices:
+            return False, "devices_unavailable"
+        self._pending_captures[capture_id] = PendingCapture(
+            capture_mode, time.monotonic(), device_ids
+        )
         await self._send_capture_requests(
-            capture_id, capture_mode, scheduled=capture_mode is Mode.LIVE
+            capture_id,
+            capture_mode,
+            device_ids=device_ids,
+            scheduled=capture_mode is Mode.LIVE,
         )
         return True, "capture_dispatched"
 
     async def _send_capture_requests(
-        self, capture_id: UUID, mode: Mode, *, scheduled: bool
+        self,
+        capture_id: UUID,
+        mode: Mode,
+        *,
+        device_ids: tuple[str, ...],
+        scheduled: bool,
     ) -> None:
         backend_target = time.monotonic() + self._settings.live_capture_lead_ms / 1000.0
-        for state in self._devices.values():
+        log_event(
+            "info",
+            "capture_requests_scheduled",
+            capture_id=str(capture_id),
+            mode=mode.value,
+            device_count=len(device_ids),
+            device_ids=",".join(device_ids),
+            scheduled=scheduled,
+        )
+        for device_id in device_ids:
+            state = self._devices[device_id]
             if state.send_text is None:
                 raise RuntimeError("capture device disconnected")
             phone_target = None
@@ -245,7 +281,11 @@ class AppRuntime:
             if self._live_task is None or self._live_task.done():
                 self._live_task = asyncio.create_task(self._live_loop())
         else:
-            self._live_desired, self._live_outstanding, self._pending_live_pair = False, None, None
+            self._live_desired, self._live_outstanding, self._pending_live_group = (
+                False,
+                None,
+                None,
+            )
             self._pending_captures = {
                 cid: p for cid, p in self._pending_captures.items() if p.mode is Mode.SNAPSHOT
             }
@@ -256,9 +296,11 @@ class AppRuntime:
     def _live_prerequisite_error(self) -> str | None:
         if not self.is_ready():
             return "backend_not_ready"
-        if not all(s.connected for s in self._devices.values()):
+        connected = self._capture_device_ids(require_clock=False)
+        if len(connected) < self._settings.min_capture_devices:
             return "devices_unavailable"
-        if not all(self._clock_ready(s) for s in self._devices.values()):
+        ready = self._capture_device_ids(require_clock=True)
+        if len(ready) < self._settings.min_capture_devices:
             return "clock_not_ready"
         return None
 
@@ -286,11 +328,14 @@ class AppRuntime:
                 if self._pairer is not None:
                     for device_id in self._devices:
                         self._pairer.clear_device(device_id)
+            device_ids = self._capture_device_ids(require_clock=True)
             capture_id = uuid4()
-            self._pending_captures[capture_id] = PendingCapture(Mode.LIVE, now)
+            self._pending_captures[capture_id] = PendingCapture(Mode.LIVE, now, device_ids)
             self._live_outstanding = capture_id
             try:
-                await self._send_capture_requests(capture_id, Mode.LIVE, scheduled=True)
+                await self._send_capture_requests(
+                    capture_id, Mode.LIVE, device_ids=device_ids, scheduled=True
+                )
             except Exception as exc:  # noqa: BLE001 - transition live state to paused
                 self._pending_captures.pop(capture_id, None)
                 self._live_outstanding = None
@@ -313,6 +358,15 @@ class AppRuntime:
         self._live_state, self._live_reason = state, reason
         if not changed:
             return
+        log_event(
+            "info" if state != "paused" else "warning",
+            "live_state_changed",
+            state=state,
+            reason=reason,
+            live_session_id=str(self._live_session_id) if self._live_session_id else None,
+            connected_devices=sum(device.connected for device in self._devices.values()),
+            expected_devices=len(self._devices),
+        )
         payload = self.live_state_message(request_id=request_id).model_dump_json()
         await asyncio.gather(
             *(d.send_text(payload) for d in self._devices.values() if d.send_text is not None),
@@ -383,7 +437,12 @@ class AppRuntime:
             clock_offset_s=state.clock.offset_s() or 0.0,
             clock_uncertainty_ms=state.clock.uncertainty_ms() or 0.0,
         )
-        outcome = self._pairer.offer(frame, self._calibration.calibration_id)
+        required_device_ids = pending.device_ids if pending else (device_id,)
+        outcome = self._pairer.offer(
+            frame,
+            self._calibration.calibration_id,
+            required_device_ids=required_device_ids,
+        )
         if outcome.paired is None:
             if outcome.rejected_reason:
                 log_event(
@@ -404,45 +463,49 @@ class AppRuntime:
             return None
         log_event(
             "info",
-            "rgbd_pair_ready",
+            "capture_group_ready",
             capture_id=str(decoded.header.capture_id),
             mode=capture_mode.value,
             pair_skew_ms=round(outcome.paired.pair_skew_ms, 2),
+            source_count=len(outcome.paired.frames),
+            device_ids=",".join(frame.device_id for frame in outcome.paired.frames),
         )
         self._pending_captures.pop(decoded.header.capture_id, None)
         if self._live_outstanding == decoded.header.capture_id:
             self._live_outstanding = None
         if capture_mode is Mode.LIVE:
-            self._enqueue_live_pair(outcome.paired)
+            self._enqueue_live_group(outcome.paired)
             return None
-        return await self._process_pair(outcome.paired, Mode.SNAPSHOT)
+        return await self._process_group(outcome.paired, Mode.SNAPSHOT)
 
-    def _enqueue_live_pair(self, pair: PairedFrames) -> None:
-        if self._pending_live_pair is not None:
+    def _enqueue_live_group(self, group: CaptureGroup) -> None:
+        if self._pending_live_group is not None:
             self._dropped_pairs += 1
-        self._pending_live_pair = pair
+        self._pending_live_group = group
         if self._live_worker is None or self._live_worker.done():
-            self._live_worker = asyncio.create_task(self._drain_live_pairs())
+            self._live_worker = asyncio.create_task(self._drain_live_groups())
 
-    async def _drain_live_pairs(self) -> None:
-        while self._pending_live_pair is not None:
-            pair, self._pending_live_pair = self._pending_live_pair, None
-            await self._process_pair(pair, Mode.LIVE)
+    async def _drain_live_groups(self) -> None:
+        while self._pending_live_group is not None:
+            group, self._pending_live_group = self._pending_live_group, None
+            await self._process_group(group, Mode.LIVE)
 
-    async def _process_pair(self, pair: PairedFrames, mode: Mode) -> CharacterFrame:
+    async def _process_group(self, group: CaptureGroup, mode: Mode) -> CharacterFrame:
         assert self._processor is not None and self._calibration is not None
+        processor = self._processor
         async with self._process_lock:
             with transaction(
                 "character.snapshot",
                 op="capture.process",
-                capture_id=str(pair.first.capture_id),
+                capture_id=str(group.first.capture_id),
                 calibration_id=str(self._calibration.calibration_id),
-                pair_skew_ms=round(pair.pair_skew_ms, 2),
+                pair_skew_ms=round(group.pair_skew_ms, 2),
+                source_count=len(group.frames),
             ):
                 loop = asyncio.get_running_loop()
                 with span("collider.fit_and_reconstruct", "detect+reconstruct+fit"):
                     character = await loop.run_in_executor(
-                        self._executor, lambda: self._processor.process(pair, mode=mode.value)
+                        self._executor, lambda: processor.process(group, mode=mode.value)
                     )
                 with span("character.serialize", "encode CHARACTER_FRAME"):
                     encoded = await loop.run_in_executor(
@@ -459,7 +522,8 @@ class AppRuntime:
             frame_id=character.frame_id,
             mode=mode.value,
             point_count=character.quality.point_count,
-            pair_skew_ms=round(pair.pair_skew_ms, 2),
+            pair_skew_ms=round(group.pair_skew_ms, 2),
+            source_count=len(group.frames),
         )
         return character
 

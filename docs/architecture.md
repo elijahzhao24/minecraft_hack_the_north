@@ -13,7 +13,7 @@ This repository currently contains design documentation only. Every class, packa
 
 ## 2. Scope
 
-The first demo supports one subject, exactly two capture devices, one backend process, and one Minecraft client with its integrated server. The subject holds a pose while the backend selects a close frame pair. Recapture atomically replaces the old snapshot.
+The first demo supports one subject, one or two capture devices, one backend process, and one Minecraft client with its integrated server. A single LiDAR phone produces a valid single-view cloud; a second calibrated phone adds coverage through a close-time merged capture. Recapture atomically replaces the old snapshot.
 
 In scope:
 

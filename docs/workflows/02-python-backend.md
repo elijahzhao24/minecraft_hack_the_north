@@ -51,6 +51,7 @@ Use `fastapi dev` only for local route iteration. Auto-reload restarts in-memory
 | `bind_host` | `0.0.0.0` | LAN access for phones/game |
 | `port` | `8000` | HTTP/WebSocket port |
 | `expected_device_ids` | `front-phone,side-phone` | exact capture identities |
+| `min_capture_devices` | `1` | minimum connected, calibrated phones required to publish |
 | `max_rgbd_bytes` | `16777216` | allocation guard |
 | `max_character_bytes` | `8388608` | publisher guard |
 | `device_queue_size` | `2` | ingress backpressure |
@@ -100,7 +101,7 @@ One socket per phone. The handler:
 
 ### `WS /ws/character`
 
-The Minecraft client sends `character_hello`. A per-subscriber sender task reads an async queue of size one. When a new frame arrives, a pending older frame is removed. The text dispatcher also accepts `request_capture`: after checking both phones, clock readiness, and processor capacity, it forwards a shared capture ID to both phone sockets and acknowledges dispatch. The endpoint never performs serialization or blocking game I/O in the processing worker.
+The Minecraft client sends `character_hello`. A per-subscriber sender task reads an async queue of size one. When a new frame arrives, a pending older frame is removed. The text dispatcher also accepts `request_capture`: after selecting the connected calibrated phones and checking processor capacity, it forwards a shared capture ID to those phone sockets and acknowledges dispatch. The endpoint never performs serialization or blocking game I/O in the processing worker.
 
 ## Module interfaces
 
@@ -230,4 +231,4 @@ Carry `session_id`, `capture_id`, `frame_id`, and `calibration_id` as scalar loc
 - Replay test: same recording produces matching source IDs and geometry within declared floating tolerance.
 - Soak: ten minutes at intended capture rate without unbounded queue/memory growth.
 
-This workflow passes only when it publishes one valid real `CharacterFrame` assembled from a calibrated two-device pair. Synthetic replay is an earlier gate, not hardware completion.
+This workflow passes when it publishes a valid real `CharacterFrame` from at least one calibrated LiDAR phone. A two-device run additionally validates synchronized multi-view merging. Synthetic replay is an earlier gate, not hardware completion.

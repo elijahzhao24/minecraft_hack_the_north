@@ -38,7 +38,7 @@ def crop_from_settings(settings: Settings) -> CropBounds:
 
 def build_pairer(settings: Settings, *, require_capture_id: bool = True) -> Pairer:
     return Pairer(
-        tuple(settings.expected_device_ids),  # type: ignore[arg-type]
+        tuple(settings.expected_device_ids),
         pair_skew_limit_ms=settings.pair_skew_limit_ms,
         clock_uncertainty_limit_ms=settings.clock_uncertainty_limit_ms,
         require_capture_id=require_capture_id,

@@ -13,7 +13,9 @@ DEVICES = ("front-phone", "side-phone")
 CALIB = uuid4()
 
 
-def _frame(device_id: str, capture_id, t_norm: float, *, uncertainty_ms: float = 5.0, seq: int = 1) -> CapturedFrame:
+def _frame(
+    device_id: str, capture_id, t_norm: float, *, uncertainty_ms: float = 5.0, seq: int = 1
+) -> CapturedFrame:
     return CapturedFrame(
         device_id=device_id,
         session_id=uuid4(),
@@ -41,8 +43,7 @@ def test_pairs_within_skew():
     out = p.offer(_frame("side-phone", cid, 100.020), CALIB)  # 20 ms skew
     assert out.paired is not None
     assert out.paired.pair_skew_ms < 50.0
-    assert out.paired.first.device_id == "front-phone"
-    assert out.paired.second.device_id == "side-phone"
+    assert tuple(frame.device_id for frame in out.paired.frames) == DEVICES
     assert out.paired.calibration_id == CALIB
 
 
@@ -98,3 +99,17 @@ def test_live_mode_pairs_without_capture_id():
     p.offer(_frame("front-phone", uuid4(), 100.000), CALIB)
     out = p.offer(_frame("side-phone", uuid4(), 100.010), CALIB)
     assert out.paired is not None
+
+
+def test_single_required_device_emits_immediately():
+    p = _pairer()
+    cid = uuid4()
+    out = p.offer(
+        _frame("front-phone", cid, 100.0),
+        CALIB,
+        required_device_ids=("front-phone",),
+    )
+    assert out.paired is not None
+    assert len(out.paired.frames) == 1
+    assert out.paired.first.device_id == "front-phone"
+    assert out.paired.pair_skew_ms == 0.0

@@ -14,7 +14,7 @@ Native Swift/ARKit capture app for LiDAR-equipped iPhones. It retains RGB, scene
 2. Keep the phone in landscape-right. Enter a stable unique device ID (`front-phone` or `side-phone`) and `ws://<laptop>:8000/ws/capture` on the trusted demo LAN.
 3. Start AR capture, connect, then request a snapshot or enable slow live recapture.
 
-Live recapture is coordinated by the backend. Pressing the live button on either connected phone requests one shared session; both phones show `starting`, `running`, `paused`, or `stopped`. The backend waits for both clock estimates and then issues synchronized 3 FPS capture requests. Do not enable independent local capture timers.
+Live recapture is coordinated by the backend. Pressing the live button requests one shared session; connected phones show `starting`, `running`, `paused`, or `stopped`. The backend starts after at least one calibrated phone is clock-ready and issues 3 FPS capture requests to every ready phone. A second phone is incorporated automatically once its clock is ready. Do not enable independent local capture timers.
 
 The app requires camera and local-network permission. Scene depth is checked before session start and the UI reports an explicit unsupported-device error.
 

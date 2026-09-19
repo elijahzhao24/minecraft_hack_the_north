@@ -7,7 +7,7 @@ the environment and are never echoed by ``/health``.
 
 from __future__ import annotations
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # --- Capture identities ----------------------------------------------
     expected_device_ids: tuple[str, ...] = ("front-phone", "side-phone")
     front_device_id: str = "front-phone"
+    min_capture_devices: int = 1
 
     # --- Allocation / framing guards -------------------------------------
     max_rgbd_bytes: int = 16_777_216  # 16 MiB
@@ -90,12 +91,20 @@ class Settings(BaseSettings):
 
     @field_validator("expected_device_ids")
     @classmethod
-    def _require_two_devices(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(value) != 2:
-            raise ValueError("expected_device_ids must contain exactly two device IDs")
+    def _require_supported_devices(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not 1 <= len(value) <= 2:
+            raise ValueError("expected_device_ids must contain one or two device IDs")
         if len(set(value)) != len(value):
             raise ValueError("expected_device_ids must be unique")
         return value
+
+    @model_validator(mode="after")
+    def _validate_capture_device_count(self) -> Settings:
+        if not 1 <= self.min_capture_devices <= len(self.expected_device_ids):
+            raise ValueError("min_capture_devices must be between 1 and expected device count")
+        if self.front_device_id not in self.expected_device_ids:
+            raise ValueError("front_device_id must be one of expected_device_ids")
+        return self
 
 
 def load_settings() -> Settings:

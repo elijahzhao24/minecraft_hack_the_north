@@ -29,10 +29,10 @@ class CapturedFrame:
     capture_timestamp_s: float
     normalized_capture_time_s: float
     clock_uncertainty_ms: float
-    rgb: NDArray[np.uint8]          # H_rgb x W_rgb x 3, RGB order
-    depth_m: NDArray[np.float32]    # H_depth x W_depth
-    confidence: NDArray[np.uint8]   # H_depth x W_depth
-    K_rgb: NDArray[np.float64]      # 3 x 3
+    rgb: NDArray[np.uint8]  # H_rgb x W_rgb x 3, RGB order
+    depth_m: NDArray[np.float32]  # H_depth x W_depth
+    confidence: NDArray[np.uint8]  # H_depth x W_depth
+    K_rgb: NDArray[np.float64]  # 3 x 3
     arkit_pose: NDArray[np.float64]  # 4 x 4, diagnostic only
 
 
@@ -42,24 +42,35 @@ class CameraCalibration:
 
     calibration_id: UUID
     device_id: str
-    rgb_size: tuple[int, int]       # (width, height)
-    depth_size: tuple[int, int]     # (width, height)
-    K_rgb: NDArray[np.float64]      # 3 x 3
+    rgb_size: tuple[int, int]  # (width, height)
+    depth_size: tuple[int, int]  # (width, height)
+    K_rgb: NDArray[np.float64]  # 3 x 3
     T_stage_from_optical: NDArray[np.float64]  # 4 x 4
     reprojection_error_px: float
     created_at_utc: datetime
 
 
 @dataclass(frozen=True, slots=True)
-class PairedFrames:
-    """Two different-device frames selected within the skew budget."""
+class CaptureGroup:
+    """One or more device frames belonging to the same coordinated capture."""
 
-    pair_id: UUID
-    first: CapturedFrame
-    second: CapturedFrame
+    group_id: UUID
+    frames: tuple[CapturedFrame, ...]
     normalized_capture_time_s: float
     pair_skew_ms: float
     calibration_id: UUID
+
+    def __post_init__(self) -> None:
+        if not 1 <= len(self.frames) <= 2:
+            raise ValueError("capture group must contain one or two frames")
+        device_ids = [frame.device_id for frame in self.frames]
+        if len(set(device_ids)) != len(device_ids):
+            raise ValueError("capture group frames must come from distinct devices")
+
+    @property
+    def first(self) -> CapturedFrame:
+        """The deterministic primary view, retained for reference selection."""
+        return self.frames[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,8 +104,8 @@ class ColoredPointCloud:
     """Merged person-only colored cloud in stage meters."""
 
     xyz_stage_m: NDArray[np.float32]  # N x 3
-    rgba: NDArray[np.uint8]           # N x 4
-    source_mask: NDArray[np.uint8]    # N; camera bitset, debug only
+    rgba: NDArray[np.uint8]  # N x 4
+    source_mask: NDArray[np.uint8]  # N; camera bitset, debug only
 
     @property
     def count(self) -> int:
@@ -174,12 +185,12 @@ class TraceContext:
 @dataclass(frozen=True, slots=True)
 class CharacterFrame:
     """The immutable published snapshot. Cloud, landmarks, and colliders here
-    always share the same source pair and calibration."""
+    always share the same source capture group and calibration."""
 
     session_id: UUID  # backend character-stream session
     calibration_id: UUID
     frame_id: int
-    source_frames: tuple[SourceFrameRef, SourceFrameRef]
+    source_frames: tuple[SourceFrameRef, ...]
     normalized_capture_time_s: float
     pair_skew_ms: float
     mode: Literal["snapshot", "live"]

@@ -175,13 +175,13 @@ Either phone may request the shared two-phone live session:
 {"type":"live_request","protocol_version":1,"request_id":"bd36780c-37ac-47ad-8cbc-dba00734859f","enabled":true}
 ```
 
-The backend is authoritative and broadcasts every state change to both phones:
+The backend is authoritative and broadcasts every state change to connected phones:
 
 ```json
 {"type":"live_state","protocol_version":1,"request_id":null,"live_session_id":"18434a87-0ea1-4088-a120-b44823d1c8a8","state":"running","target_fps":3.0,"reason":null}
 ```
 
-State is `starting`, `running`, `paused`, or `stopped`. A requested session pauses when calibration, either device, or either clock is unavailable and resumes automatically after recovery. While running, the backend sends both phones `capture_request` messages with one shared capture ID, `mode: live`, and device-specific monotonic deadlines. Live RGBD packets are latest-wins and are not persisted; explicit snapshots retain immutable recording behavior.
+State is `starting`, `running`, `paused`, or `stopped`. By default a requested session can run with one calibrated, clock-ready phone and automatically incorporates a second ready phone. `HMC_MIN_CAPTURE_DEVICES=2` enables strict two-phone operation. While running, the backend sends selected phones `capture_request` messages with one shared capture ID, `mode: live`, and device-specific monotonic deadlines. Live RGBD packets are latest-wins and are not persisted; explicit snapshots retain immutable recording behavior.
 
 ### Capture and generic result messages
 
@@ -272,7 +272,7 @@ Minecraft may initiate one synchronized capture:
 }
 ```
 
-The backend accepts it only when both configured phones are connected, clock-ready, and the processor can accept a snapshot. It forwards `capture_request` carrying the same IDs to both phones and replies to Minecraft with `ack`. That acknowledgement means the request was dispatched, not that a `CharacterFrame` exists; completion is the later binary frame whose two source records carry that `capture_id`.
+The backend accepts it when the configured minimum number of calibrated phones is connected and the processor can accept a snapshot. It forwards `capture_request` carrying the same IDs to the selected phones and replies to Minecraft with `ack`. That acknowledgement means the request was dispatched, not that a `CharacterFrame` exists; completion is the later binary frame whose source records carry that `capture_id`.
 
 ### HTTP health response
 
@@ -413,7 +413,7 @@ class CharacterFrame:
     session_id: UUID                 # backend character-stream session
     calibration_id: UUID
     frame_id: int
-    source_frames: tuple[SourceFrameRef, SourceFrameRef]
+    source_frames: tuple[SourceFrameRef, ...]  # one or two capture devices
     normalized_capture_time_s: float
     pair_skew_ms: float
     mode: Literal["snapshot", "live"]

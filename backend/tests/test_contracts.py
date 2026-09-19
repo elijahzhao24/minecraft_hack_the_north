@@ -23,6 +23,7 @@ from hmc_backend.contracts.internal import (
 )
 from hmc_backend.contracts.rgbd import parse_rgbd_header
 from hmc_backend.protocol import decode_envelope, load_buffers
+from hmc_backend.settings import Settings
 
 
 def _rgbd_header_dict() -> dict:
@@ -82,6 +83,16 @@ def test_client_hello_rejects_unknown_field():
                 "surprise": "field",
             }
         )
+
+
+def test_settings_allow_one_capture_device():
+    settings = Settings(expected_device_ids=("front-phone",), min_capture_devices=1)
+    assert settings.expected_device_ids == ("front-phone",)
+
+
+def test_settings_reject_minimum_above_configured_device_count():
+    with pytest.raises(ValidationError):
+        Settings(expected_device_ids=("front-phone",), min_capture_devices=2)
 
 
 def test_rgbd_header_parses_and_remaps_keys():
