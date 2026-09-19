@@ -1,0 +1,19 @@
+{
+  "buffer_past_payload": "invalid_buffer_range",
+  "character_message_type": "invalid_message",
+  "depth_dims_mismatch": "invalid_message",
+  "future_schema_version": "unsupported_version",
+  "intrinsics_wrong_length": "invalid_message",
+  "invalid_utf8_header": "invalid_message",
+  "nan_in_header": "invalid_message",
+  "negative_sequence": "invalid_message",
+  "overlapping_buffers": "invalid_buffer_range",
+  "payload_over_limit": "frame_too_large",
+  "short_header": "invalid_message",
+  "truncated_payload": "invalid_message",
+  "unknown_header_field": "invalid_message",
+  "unknown_orientation_enum": "invalid_message",
+  "unknown_tracking_state_enum": "invalid_message",
+  "unsupported_envelope_version": "unsupported_version",
+  "wrong_magic": "invalid_message"
+}

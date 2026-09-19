@@ -1,0 +1,78 @@
+{
+  "schema": "hmc.rgbd_frame",
+  "schema_version": 1,
+  "device_id": "front-phone",
+  "session_id": "44487d7c-b847-49db-aa37-cf326ad76078",
+  "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4",
+  "sequence": 184,
+  "capture_timestamp_s": 9922.107184,
+  "image_orientation": "landscape_right",
+  "tracking_state": "normal",
+  "rgb": {
+    "width": 64,
+    "height": 48,
+    "intrinsics_row_major": [
+      55.425625842204084,
+      0.0,
+      32.0,
+      0.0,
+      55.425625842204084,
+      24.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "depth": {
+    "width": 64,
+    "height": 48,
+    "unit": "meter",
+    "confidence_encoding": "arkit_0_1_2"
+  },
+  "T_arkit_world_from_camera_row_major": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "buffers": [
+    {
+      "name": "rgb",
+      "encoding": "jpeg",
+      "offset": 0,
+      "length": 1461
+    },
+    {
+      "name": "depth",
+      "encoding": "float32_le",
+      "offset": 1461,
+      "length": 12288,
+      "shape": [
+        48,
+        64
+      ]
+    },
+    {
+      "name": "confidence",
+      "encoding": "uint8",
+      "offset": 13749,
+      "length": 3072,
+      "shape": [
+        48,
+        64
+      ]
+    }
+  ]
+}

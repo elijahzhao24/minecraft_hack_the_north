@@ -1,0 +1,155 @@
+{
+  "sha256": "24a7e51cbd03695621ed55cb581b251d985f80f757e05fd899f147d54ac18895",
+  "total_bytes": 17680,
+  "envelope": {
+    "magic": "HMC1",
+    "version": 1,
+    "message_type": 1,
+    "header_bytes": 843,
+    "payload_bytes": 16821
+  },
+  "device_id": "front-phone",
+  "session_id": "44487d7c-b847-49db-aa37-cf326ad76078",
+  "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4",
+  "sequence": 184,
+  "capture_timestamp_s": 9922.107184,
+  "image_orientation": "landscape_right",
+  "tracking_state": "normal",
+  "rgb": {
+    "width": 64,
+    "height": 48,
+    "intrinsics_row_major": [
+      55.425625842204084,
+      0.0,
+      32.0,
+      0.0,
+      55.425625842204084,
+      24.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "depth": {
+    "width": 64,
+    "height": 48,
+    "unit": "meter",
+    "confidence_encoding": "arkit_0_1_2"
+  },
+  "buffers": [
+    {
+      "name": "rgb",
+      "encoding": "jpeg",
+      "offset": 0,
+      "length": 1461,
+      "shape": null,
+      "sha256": "fbad46788481b6e63c232a8d41e61ac7819975869b91c2652910cb24d5597ee7"
+    },
+    {
+      "name": "depth",
+      "encoding": "float32_le",
+      "offset": 1461,
+      "length": 12288,
+      "shape": [
+        48,
+        64
+      ],
+      "sha256": "5fd3c946819800ee6d7f4b373eb90b4eb3bbb2b4e5866ab72b8cc0ac1a8d2583"
+    },
+    {
+      "name": "confidence",
+      "encoding": "uint8",
+      "offset": 13749,
+      "length": 3072,
+      "shape": [
+        48,
+        64
+      ],
+      "sha256": "2d4fb17723af7e5f6f5f4c7498ec5f8f60e9598faa0809a8ab9a1c35ef270f0c"
+    }
+  ],
+  "depth_stats": {
+    "valid_count": 620,
+    "min_m": 2.3399999141693115,
+    "max_m": 2.4934561252593994,
+    "mean_m": 2.401566743850708
+  },
+  "confidence_histogram": {
+    "0": 2452,
+    "2": 620
+  },
+  "sample_depth_m": [
+    {
+      "index": 0,
+      "row": 0,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 256,
+      "row": 4,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 512,
+      "row": 8,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 768,
+      "row": 12,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 1024,
+      "row": 16,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 1280,
+      "row": 20,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 1536,
+      "row": 24,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 1792,
+      "row": 28,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 2048,
+      "row": 32,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 2304,
+      "row": 36,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 2560,
+      "row": 40,
+      "col": 0,
+      "value": 0.0
+    },
+    {
+      "index": 2816,
+      "row": 44,
+      "col": 0,
+      "value": 0.0
+    }
+  ]
+}
