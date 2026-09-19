@@ -74,9 +74,19 @@ public final class HumanRenderer implements AutoCloseable {
 		RenderSystem.assertOnRenderThread();
 		try (Telemetry.Span span = Telemetry.continueTransaction("client.gpu_upload", "hmc.render.upload", snapshot.trace())) {
 			long start = System.nanoTime();
-			VertexBuffer nextCloud = buildCloud(snapshot);
-			VertexBuffer nextSkeleton = buildSkeleton(snapshot);
-			VertexBuffer nextColliders = buildColliders(snapshot);
+			VertexBuffer nextCloud = null;
+			VertexBuffer nextSkeleton = null;
+			VertexBuffer nextColliders = null;
+			try {
+				nextCloud = buildCloud(snapshot);
+				nextSkeleton = buildSkeleton(snapshot);
+				nextColliders = buildColliders(snapshot);
+			} catch (RuntimeException e) {
+				closeBuffer(nextCloud);
+				closeBuffer(nextSkeleton);
+				closeBuffer(nextColliders);
+				throw e;
+			}
 			closeBuffer(cloudBuffer);
 			closeBuffer(skeletonBuffer);
 			closeBuffer(colliderBuffer);
@@ -180,19 +190,22 @@ public final class HumanRenderer implements AutoCloseable {
 			PoseStack matrices = context.matrixStack();
 			Vec3 camera = context.camera().getPosition();
 			matrices.pushPose();
-			matrices.translate(-camera.x, -camera.y, -camera.z);
-			RenderSystem.enableDepthTest();
-			if (config.showCloud) {
-				draw(cloudBuffer, matrices, context);
+			try {
+				matrices.translate(-camera.x, -camera.y, -camera.z);
+				RenderSystem.enableDepthTest();
+				if (config.showCloud) {
+					draw(cloudBuffer, matrices, context);
+				}
+				if (config.showSkeleton) {
+					draw(skeletonBuffer, matrices, context);
+				}
+				if (config.showColliders) {
+					draw(colliderBuffer, matrices, context);
+				}
+			} finally {
+				VertexBuffer.unbind();
+				matrices.popPose();
 			}
-			if (config.showSkeleton) {
-				draw(skeletonBuffer, matrices, context);
-			}
-			if (config.showColliders) {
-				draw(colliderBuffer, matrices, context);
-			}
-			VertexBuffer.unbind();
-			matrices.popPose();
 		} catch (RuntimeException e) {
 			if (!renderFailed) {
 				renderFailed = true;
@@ -265,7 +278,12 @@ public final class HumanRenderer implements AutoCloseable {
 	}
 
 	private static void capsule(BufferBuilder builder, Capsule capsule, int r, int g, int b, int alpha) {
-		Vector3 axis = capsule.b().sub(capsule.a()).normalize();
+		Vector3 delta = capsule.b().sub(capsule.a());
+		if (delta.lengthSquared() < 1e-12) {
+			shape(builder, new Sphere(capsule.a(), capsule.radius()), r, g, b, alpha);
+			return;
+		}
+		Vector3 axis = delta.normalize();
 		Vector3 helper = Math.abs(axis.y()) < 0.9 ? Vector3.UNIT_Y : Vector3.UNIT_X;
 		Vector3 u = axis.cross(helper).normalize();
 		Vector3 v = axis.cross(u).normalize();
