@@ -58,7 +58,9 @@ class ClockEstimator:
         """Note that a probe was sent so a later pong can be matched."""
         self._pending.append(request_id)
 
-    def record_pong(self, request_id: str, t0: float, t1: float, t2: float, t3: float) -> ClockSample | None:
+    def record_pong(
+        self, request_id: str, t0: float, t1: float, t2: float, t3: float
+    ) -> ClockSample | None:
         """Incorporate a completed round trip; returns the sample if accepted.
 
         Samples with implausible (negative) or excessive delay are rejected.
@@ -77,6 +79,14 @@ class ClockEstimator:
     def ready(self) -> bool:
         """True once at least one accepted sample exists."""
         return bool(self._samples)
+
+    def ready_with(self, minimum_samples: int, maximum_uncertainty_ms: float) -> bool:
+        uncertainty = self.uncertainty_ms()
+        return (
+            self.sample_count >= minimum_samples
+            and uncertainty is not None
+            and uncertainty <= maximum_uncertainty_ms
+        )
 
     @property
     def sample_count(self) -> int:

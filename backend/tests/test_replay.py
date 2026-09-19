@@ -9,7 +9,7 @@ import pytest
 from hmc_backend.calibration.model import rig_to_json
 from hmc_backend.calibration.synthetic import build_synthetic_rig
 from hmc_backend.capture.pairing import Pairer
-from hmc_backend.capture.recording import load_recording, save_recording
+from hmc_backend.capture.recording import load_recording, save_capture_packet, save_recording
 from hmc_backend.capture.replay import Replayer
 from hmc_backend.contracts.character_codec import encode_character_frame
 from hmc_backend.fixtures.scene import build_capture_packets
@@ -54,6 +54,27 @@ def test_recording_detects_corruption(tmp_path):
     victim.write_bytes(victim.read_bytes() + b"tampered")
     with pytest.raises(ValueError):
         load_recording(capture_dir)
+
+
+def test_live_packets_incrementally_build_recording(tmp_path):
+    capture_id = uuid4()
+    _rig, packets = _rig_and_packets(capture_id)
+
+    for device_id, raw in packets.items():
+        capture_dir = save_capture_packet(tmp_path, capture_id, device_id, raw)
+
+    recording = load_recording(capture_dir)
+    assert recording.packets == packets
+
+
+def test_live_packet_does_not_overwrite_different_bytes(tmp_path):
+    capture_id = uuid4()
+    _rig, packets = _rig_and_packets(capture_id)
+    raw = packets["front-phone"]
+    save_capture_packet(tmp_path, capture_id, "front-phone", raw)
+
+    with pytest.raises(ValueError, match="different packet bytes"):
+        save_capture_packet(tmp_path, capture_id, "front-phone", raw + b"changed")
 
 
 def test_vertical_slice_publishes_one_character_frame():

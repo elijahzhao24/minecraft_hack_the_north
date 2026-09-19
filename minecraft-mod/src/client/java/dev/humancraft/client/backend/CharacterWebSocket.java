@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -46,6 +47,8 @@ public final class CharacterWebSocket implements AutoCloseable {
 	private final HttpClient client;
 	private final AtomicBoolean connectInFlight = new AtomicBoolean();
 	private final AtomicBoolean reconnectScheduled = new AtomicBoolean();
+	private final AtomicBoolean decodeInFlight = new AtomicBoolean();
+	private final AtomicReference<byte[]> latestPendingBinary = new AtomicReference<>();
 
 	private volatile WebSocket socket;
 	private volatile boolean closed;
@@ -218,7 +221,7 @@ public final class CharacterWebSocket implements AutoCloseable {
 				if (last) {
 					byte[] complete = binary.toByteArray();
 					binary.reset();
-					decoder.execute(() -> decode(complete));
+					submitLatest(complete);
 				}
 			} catch (RuntimeException e) {
 				binary.reset();
@@ -267,6 +270,27 @@ public final class CharacterWebSocket implements AutoCloseable {
 				socket = null;
 			}
 			failAndRetry(error, "connection error");
+		}
+	}
+
+	private void submitLatest(byte[] complete) {
+		latestPendingBinary.set(complete);
+		if (decodeInFlight.compareAndSet(false, true)) {
+			decoder.execute(this::drainLatest);
+		}
+	}
+
+	private void drainLatest() {
+		try {
+			byte[] next;
+			while ((next = latestPendingBinary.getAndSet(null)) != null) {
+				decode(next);
+			}
+		} finally {
+			decodeInFlight.set(false);
+			if (latestPendingBinary.get() != null && decodeInFlight.compareAndSet(false, true)) {
+				decoder.execute(this::drainLatest);
+			}
 		}
 	}
 

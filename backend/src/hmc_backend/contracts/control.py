@@ -23,6 +23,7 @@ class _Strict(BaseModel):
 
 # --- Phone connection -----------------------------------------------------
 
+
 class ClientHello(_Strict):
     type: Literal["client_hello"]
     protocol_version: Literal[1]
@@ -45,6 +46,7 @@ class ServerHello(_Strict):
 
 # --- Clock synchronization -------------------------------------------------
 
+
 class ClockPing(_Strict):
     type: Literal["clock_ping"] = "clock_ping"
     protocol_version: Literal[1] = 1
@@ -62,6 +64,7 @@ class ClockPong(_Strict):
 
 
 # --- Capture + generic results --------------------------------------------
+
 
 class CaptureRequest(_Strict):
     type: Literal["capture_request"] = "capture_request"
@@ -90,7 +93,25 @@ class Error(_Strict):
     retryable: bool = False
 
 
+class LiveRequest(_Strict):
+    type: Literal["live_request"]
+    protocol_version: Literal[1]
+    request_id: UUID
+    enabled: bool
+
+
+class LiveState(_Strict):
+    type: Literal["live_state"] = "live_state"
+    protocol_version: Literal[1] = 1
+    request_id: UUID | None = None
+    live_session_id: UUID | None = None
+    state: Literal["starting", "running", "paused", "stopped"]
+    target_fps: float
+    reason: str | None = None
+
+
 # --- Minecraft subscriber --------------------------------------------------
+
 
 class CharacterHello(_Strict):
     type: Literal["character_hello"]
@@ -126,6 +147,7 @@ class RequestCapture(_Strict):
 
 # --- HTTP health -----------------------------------------------------------
 
+
 class CalibrationHealth(_Strict):
     loaded: bool
     calibration_id: UUID | None = None
@@ -137,6 +159,16 @@ class DeviceHealth(_Strict):
     queue_depth: int
 
 
+class LiveHealth(_Strict):
+    state: Literal["starting", "running", "paused", "stopped"] = "stopped"
+    live_session_id: UUID | None = None
+    target_fps: float = 3.0
+    effective_fps: float = 0.0
+    last_publish_age_ms: float | None = None
+    missed_captures: int = 0
+    dropped_pairs: int = 0
+
+
 class HealthResponse(_Strict):
     status: HealthStatus
     protocol_version: Literal[1] = 1
@@ -144,3 +176,4 @@ class HealthResponse(_Strict):
     models: dict[str, str]
     devices: dict[str, DeviceHealth]
     latest_frame_id: int | None = None
+    live: LiveHealth = LiveHealth()

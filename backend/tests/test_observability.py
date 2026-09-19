@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hmc_backend.observability import (
+    configure_console_logging,
     configure_sentry,
     flush_sentry,
     is_active,
@@ -27,3 +28,12 @@ def test_helpers_noop_without_dsn():
 
 def test_empty_string_dsn_is_inactive():
     assert configure_sentry("", environment="test", release="r", traces_sample_rate=1.0) is False
+
+
+def test_console_logging_is_idempotent():
+    configure_console_logging()
+    configure_console_logging()
+
+    from hmc_backend.observability.sentry import logger
+
+    assert sum(handler.name == "hmc-console" for handler in logger.handlers) == 1

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from hmc_backend.contracts.arrays import ArrayInvariantError
 from hmc_backend.contracts.character_codec import encode_character_frame, unpack_points
-from hmc_backend.contracts.control import ClientHello, HealthResponse
+from hmc_backend.contracts.control import ClientHello, HealthResponse, LiveRequest, LiveState
 from hmc_backend.contracts.enums import HealthStatus
 from hmc_backend.contracts.internal import (
     CharacterFrame,
@@ -35,13 +35,34 @@ def _rgbd_header_dict() -> dict:
         "sequence": 184,
         "capture_timestamp_s": 9922.107184,
         "image_orientation": "landscape_right",
+        "mirrored": False,
         "tracking_state": "normal",
-        "rgb": {"width": 1920, "height": 1440, "intrinsics_row_major": [1412.3, 0, 959.5, 0, 1411.9, 719.5, 0, 0, 1]},
-        "depth": {"width": 256, "height": 192, "unit": "meter", "confidence_encoding": "arkit_0_1_2"},
+        "rgb": {
+            "width": 1920,
+            "height": 1440,
+            "intrinsics_row_major": [1412.3, 0, 959.5, 0, 1411.9, 719.5, 0, 0, 1],
+        },
+        "depth": {
+            "width": 256,
+            "height": 192,
+            "unit": "meter",
+            "confidence_encoding": "arkit_0_1_2",
+        },
+        "rgb_depth_mapping": {
+            "method": "normalized_uncropped_scale",
+            "rgb_crop": None,
+            "depth_crop": None,
+        },
         "T_arkit_world_from_camera_row_major": [1, 0, 0, 0, 0, 1, 0, 1.2, 0, 0, 1, 0, 0, 0, 0, 1],
         "buffers": [
             {"name": "rgb", "encoding": "jpeg", "offset": 0, "length": 100},
-            {"name": "depth", "encoding": "float32_le", "offset": 100, "length": 196608, "shape": [192, 256]},
+            {
+                "name": "depth",
+                "encoding": "float32_le",
+                "offset": 100,
+                "length": 196608,
+                "shape": [192, 256],
+            },
         ],
     }
 
@@ -66,6 +87,8 @@ def test_client_hello_rejects_unknown_field():
 def test_rgbd_header_parses_and_remaps_keys():
     header = parse_rgbd_header(_rgbd_header_dict())
     assert header.schema_name == "hmc.rgbd_frame"
+    assert header.mirrored is False
+    assert header.rgb_depth_mapping.method == "normalized_uncropped_scale"
     assert header.rgb.width == 1920
     assert len(header.t_arkit_world_from_camera_row_major) == 16
 
@@ -98,6 +121,21 @@ def test_health_response_roundtrip():
     assert resp.status is HealthStatus.READY
 
 
+def test_live_control_contracts_are_strict():
+    request_id = uuid4()
+    request = LiveRequest.model_validate(
+        {
+            "type": "live_request",
+            "protocol_version": 1,
+            "request_id": str(request_id),
+            "enabled": True,
+        }
+    )
+    state = LiveState(state="running", live_session_id=uuid4(), target_fps=3.0)
+    assert request.enabled is True
+    assert state.state == "running"
+
+
 def _make_character_frame() -> CharacterFrame:
     xyz = np.array([[0.0, 1.0, 0.2], [0.1, 1.1, 0.25]], dtype=np.float32)
     rgba = np.array([[10, 20, 30, 255], [40, 50, 60, 255]], dtype=np.uint8)
@@ -110,13 +148,36 @@ def _make_character_frame() -> CharacterFrame:
         SourceFrameRef("side-phone", sid, cid, 203),
     )
     landmarks = (
-        Landmark3D("hand.left.index_tip", (-0.4, 1.1, 0.08), True, "triangulated", 0.87, 0.92, ("front-phone",), 1.8),
+        Landmark3D(
+            "hand.left.index_tip",
+            (-0.4, 1.1, 0.08),
+            True,
+            "triangulated",
+            0.87,
+            0.92,
+            ("front-phone",),
+            1.8,
+        ),
         Landmark3D("hand.right.wrist", None, False, "unavailable"),
     )
     colliders = (
-        Collider("head", "head", "sphere", True, "observed", 0.9, center_stage_m=(0.0, 1.7, 0.02), radius_m=0.11),
         Collider(
-            "hand.left", "left_hand", "obb", True, "observed", 0.78,
+            "head",
+            "head",
+            "sphere",
+            True,
+            "observed",
+            0.9,
+            center_stage_m=(0.0, 1.7, 0.02),
+            radius_m=0.11,
+        ),
+        Collider(
+            "hand.left",
+            "left_hand",
+            "obb",
+            True,
+            "observed",
+            0.78,
             center_stage_m=(-0.48, 1.12, 0.09),
             axes_row_major=(1, 0, 0, 0, 1, 0, 0, 0, 1),
             half_extents_m=(0.105, 0.045, 0.025),

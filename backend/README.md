@@ -24,12 +24,25 @@ uv sync
 
 ## Run
 
+For person-only clouds, download the pinned Pose Landmarker Lite artifact and verify it before startup:
+
 ```bash
+curl -L --fail \
+  -o models/pose_landmarker_lite.task \
+  https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task
+echo "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a  models/pose_landmarker_lite.task" | shasum -a 256 -c -
+```
+
+```bash
+HMC_POSE_MODEL_PATH=models/pose_landmarker_lite.task \
+HMC_REQUIRE_REAL_VISION=true \
 uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
 The backend must run as a **single Uvicorn worker** — device connections,
 calibration, queues, and subscribers are in-memory shared state.
+
+Once both phones report clock-ready, pressing **Start live recapture** on either phone starts a backend-paced 3 FPS session on both devices. Live frames are not stored under `data/recordings`; explicit snapshots are.
 
 ## Test
 

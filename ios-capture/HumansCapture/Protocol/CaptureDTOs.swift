@@ -290,6 +290,44 @@ struct ErrorMessage: Codable, Sendable {
     }
 }
 
+struct LiveRequest: Codable, Sendable {
+    let type = "live_request"
+    let protocolVersion = 1
+    @LowercaseUUID var requestID: UUID
+    let enabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion = "protocol_version"
+        case requestID = "request_id"
+        case enabled
+    }
+}
+
+enum LiveSessionState: String, Codable, Sendable {
+    case starting, running, paused, stopped
+}
+
+struct LiveStateMessage: Codable, Sendable {
+    let type: String
+    let protocolVersion: Int
+    @OptionalLowercaseUUID var requestID: UUID?
+    @OptionalLowercaseUUID var liveSessionID: UUID?
+    let state: LiveSessionState
+    let targetFPS: Double
+    let reason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion = "protocol_version"
+        case requestID = "request_id"
+        case liveSessionID = "live_session_id"
+        case state
+        case targetFPS = "target_fps"
+        case reason
+    }
+}
+
 struct IncomingMessageType: Codable {
     let type: String
 }

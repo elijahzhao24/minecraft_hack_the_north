@@ -31,7 +31,7 @@ public final class HumanCraftConfig {
 	/** Largest binary WebSocket message accepted (bytes); capped to the protocol maximum. */
 	public int maxBinaryBytes = 16 + 65_536 + 8 * 1024 * 1024;
 	/** Live frames older than this stop being interactive and are hidden. */
-	public int liveFrameTtlMs = 500;
+	public int liveFrameTtlMs = 1_000;
 	/** Server reach used for probes when positive; otherwise the vanilla block interaction range. */
 	public double probeReachBlocks = 0;
 

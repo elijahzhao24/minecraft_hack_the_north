@@ -17,6 +17,23 @@ logger = logging.getLogger("hmc")
 
 _active = False
 
+
+def configure_console_logging(level: str = "INFO") -> None:
+    """Make local structured events visible when running under Uvicorn.
+
+    Uvicorn configures its own named loggers, but not arbitrary application
+    loggers.  Install one handler exactly once so packet events are printed even
+    when Sentry is disabled.
+    """
+    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    if not any(handler.name == "hmc-console" for handler in logger.handlers):
+        handler = logging.StreamHandler()
+        handler.set_name("hmc-console")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        logger.addHandler(handler)
+    logger.propagate = False
+
+
 try:  # pragma: no cover - import guarded for environments without the SDK
     import sentry_sdk
 

@@ -160,6 +160,7 @@ actor CapturePipeline {
                     "dropped_frame_count": statistics.droppedLiveFrames
                 ]
                 if source.intent.mode == .snapshot {
+                    // NOTE: here is diagnostic logging
                     diagnostics.log(.info, "capture.frame.sent", attributes: frameAttributes)
                 } else {
                     liveSentSinceAggregate &+= 1

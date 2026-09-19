@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     clock_uncertainty_limit_ms: float = 20.0
     hello_deadline_s: float = 10.0
     clock_probe_interval_s: float = 2.0
+    live_target_fps: float = 3.0
+    live_capture_lead_ms: float = 40.0
+    live_pair_timeout_ms: float = 300.0
+    live_clock_samples: int = 3
+    live_max_points: int = 20_000
+    live_voxel_size_m: float = 0.025
+    person_mask_threshold: float = 0.5
+    require_real_vision: bool = False
 
     # --- Reconstruction tunables -----------------------------------------
     voxel_size_m: float = 0.015

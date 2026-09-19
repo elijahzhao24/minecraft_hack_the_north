@@ -72,6 +72,14 @@ class BufferDescriptorModel(_Strict):
     shape: list[int] | None = None
 
 
+class RgbDepthMapping(_Strict):
+    """How pixels in the transmitted RGB and depth rasters correspond."""
+
+    method: Literal["normalized_uncropped_scale"]
+    rgb_crop: None
+    depth_crop: None
+
+
 class RgbdFrameHeader(_Strict):
     """The ``hmc.rgbd_frame`` header carried in an HMC1 RGBD envelope."""
 
@@ -83,9 +91,11 @@ class RgbdFrameHeader(_Strict):
     sequence: int
     capture_timestamp_s: float
     image_orientation: ImageOrientation
+    mirrored: Literal[False]
     tracking_state: TrackingState
     rgb: RgbInfo
     depth: DepthInfo
+    rgb_depth_mapping: RgbDepthMapping
     t_arkit_world_from_camera_row_major: list[float]
     buffers: list[BufferDescriptorModel]
 

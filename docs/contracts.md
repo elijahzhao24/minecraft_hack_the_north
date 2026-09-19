@@ -167,6 +167,22 @@ Reject a binary frame before a successful hello. One active connection is allowe
 
 The backend records its own receive time. It computes phone-minus-backend offset as `((t1-t0) + (t2-t3)) / 2`, round-trip delay as `(t3-t0) - (t2-t1)`, retains a bounded set of low-delay samples, and reports uncertainty. Echoing `backend_send_time_s` is diagnostic; `request_id` is the join key.
 
+### Coordinated live capture
+
+Either phone may request the shared two-phone live session:
+
+```json
+{"type":"live_request","protocol_version":1,"request_id":"bd36780c-37ac-47ad-8cbc-dba00734859f","enabled":true}
+```
+
+The backend is authoritative and broadcasts every state change to both phones:
+
+```json
+{"type":"live_state","protocol_version":1,"request_id":null,"live_session_id":"18434a87-0ea1-4088-a120-b44823d1c8a8","state":"running","target_fps":3.0,"reason":null}
+```
+
+State is `starting`, `running`, `paused`, or `stopped`. A requested session pauses when calibration, either device, or either clock is unavailable and resumes automatically after recovery. While running, the backend sends both phones `capture_request` messages with one shared capture ID, `mode: live`, and device-specific monotonic deadlines. Live RGBD packets are latest-wins and are not persisted; explicit snapshots retain immutable recording behavior.
+
 ### Capture and generic result messages
 
 ```json

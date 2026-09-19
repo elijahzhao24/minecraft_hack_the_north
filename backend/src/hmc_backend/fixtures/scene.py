@@ -52,16 +52,24 @@ def make_person_points(seed: int = 0) -> tuple[NDArray[np.float32], NDArray[np.u
     """A simple standing humanoid of colored primitives in the stage frame."""
     rng = np.random.default_rng(seed)
     parts = [
-        _sphere((0.0, 1.65, 0.0), 0.12, (240, 200, 170), 1500, rng),          # head
+        _sphere((0.0, 1.65, 0.0), 0.12, (240, 200, 170), 1500, rng),  # head
         _cylinder((0.0, 0.95, 0.0), (0.0, 1.5, 0.0), 0.16, (60, 120, 200), 5000, rng),  # torso
-        _cylinder((-0.18, 1.45, 0.0), (-0.45, 1.1, 0.05), 0.05, (60, 120, 200), 1500, rng),  # L upper arm
-        _cylinder((-0.45, 1.1, 0.05), (-0.6, 0.8, 0.1), 0.045, (240, 200, 170), 1500, rng),  # L forearm
-        _cylinder((0.18, 1.45, 0.0), (0.45, 1.1, 0.05), 0.05, (60, 120, 200), 1500, rng),    # R upper arm
-        _cylinder((0.45, 1.1, 0.05), (0.6, 0.8, 0.1), 0.045, (240, 200, 170), 1500, rng),    # R forearm
-        _cylinder((-0.08, 0.95, 0.0), (-0.1, 0.5, 0.0), 0.07, (40, 40, 60), 2000, rng),      # L thigh
-        _cylinder((-0.1, 0.5, 0.0), (-0.1, 0.05, 0.03), 0.055, (40, 40, 60), 2000, rng),     # L shin
-        _cylinder((0.08, 0.95, 0.0), (0.1, 0.5, 0.0), 0.07, (40, 40, 60), 2000, rng),        # R thigh
-        _cylinder((0.1, 0.5, 0.0), (0.1, 0.05, 0.03), 0.055, (40, 40, 60), 2000, rng),       # R shin
+        _cylinder(
+            (-0.18, 1.45, 0.0), (-0.45, 1.1, 0.05), 0.05, (60, 120, 200), 1500, rng
+        ),  # L upper arm
+        _cylinder(
+            (-0.45, 1.1, 0.05), (-0.6, 0.8, 0.1), 0.045, (240, 200, 170), 1500, rng
+        ),  # L forearm
+        _cylinder(
+            (0.18, 1.45, 0.0), (0.45, 1.1, 0.05), 0.05, (60, 120, 200), 1500, rng
+        ),  # R upper arm
+        _cylinder(
+            (0.45, 1.1, 0.05), (0.6, 0.8, 0.1), 0.045, (240, 200, 170), 1500, rng
+        ),  # R forearm
+        _cylinder((-0.08, 0.95, 0.0), (-0.1, 0.5, 0.0), 0.07, (40, 40, 60), 2000, rng),  # L thigh
+        _cylinder((-0.1, 0.5, 0.0), (-0.1, 0.05, 0.03), 0.055, (40, 40, 60), 2000, rng),  # L shin
+        _cylinder((0.08, 0.95, 0.0), (0.1, 0.5, 0.0), 0.07, (40, 40, 60), 2000, rng),  # R thigh
+        _cylinder((0.1, 0.5, 0.0), (0.1, 0.05, 0.03), 0.055, (40, 40, 60), 2000, rng),  # R shin
     ]
     xyz = np.concatenate([p[0] for p in parts], axis=0)
     rgb = np.concatenate([p[1] for p in parts], axis=0)
@@ -144,18 +152,41 @@ def encode_rgbd_packet(
         "sequence": sequence,
         "capture_timestamp_s": capture_timestamp_s,
         "image_orientation": "landscape_right",
+        "mirrored": False,
         "tracking_state": "normal",
         "rgb": {
             "width": w_rgb,
             "height": h_rgb,
             "intrinsics_row_major": calib.K_rgb.reshape(-1).tolist(),
         },
-        "depth": {"width": w_d, "height": h_d, "unit": "meter", "confidence_encoding": "arkit_0_1_2"},
+        "depth": {
+            "width": w_d,
+            "height": h_d,
+            "unit": "meter",
+            "confidence_encoding": "arkit_0_1_2",
+        },
+        "rgb_depth_mapping": {
+            "method": "normalized_uncropped_scale",
+            "rgb_crop": None,
+            "depth_crop": None,
+        },
         "T_arkit_world_from_camera_row_major": np.eye(4).reshape(-1).tolist(),
         "buffers": [
             {"name": "rgb", "encoding": "jpeg", "offset": 0, "length": len(jpeg_bytes)},
-            {"name": "depth", "encoding": "float32_le", "offset": off_depth, "length": len(depth_bytes), "shape": [h_d, w_d]},
-            {"name": "confidence", "encoding": "uint8", "offset": off_conf, "length": len(conf_bytes), "shape": [h_d, w_d]},
+            {
+                "name": "depth",
+                "encoding": "float32_le",
+                "offset": off_depth,
+                "length": len(depth_bytes),
+                "shape": [h_d, w_d],
+            },
+            {
+                "name": "confidence",
+                "encoding": "uint8",
+                "offset": off_conf,
+                "length": len(conf_bytes),
+                "shape": [h_d, w_d],
+            },
         ],
     }
     payload = jpeg_bytes + depth_bytes + conf_bytes

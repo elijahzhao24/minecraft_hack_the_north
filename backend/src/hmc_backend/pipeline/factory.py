@@ -7,6 +7,8 @@ capture loop build the pipeline the same way.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from hmc_backend.calibration.model import RigCalibration
@@ -17,6 +19,7 @@ from hmc_backend.pipeline.snapshot_store import SnapshotStore
 from hmc_backend.reconstruction.reconstruct import CropBounds
 from hmc_backend.settings import Settings
 from hmc_backend.vision.fake import FakeCharacterFitter, FakePersonMaskDetector
+from hmc_backend.vision.mediapipe_pose import EmptyCharacterFitter, MediaPipePoseMaskDetector
 from hmc_backend.vision.protocols import CharacterFitter, ViewDetector
 
 
@@ -51,8 +54,22 @@ def build_processor(
     session_id: UUID | None = None,
 ) -> CharacterProcessor:
     """Build a processor. Defaults to the fake vision stages for fixtures."""
+    if detector is None and settings.pose_model_path:
+        manifest = json.loads(Path(settings.model_manifest_path).read_text())
+        pose_manifest = manifest["models"]["pose"]
+        detector = MediaPipePoseMaskDetector(
+            settings.pose_model_path,
+            tuple(settings.expected_device_ids),
+            threshold=settings.person_mask_threshold,
+            expected_sha256=pose_manifest["sha256"],
+        )
+        fitter = fitter or EmptyCharacterFitter()
+    elif detector is None:
+        if settings.require_real_vision:
+            raise ValueError("HMC_POSE_MODEL_PATH is required when real vision is enabled")
+        detector = FakePersonMaskDetector()
     return CharacterProcessor(
-        detector or FakePersonMaskDetector(),
+        detector,
         fitter or FakeCharacterFitter(),
         calibration,
         FrameAssembler(session_id or uuid4()),
@@ -60,6 +77,8 @@ def build_processor(
         voxel_size_m=settings.voxel_size_m,
         max_points=settings.max_points,
         confidence_min=settings.confidence_min,
+        live_voxel_size_m=settings.live_voxel_size_m,
+        live_max_points=settings.live_max_points,
     )
 
 

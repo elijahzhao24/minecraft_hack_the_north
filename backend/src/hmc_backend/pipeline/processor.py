@@ -32,6 +32,8 @@ class CharacterProcessor:
         voxel_size_m: float,
         max_points: int,
         confidence_min: int,
+        live_voxel_size_m: float | None = None,
+        live_max_points: int | None = None,
     ) -> None:
         self._detector = detector
         self._fitter = fitter
@@ -41,6 +43,8 @@ class CharacterProcessor:
         self._voxel_size_m = voxel_size_m
         self._max_points = max_points
         self._confidence_min = confidence_min
+        self._live_voxel_size_m = live_voxel_size_m or voxel_size_m
+        self._live_max_points = live_max_points or max_points
 
     def process(self, pair: PairedFrames, *, mode: str = "snapshot") -> CharacterFrame:
         """Run all stages and return one validated CharacterFrame."""
@@ -66,8 +70,12 @@ class CharacterProcessor:
             source_bit <<= 1
 
         seed = _seed_from_pair(pair)
+        is_live = mode == "live"
         merged = merge_clouds(
-            clouds, voxel_size_m=self._voxel_size_m, max_points=self._max_points, seed=seed
+            clouds,
+            voxel_size_m=self._live_voxel_size_m if is_live else self._voxel_size_m,
+            max_points=self._live_max_points if is_live else self._max_points,
+            seed=seed,
         )
 
         # Fit against the front camera's calibration (registration reference).
@@ -77,6 +85,8 @@ class CharacterProcessor:
         warnings = ()
         if merged.count == 0:
             warnings = ("empty_cloud",)
+        if is_live and not fitted.landmarks and not fitted.colliders:
+            warnings += ("landmarks_and_colliders_not_implemented",)
 
         return self._assembler.assemble(
             pair,
@@ -87,6 +97,11 @@ class CharacterProcessor:
             trace=TraceContext(),
             extra_warnings=warnings,
         )
+
+    def close(self) -> None:
+        close = getattr(self._detector, "close", None)
+        if close is not None:
+            close()
 
 
 def _seed_from_pair(pair: PairedFrames) -> int:

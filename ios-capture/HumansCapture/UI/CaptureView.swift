@@ -54,7 +54,7 @@ struct CaptureView: View {
                         Button(store.liveEnabled ? "Stop live recapture" : "Start live recapture") {
                             store.toggleLive()
                         }
-                        .disabled(!store.isRunning)
+                        .disabled(!store.isRunning || store.socketState != .ready)
                         if let fixture = store.lastFixtureURL {
                             ShareLink(item: fixture) {
                                 Label("Export last .hmc fixture", systemImage: "square.and.arrow.up")
@@ -70,6 +70,7 @@ struct CaptureView: View {
                         metric("Valid depth", store.validDepthFraction.map { $0.formatted(.percent.precision(.fractionLength(1))) } ?? "—")
                         metric("Queue", "\(store.queueDepth)")
                         metric("Dropped live", "\(store.droppedFrames)")
+                        metric("Live", store.liveState.rawValue)
                         metric("Session", store.sessionID?.uuidString.lowercased() ?? "—")
                         metric("Sequence", store.lastSequence.map(String.init) ?? "—")
                         Text(store.lastStatus).font(.footnote)

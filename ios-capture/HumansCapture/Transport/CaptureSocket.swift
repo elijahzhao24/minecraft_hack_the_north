@@ -15,6 +15,7 @@ enum CaptureSocketEvent: Sendable {
     case captureRequest(CaptureRequest)
     case acknowledgement(AckMessage)
     case serverError(ErrorMessage)
+    case liveState(LiveStateMessage)
 }
 
 enum CaptureSocketError: Error, LocalizedError {
@@ -103,6 +104,11 @@ actor CaptureSocket {
         ))
     }
 
+    func requestLive(enabled: Bool) async throws {
+        guard state == .ready else { throw CaptureSocketError.notReady }
+        try await sendJSON(LiveRequest(requestID: UUID(), enabled: enabled))
+    }
+
     private func sendJSON<T: Encodable>(_ value: T) async throws {
         guard let task else { throw CaptureSocketError.notReady }
         let data = try encoder.encode(value)
@@ -188,6 +194,18 @@ actor CaptureSocket {
                 throw CaptureSocketError.protocolViolation("invalid error message")
             }
             eventHandler?(.serverError(error))
+        case "live_state":
+            try Self.requireOnlyKeys(
+                ["type", "protocol_version", "request_id", "live_session_id", "state", "target_fps", "reason"],
+                in: data
+            )
+            let liveState = try decoder.decode(LiveStateMessage.self, from: data)
+            guard liveState.protocolVersion == 1,
+                  liveState.targetFPS.isFinite,
+                  liveState.targetFPS > 0 else {
+                throw CaptureSocketError.protocolViolation("invalid live state")
+            }
+            eventHandler?(.liveState(liveState))
         default:
             throw CaptureSocketError.protocolViolation("unknown control type \(messageType.type)")
         }

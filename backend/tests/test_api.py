@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -16,7 +17,11 @@ from hmc_backend.settings import Settings
 
 def _install_runtime(*, with_calibration: bool = True) -> tuple[AppRuntime, object]:
     settings = Settings()
-    rig = build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120)) if with_calibration else None
+    rig = (
+        build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120))
+        if with_calibration
+        else None
+    )
     runtime = AppRuntime(settings, rig)
     app.state.runtime = runtime
     return runtime, rig
@@ -41,6 +46,24 @@ def test_health_503_without_calibration():
         resp = client.get("/health")
     assert resp.status_code == 503
     assert resp.json()["status"] in {"starting", "degraded"}
+
+
+def test_valid_packet_is_recorded_without_calibration(tmp_path):
+    rig = build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120))
+    capture_id = uuid4()
+    packet = build_capture_packets(rig, capture_id=capture_id)["front-phone"]
+    settings = Settings(recording_root=str(tmp_path))
+    runtime = AppRuntime(settings, None)
+
+    with TestClient(app) as client:
+        app.state.runtime = runtime
+        with client.websocket_connect("/ws/capture") as sock:
+            sock.send_text(_client_hello("front-phone"))
+            assert json.loads(sock.receive_text())["type"] == "server_hello"
+            sock.send_bytes(packet)
+
+    recorded = Path(tmp_path, str(capture_id), "front-phone.hmc")
+    assert recorded.read_bytes() == packet
 
 
 def test_capture_hello_rejects_unknown_device():
@@ -81,9 +104,19 @@ def _client_hello(device_id: str) -> str:
     )
 
 
-def test_capture_to_character_end_to_end():
+def _receive_type(sock, wanted: str) -> dict:
+    while True:
+        message = json.loads(sock.receive_text())
+        if message["type"] == wanted:
+            return message
+
+
+def test_capture_to_character_end_to_end(tmp_path):
     with TestClient(app) as client:
-        runtime, rig = _install_runtime(with_calibration=True)
+        settings = Settings(recording_root=str(tmp_path))
+        rig = build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120))
+        runtime = AppRuntime(settings, rig)
+        app.state.runtime = runtime
         capture_id = uuid4()
         packets = build_capture_packets(rig, capture_id=capture_id, seed=5, splat=2)
 
@@ -125,7 +158,9 @@ def test_character_request_capture_forwards_to_phones():
 
                 with client.websocket_connect("/ws/character") as char:
                     char.send_text(
-                        json.dumps({"type": "character_hello", "protocol_version": 1, "client_id": "demo"})
+                        json.dumps(
+                            {"type": "character_hello", "protocol_version": 1, "client_id": "demo"}
+                        )
                     )
                     char.receive_text()  # character_server_hello
                     req_id = str(uuid4())
@@ -141,8 +176,8 @@ def test_character_request_capture_forwards_to_phones():
                         )
                     )
                     # Both phones receive a capture_request.
-                    front_msg = json.loads(front.receive_text())
-                    side_msg = json.loads(side.receive_text())
+                    front_msg = _receive_type(front, "capture_request")
+                    side_msg = _receive_type(side, "capture_request")
                     assert front_msg["type"] == "capture_request"
                     assert side_msg["type"] == "capture_request"
                     # And the character client is acked.

@@ -8,6 +8,7 @@ final class CaptureStore: ObservableObject {
 
     @Published private(set) var isRunning = false
     @Published private(set) var liveEnabled = false
+    @Published private(set) var liveState: LiveSessionState = .stopped
     @Published private(set) var socketState: CaptureSocketState = .disconnected
     @Published private(set) var sessionID: UUID?
     @Published private(set) var lastSequence: UInt64?
@@ -100,9 +101,19 @@ final class CaptureStore: ObservableObject {
     }
 
     func toggleLive() {
-        liveEnabled.toggle()
-        captureController.setLiveEnabled(liveEnabled)
-        lastStatus = liveEnabled ? "Live recapture enabled" : "Live recapture stopped"
+        guard socketState == .ready else {
+            lastStatus = "Connect to the backend before starting live capture."
+            return
+        }
+        let enable = !liveEnabled
+        lastStatus = enable ? "Requesting coordinated live capture…" : "Stopping live capture…"
+        Task {
+            do {
+                try await socket.requestLive(enabled: enable)
+            } catch {
+                lastStatus = error.localizedDescription
+            }
+        }
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
@@ -139,6 +150,7 @@ final class CaptureStore: ObservableObject {
         case .stopped:
             isRunning = false
             liveEnabled = false
+            liveState = .stopped
             diagnostics.log(.info, "capture.session.stopped", attributes: commonAttributes())
             lastStatus = "Capture stopped"
         case .unsupportedSceneDepth:
@@ -196,6 +208,7 @@ final class CaptureStore: ObservableObject {
                 lastStatus = "Backend connected"
                 diagnostics.log(.info, "capture.websocket.connected", attributes: commonAttributes())
             case .failed(let message):
+                liveState = .paused
                 lastStatus = "Connection lost: \(message)"
                 diagnostics.log(.warning, "capture.websocket.reconnect", attributes: [
                     "device_id": deviceID,
@@ -203,6 +216,9 @@ final class CaptureStore: ObservableObject {
                     "error": message
                 ])
                 scheduleReconnect()
+            case .disconnected:
+                liveEnabled = false
+                liveState = .stopped
             default:
                 break
             }
@@ -258,6 +274,14 @@ final class CaptureStore: ObservableObject {
                 "code": error.code,
                 "retryable": error.retryable
             ])
+        case .liveState(let message):
+            liveState = message.state
+            liveEnabled = message.state != .stopped
+            if message.state == .paused, let reason = message.reason {
+                lastStatus = "Live capture paused: \(reason)"
+            } else {
+                lastStatus = "Live capture \(message.state.rawValue) at \(message.targetFPS.formatted()) FPS"
+            }
         }
     }
 

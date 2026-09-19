@@ -22,10 +22,17 @@ from hmc_backend.contracts.control import (
     CharacterHello,
     CharacterServerHello,
     ClientHello,
+    ClockPong,
     Error,
+    LiveRequest,
     ServerHello,
 )
-from hmc_backend.observability import configure_sentry, flush_sentry
+from hmc_backend.observability import (
+    configure_console_logging,
+    configure_sentry,
+    flush_sentry,
+    log_event,
+)
 from hmc_backend.protocol.envelope import EnvelopeError
 from hmc_backend.settings import Settings, load_settings
 
@@ -43,6 +50,7 @@ def build_runtime(settings: Settings) -> AppRuntime:
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
+    configure_console_logging()
     configure_sentry(
         settings.sentry_dsn,
         environment=settings.environment,
@@ -50,7 +58,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         traces_sample_rate=settings.traces_sample_rate,
     )
     app.state.runtime = build_runtime(settings)
+    log_event(
+        "info",
+        "backend_started",
+        bind_host=settings.bind_host,
+        port=settings.port,
+        expected_device_ids=",".join(settings.expected_device_ids),
+        calibration_loaded=app.state.runtime.is_ready(),
+    )
     yield
+    await app.state.runtime.shutdown()
     # Shutdown: flush any pending Sentry events with a short timeout.
     flush_sentry()
 
@@ -69,27 +86,47 @@ async def health() -> JSONResponse:
 async def ws_capture(ws: WebSocket) -> None:
     runtime: AppRuntime = app.state.runtime
     await ws.accept()
+    log_event(
+        "info",
+        "capture_socket_opened",
+        client_host=ws.client.host if ws.client else "unknown",
+    )
 
     # 1. Hello handshake with deadline.
     try:
         first = await asyncio.wait_for(ws.receive_text(), timeout=runtime.settings.hello_deadline_s)
     except (TimeoutError, WebSocketDisconnect):
+        log_event("warning", "capture_hello_missing")
         await ws.close()
         return
 
     try:
         hello = ClientHello.model_validate_json(first)
     except ValueError:
+        log_event("warning", "capture_hello_rejected", reason="invalid_client_hello")
         await _send_model(ws, Error(code="invalid_message", message="expected client_hello"))
         await ws.close()
         return
 
     if not runtime.is_expected_device(hello.device_id):
+        log_event(
+            "warning",
+            "capture_hello_rejected",
+            device_id=hello.device_id,
+            reason="unauthorized_device",
+        )
         await _send_model(ws, Error(code="unauthorized_device", message="device not configured"))
         await ws.close()
         return
 
     token = runtime.register_capture(hello.device_id, ws.send_text)
+    log_event(
+        "info",
+        "capture_device_connected",
+        device_id=hello.device_id,
+        session_id=str(hello.session_id),
+        app_version=hello.app_version,
+    )
     await _send_model(
         ws,
         ServerHello(
@@ -109,39 +146,82 @@ async def ws_capture(ws: WebSocket) -> None:
             if (text := message.get("text")) is not None:
                 await _handle_capture_text(runtime, ws, hello.device_id, text)
             elif (data := message.get("bytes")) is not None:
-                await _handle_capture_binary(runtime, ws, data)
+                await _handle_capture_binary(runtime, ws, hello.device_id, data)
     except WebSocketDisconnect:
         pass
     finally:
         runtime.unregister_capture(hello.device_id, token)
+        log_event("info", "capture_device_disconnected", device_id=hello.device_id)
 
 
-async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: str, text: str) -> None:
+async def _handle_capture_text(
+    runtime: AppRuntime, ws: WebSocket, device_id: str, text: str
+) -> None:
     try:
         obj = json.loads(text)
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
         return
     if obj.get("type") == "clock_pong":
-        # Backend records its own receive time on arrival.
         import time
 
-        t3 = time.monotonic()
-        runtime.on_clock_pong(
-            device_id,
-            float(obj["backend_send_time_s"]),
-            float(obj["phone_receive_time_s"]),
-            float(obj["phone_send_time_s"]),
-            t3,
-        )
+        try:
+            pong = ClockPong.model_validate(obj)
+            runtime.on_clock_pong(
+                device_id,
+                pong.request_id,
+                pong.phone_receive_time_s,
+                pong.phone_send_time_s,
+                time.monotonic(),
+            )
+        except ValueError:
+            await _send_model(ws, Error(code="invalid_message", message="invalid clock_pong"))
+    elif obj.get("type") == "live_request":
+        try:
+            request = LiveRequest.model_validate(obj)
+            await runtime.request_live(request.request_id, request.enabled)
+        except ValueError:
+            await _send_model(ws, Error(code="invalid_message", message="invalid live_request"))
+    elif obj.get("type") == "ack":
+        # Capture-request acknowledgements are diagnostic; frame arrival is authoritative.
+        try:
+            Ack.model_validate(obj)
+        except ValueError:
+            await _send_model(ws, Error(code="invalid_message", message="invalid ack"))
+    else:
+        await _send_model(ws, Error(code="invalid_message", message="unknown phone control type"))
 
 
-async def _handle_capture_binary(runtime: AppRuntime, ws: WebSocket, data: bytes) -> None:
+async def _handle_capture_binary(
+    runtime: AppRuntime, ws: WebSocket, device_id: str, data: bytes
+) -> None:
+    log_event(
+        "info",
+        "rgbd_packet_arrived",
+        device_id=device_id,
+        packet_bytes=len(data),
+    )
     try:
-        await runtime.handle_rgbd(data)
+        await runtime.handle_rgbd(data, expected_device_id=device_id)
     except EnvelopeError as exc:
+        log_event(
+            "warning",
+            "rgbd_packet_rejected",
+            device_id=device_id,
+            packet_bytes=len(data),
+            code=exc.code,
+            reason=exc.message,
+        )
         await _send_model(ws, Error(code=exc.code, message=exc.message))
-    except Exception:  # noqa: BLE001 - never let one frame kill the socket
+    except Exception as exc:  # noqa: BLE001 - never let one frame kill the socket
+        log_event(
+            "error",
+            "rgbd_packet_failed",
+            device_id=device_id,
+            packet_bytes=len(data),
+            error_type=type(exc).__name__,
+            reason=str(exc),
+        )
         await _send_model(ws, Error(code="internal_error", message="frame processing failed"))
 
 

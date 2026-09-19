@@ -4,10 +4,10 @@
   "note": "Pinned MediaPipe Tasks .task files. Workflow 3 owns real model wiring; the fixture pipeline uses the fake detector/fitter and needs no weights. Fill in url/sha256 when the real models are added, and verify checksums at startup.",
   "models": {
     "pose": {
-      "filename": "pose_landmarker.task",
-      "url": null,
+      "filename": "pose_landmarker_lite.task",
+      "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
       "license": "Apache-2.0 (MediaPipe)",
-      "sha256": null
+      "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
     },
     "hands": {
       "filename": "hand_landmarker.task",
