@@ -54,6 +54,11 @@ class EnvelopeError(ValueError):
         self.message = message
 
 
+def _reject_json_constant(name: str) -> float:
+    """Reject the non-finite JSON constants Python would otherwise accept."""
+    raise EnvelopeError("invalid_message", f"header contains non-finite constant {name}")
+
+
 def _max_payload_for_type(message_type: int) -> int:
     if message_type == MessageType.RGBD_FRAME:
         return MAX_RGBD_PAYLOAD_BYTES
@@ -146,7 +151,10 @@ def decode_envelope(data: bytes) -> Envelope:
     except UnicodeDecodeError as exc:
         raise EnvelopeError("invalid_message", "header is not valid UTF-8") from exc
     try:
-        header = json.loads(header_text)
+        # Python's json accepts NaN/Infinity by default; the contract does not
+        # ("All floating values must be finite... rejected even if a JSON parser
+        # accepts them"), so reject those constants at the parse boundary.
+        header = json.loads(header_text, parse_constant=_reject_json_constant)
     except json.JSONDecodeError as exc:
         raise EnvelopeError("invalid_message", "header is not valid JSON") from exc
     if not isinstance(header, dict):
