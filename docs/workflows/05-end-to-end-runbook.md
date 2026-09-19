@@ -223,8 +223,22 @@ cd minecraft-mod
 ./gradlew runClient
 ```
 
-Confirm the HUD shows decoded/pending/**active** IDs, `P` probes a body part,
-`O`/`I`/`U` toggle layers, and `F8` clears.
+Confirm the HUD shows decoded/pending/**active** IDs, then:
+
+| Key | Action |
+|---|---|
+| `G` | request a capture |
+| `R` | probe (server reports the body part hit) |
+| `C` | clear the active human |
+| `J` | reconnect to the backend |
+| `B` | re-anchor in front of you |
+| `O` / `I` / `U` / `Y` / `H` | cloud / skeleton / colliders / source colours / HUD |
+| arrow keys, `[` / `]` | move the anchor |
+| `=` / `-` | scale up / down |
+
+Defaults deliberately avoid vanilla bindings (`P` is Social Interactions) and
+anything needing `Fn` or a numeric keypad, so they work on a laptop. All are
+rebindable in Options -> Controls -> HumanCraft.
 
 ### 10.3 Contract gates
 

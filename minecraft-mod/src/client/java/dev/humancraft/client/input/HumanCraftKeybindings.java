@@ -15,25 +15,29 @@ public final class HumanCraftKeybindings {
 	private static final String CATEGORY = "key.categories.humancraft";
 	private static final double ANCHOR_STEP = 0.25;
 
+	// Defaults avoid vanilla bindings (P is Social Interactions) and anything a
+	// laptop cannot press without Fn or a numeric keypad. All are rebindable in
+	// Options -> Controls -> HumanCraft.
+
 	private final HumanCraftConfig config;
 	private final ClientSnapshotCoordinator coordinator;
 
-	private final KeyMapping reconnect = key("reconnect", GLFW.GLFW_KEY_F6);
-	private final KeyMapping recapture = key("recapture", GLFW.GLFW_KEY_F7);
-	private final KeyMapping clear = key("clear", GLFW.GLFW_KEY_F8);
-	private final KeyMapping probe = key("probe", GLFW.GLFW_KEY_P);
+	private final KeyMapping reconnect = key("reconnect", GLFW.GLFW_KEY_J);
+	private final KeyMapping recapture = key("recapture", GLFW.GLFW_KEY_G);
+	private final KeyMapping clear = key("clear", GLFW.GLFW_KEY_C);
+	private final KeyMapping probe = key("probe", GLFW.GLFW_KEY_R);
 	private final KeyMapping cloud = key("toggle_cloud", GLFW.GLFW_KEY_O);
 	private final KeyMapping skeleton = key("toggle_skeleton", GLFW.GLFW_KEY_I);
 	private final KeyMapping colliders = key("toggle_colliders", GLFW.GLFW_KEY_U);
 	private final KeyMapping sourceColors = key("toggle_source_colors", GLFW.GLFW_KEY_Y);
 	private final KeyMapping hud = key("toggle_hud", GLFW.GLFW_KEY_H);
-	private final KeyMapping anchorForward = key("anchor_forward", GLFW.GLFW_KEY_KP_8);
-	private final KeyMapping anchorBack = key("anchor_back", GLFW.GLFW_KEY_KP_2);
-	private final KeyMapping anchorLeft = key("anchor_left", GLFW.GLFW_KEY_KP_4);
-	private final KeyMapping anchorRight = key("anchor_right", GLFW.GLFW_KEY_KP_6);
-	private final KeyMapping anchorUp = key("anchor_up", GLFW.GLFW_KEY_PAGE_UP);
-	private final KeyMapping anchorDown = key("anchor_down", GLFW.GLFW_KEY_PAGE_DOWN);
-	private final KeyMapping anchorReset = key("anchor_reset", GLFW.GLFW_KEY_HOME);
+	private final KeyMapping anchorForward = key("anchor_forward", GLFW.GLFW_KEY_UP);
+	private final KeyMapping anchorBack = key("anchor_back", GLFW.GLFW_KEY_DOWN);
+	private final KeyMapping anchorLeft = key("anchor_left", GLFW.GLFW_KEY_LEFT);
+	private final KeyMapping anchorRight = key("anchor_right", GLFW.GLFW_KEY_RIGHT);
+	private final KeyMapping anchorUp = key("anchor_up", GLFW.GLFW_KEY_RIGHT_BRACKET);
+	private final KeyMapping anchorDown = key("anchor_down", GLFW.GLFW_KEY_LEFT_BRACKET);
+	private final KeyMapping anchorReset = key("anchor_reset", GLFW.GLFW_KEY_B);
 	private final KeyMapping scaleUp = key("scale_up", GLFW.GLFW_KEY_EQUAL);
 	private final KeyMapping scaleDown = key("scale_down", GLFW.GLFW_KEY_MINUS);
 
