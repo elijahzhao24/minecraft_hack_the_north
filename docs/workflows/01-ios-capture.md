@@ -12,13 +12,13 @@ The authoritative DTOs are in [../contracts.md](../contracts.md). Any Swift mode
 - ARKit `ARWorldTrackingConfiguration` with `.sceneDepth`.
 - Core Image or VideoToolbox/ImageIO for correct bi-planar YCbCr-to-JPEG conversion.
 - `URLSessionWebSocketTask` for text and binary WebSocket messages.
-- `os.Logger` locally; Sentry Apple SDK is optional until the Python/Java prize path is complete.
+- `os.Logger` for local, rate-limited capture diagnostics and duration measurements.
 
 Apple documents that scene depth is populated alongside `capturedImage` on supported LiDAR devices and must be gated with `supportsFrameSemantics`. See [scene depth](https://developer.apple.com/documentation/arkit/arconfiguration/framesemantics-swift.struct/scenedepth) and Apple's [point-cloud sample](https://developer.apple.com/documentation/arkit/displaying-a-point-cloud-using-scene-depth).
 
 ## Project setup
 
-1. On a Mac with current Xcode, create an iOS SwiftUI app named `HumansCapture` under `ios-capture/`.
+1. Open the implemented `ios-capture/HumansCapture.xcodeproj` with Xcode 16.4 or a compatible newer toolchain. Its deployment target is iOS 17.0.
 2. Set an explicit deployment target supported by both demo phones. Do not select a target solely because the simulator builds; scene depth requires physical LiDAR hardware.
 3. Add `NSCameraUsageDescription` and `NSLocalNetworkUsageDescription` to the target's Info settings. If Bonjour discovery is later added, also declare the service type; v1 uses an entered backend URL and does not need discovery.
 4. Lock the first build to landscape-right in target orientation settings. The preview may rotate only if the encoded raster and metadata rules remain unchanged.
@@ -159,4 +159,4 @@ Physical-device acceptance:
 - Repeated capture for ten minutes does not grow memory or pending sends.
 - Disconnect/reconnect never reuses the prior session's queued frames.
 
-The lane is not complete if it only works with a simulator or a synthetic depth fixture.
+The software target and unit-test bundle compile, but the lane is not hardware-complete if it only works with a simulator or a synthetic depth fixture. Follow `ios-capture/README.md` for device validation.

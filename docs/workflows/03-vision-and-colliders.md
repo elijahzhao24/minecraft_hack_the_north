@@ -230,7 +230,7 @@ For every validation capture, write under a non-production debug flag:
 - Skeleton plus collider wireframe with stable IDs.
 - JSON report containing observation sources, support counts, reprojection errors, fitted dimensions, disabled reasons, and warnings.
 
-Do not log or upload these images to Sentry. They may contain a real person and follow the recording's consent/storage policy.
+Do not include these images in logs. They may contain a real person and follow the recording's consent/storage policy.
 
 ## Tests and completion gate
 

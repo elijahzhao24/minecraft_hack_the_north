@@ -85,7 +85,7 @@ uv sync --frozen
 uv run uvicorn hmc_backend.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-Verify `http://<laptop-ip>:8000/health` reports calibration/models ready. Sentry being disabled or unreachable must not make health fail.
+Verify `http://<laptop-ip>:8000/health` reports calibration/models ready.
 
 ### Phones
 
@@ -120,7 +120,7 @@ In the test world, confirm backend connected and decoded/pending/active IDs. Pla
 8. Move/place the contact cube at a hand/turned foot and show oriented contact.
 9. Capture bent-arm/open-hand pose. Confirm atomic replacement—no old/new mixed limbs.
 10. Capture lifted/turned-foot pose and repeat orientation/contact proof.
-11. Open the Sentry trace/log view and show the real before/after engineering finding.
+11. Review local diagnostics and saved measurements for the real before/after engineering finding.
 
 ## 6. Invariant checklist during integration
 
@@ -160,7 +160,7 @@ If any identity differs, stop debugging geometry and fix snapshot/data associati
 
 To reset without recalibration: clear active Minecraft snapshot, start new phone sessions if needed, keep tripods fixed, reconnect, and recapture. Do not delete recordings during the demo; mark bad captures in their manifest.
 
-Shutdown order: stop phone capture, disconnect Minecraft/backend socket, exit the world/client, then stop Uvicorn. Confirm recording manifests and Sentry flush completed. Calibration and recordings are retained; any material deletion is a separate deliberate operation.
+Shutdown order: stop phone capture, disconnect Minecraft/backend socket, exit the world/client, then stop Uvicorn. Confirm recording manifests are complete. Calibration and recordings are retained; any material deletion is a separate deliberate operation.
 
 ## 9. Final evidence bundle
 
@@ -174,5 +174,5 @@ Keep a reproducible directory or release artifact containing:
 - Python/Java geometry test results.
 - Physical hand/foot error measurements.
 - Ten-minute soak notes.
-- Sentry trace/log before-and-after evidence.
+- Local diagnostic/measurement before-and-after evidence.
 - Known limitations and which acceptance gates are verified vs unverified.

@@ -15,7 +15,7 @@ It owns the canonical stage frame and calibration. Workflow 3 is a Python module
 - Pydantic v2 plus `pydantic-settings` for untrusted DTO/config validation.
 - NumPy and OpenCV for calibration/reconstruction.
 - MediaPipe Tasks for workflow 3.
-- `sentry-sdk` with tracing and structured logs.
+- Python structured logging for local diagnostics.
 - Pytest, AnyIO, and Hypothesis for tests.
 
 FastAPI supports binary/text WebSockets and disconnection handling; its official [WebSocket guide](https://fastapi.tiangolo.com/advanced/websockets/) is the API baseline. MediaPipe's current [Python setup guide](https://developers.google.com/edge/mediapipe/solutions/setup_python) supports Python 3.9+, making 3.12 a deliberate project pin rather than the lowest allowed version.
@@ -27,7 +27,7 @@ When the `backend/` directory is created:
 ```bash
 cd backend
 uv init --package --python 3.12
-uv add fastapi "uvicorn[standard]" pydantic pydantic-settings numpy opencv-contrib-python mediapipe sentry-sdk
+uv add fastapi "uvicorn[standard]" pydantic pydantic-settings numpy opencv-contrib-python mediapipe
 uv add --dev pytest pytest-asyncio hypothesis httpx ruff mypy
 uv lock
 ```
@@ -64,13 +64,10 @@ Use `fastapi dev` only for local route iteration. Auto-reload restarts in-memory
 | `recording_root` | `data/recordings` | replayable inputs |
 | `pose_model_path` | model manifest entry | required model |
 | `hand_model_path` | model manifest entry | required model |
-| `sentry_dsn` | unset | optional; absence must not break demo |
-
-Secrets such as Sentry DSN stay in environment variables. `/health` never returns them.
 
 ## FastAPI lifecycle and routes
 
-Use an async lifespan context. Startup performs settings validation, loads and validates calibration, verifies model hashes, creates long-lived MediaPipe task instances on the processor thread, starts pair/processing/publisher tasks, then marks readiness. Shutdown stops accepting frames, cancels tasks, closes models/sockets, and flushes Sentry with a short timeout.
+Use an async lifespan context. Startup performs settings validation, loads and validates calibration, verifies model hashes, creates long-lived MediaPipe task instances on the processor thread, starts pair/processing/publisher tasks, then marks readiness. Shutdown stops accepting frames, cancels tasks, and closes models/sockets.
 
 ### `GET /health`
 
@@ -222,9 +219,7 @@ data/recordings/<capture_id>/
 
 ## Observability
 
-Initialize Sentry only if `HMC_SENTRY_DSN` exists. Set release/environment, tracing sample rate, and logs enabled. Carry `session_id`, `capture_id`, `frame_id`, and `calibration_id` as scalar attributes.
-
-One snapshot transaction includes spans for decode, pair wait, pose/hands/mask, unproject/merge, registration, collider fit, serialize, and publish. Log calibration decisions, dropped frames, pair rejection, invalid extremities, point counts, and frame mismatch. Never attach RGB/depth/point buffers or log per point.
+Carry `session_id`, `capture_id`, `frame_id`, and `calibration_id` as scalar local-log attributes. Log calibration decisions, dropped frames, pair rejection, invalid extremities, point counts, and frame mismatch. Never attach RGB/depth/point buffers or log per point.
 
 ## Tests and completion gate
 

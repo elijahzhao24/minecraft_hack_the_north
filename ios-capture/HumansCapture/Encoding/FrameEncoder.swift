@@ -1,0 +1,114 @@
+import CoreVideo
+import Foundation
+
+struct EncodedRGBDFrame: Sendable {
+    let header: RGBDFrameHeader
+    let envelope: Data
+    let validDepthFraction: Double
+    let jpegBytes: Int
+}
+
+final class FrameEncoder: @unchecked Sendable {
+    private let rgbEncoder = RGBEncoder()
+    private let diagnostics: CaptureEventLogger
+
+    init(diagnostics: CaptureEventLogger = .shared) {
+        self.diagnostics = diagnostics
+    }
+
+    func encode(source: CapturedFrameSource, deviceID: String) throws -> EncodedRGBDFrame {
+        let captureID = source.intent.captureID
+        let rgbSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.convert_rgb")
+        let jpeg: Data
+        do {
+            jpeg = try rgbEncoder.encodeJPEG(source.rgbPixelBuffer)
+            rgbSpan?.setData(value: jpeg.count, key: "encoded_rgb_bytes")
+            rgbSpan?.finish(status: .ok)
+        } catch {
+            rgbSpan?.finish(status: .internalError)
+            throw error
+        }
+
+        let copySpan = diagnostics.startSpan(captureID: captureID, operation: "capture.copy_buffers")
+        let encodedDepth: EncodedDepth
+        do {
+            encodedDepth = try DepthEncoder.encode(
+                depth: source.depthPixelBuffer,
+                confidence: source.confidencePixelBuffer
+            )
+            copySpan?.setData(value: encodedDepth.validFraction, key: "valid_depth_fraction")
+            copySpan?.finish(status: .ok)
+        } catch {
+            copySpan?.finish(status: .internalError)
+            throw error
+        }
+
+        let rgbWidth = CVPixelBufferGetWidth(source.rgbPixelBuffer)
+        let rgbHeight = CVPixelBufferGetHeight(source.rgbPixelBuffer)
+        guard (1...HMCProtocol.maximumRasterDimension).contains(rgbWidth),
+              (1...HMCProtocol.maximumRasterDimension).contains(rgbHeight) else {
+            throw RGBEncodingError.invalidDimensions
+        }
+
+        var buffers = [
+            HMCPayloadBuffer(name: "rgb", encoding: "jpeg", data: jpeg, shape: nil),
+            HMCPayloadBuffer(
+                name: "depth",
+                encoding: "float32_le",
+                data: encodedDepth.depthMetersLittleEndian,
+                shape: [UInt32(encodedDepth.height), UInt32(encodedDepth.width)]
+            )
+        ]
+        if let confidence = encodedDepth.confidence {
+            buffers.append(HMCPayloadBuffer(
+                name: "confidence",
+                encoding: "uint8",
+                data: confidence,
+                shape: [UInt32(encodedDepth.height), UInt32(encodedDepth.width)]
+            ))
+        }
+        let descriptors = try HMCEnvelope.descriptors(for: buffers)
+        let header = RGBDFrameHeader(
+            schema: "hmc.rgbd_frame",
+            schemaVersion: 1,
+            deviceID: deviceID,
+            sessionID: source.sessionID,
+            captureID: captureID,
+            sequence: source.sequence,
+            captureTimestampSeconds: source.captureTimestampSeconds,
+            imageOrientation: .landscapeRight,
+            mirrored: false,
+            trackingState: source.trackingState,
+            rgb: RGBMetadata(
+                width: UInt32(rgbWidth),
+                height: UInt32(rgbHeight),
+                intrinsicsRowMajor: MatrixWireEncoding.rowMajor(source.rgbIntrinsics)
+            ),
+            depth: DepthMetadata(
+                width: UInt32(encodedDepth.width),
+                height: UInt32(encodedDepth.height),
+                unit: "meter",
+                confidenceEncoding: encodedDepth.confidence == nil ? nil : "arkit_0_1_2"
+            ),
+            rgbDepthMapping: .normalizedUncropped,
+            arkitWorldFromCameraRowMajor: MatrixWireEncoding.rowMajor(source.arkitWorldFromCamera),
+            buffers: descriptors
+        )
+
+        let serializeSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.serialize")
+        do {
+            let envelope = try HMCEnvelope.encode(header: header, buffers: buffers)
+            serializeSpan?.setData(value: envelope.count, key: "payload_bytes")
+            serializeSpan?.finish(status: .ok)
+            return EncodedRGBDFrame(
+                header: header,
+                envelope: envelope,
+                validDepthFraction: encodedDepth.validFraction,
+                jpegBytes: jpeg.count
+            )
+        } catch {
+            serializeSpan?.finish(status: .internalError)
+            throw error
+        }
+    }
+}

@@ -274,6 +274,7 @@ The backend accepts it only when both configured phones are connected, clock-rea
   "sequence": 184,
   "capture_timestamp_s": 9922.107184,
   "image_orientation": "landscape_right",
+  "mirrored": false,
   "tracking_state": "normal",
   "rgb": {
     "width": 1920,
@@ -285,6 +286,11 @@ The backend accepts it only when both configured phones are connected, clock-rea
     "height": 192,
     "unit": "meter",
     "confidence_encoding": "arkit_0_1_2"
+  },
+  "rgb_depth_mapping": {
+    "method": "normalized_uncropped_scale",
+    "rgb_crop": null,
+    "depth_crop": null
   },
   "T_arkit_world_from_camera_row_major": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.2, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
   "buffers": [
@@ -298,6 +304,7 @@ The backend accepts it only when both configured phones are connected, clock-rea
 Invariants:
 
 - RGB JPEG decodes to the stated RGB width/height and has no relied-upon EXIF rotation.
+- `mirrored` is `false` for the locked v1 capture path. `rgb_depth_mapping.method` is `normalized_uncropped_scale`: both rasters are uncropped/unmirrored and corresponding coordinates are related by normalized raster position. Any later crop/rotation requires a new versioned mapping method.
 - Intrinsics describe that transmitted RGB raster after any resize.
 - Depth has exactly `width * height * 4` bytes and positive finite values for valid samples. Invalid samples are `NaN` in memory but are normalized to `0.0` on the wire and rejected by confidence/mask; consumers must not unproject zero.
 - Confidence has exactly `width * height` bytes. ARKit values are 0/1/2; unknown values are rejected in v1.
@@ -386,11 +393,6 @@ class FrameQuality:
     warnings: tuple[str, ...]
 
 @dataclass(frozen=True, slots=True)
-class TraceContext:
-    sentry_trace: str | None
-    baggage: str | None
-
-@dataclass(frozen=True, slots=True)
 class CharacterFrame:
     session_id: UUID                 # backend character-stream session
     calibration_id: UUID
@@ -403,7 +405,6 @@ class CharacterFrame:
     cloud: ColoredPointCloud
     landmarks: tuple[Landmark3D, ...]
     colliders: tuple[Collider, ...]
-    trace: TraceContext
 ```
 
 Array invariants are checked at module boundaries: C-contiguous, expected rank/shape/dtype, same point count, finite XYZ, alpha 255, and arrays set read-only before publication.
@@ -435,7 +436,6 @@ Landmarks and colliders stay in the JSON header because they are small and inspe
   },
   "landmarks": [],
   "colliders": [],
-  "trace": {"sentry_trace": null, "baggage": null},
   "buffers": [
     {"name": "points", "encoding": "xyzrgba16_le", "offset": 0, "length": 614736, "shape": [38421]}
   ]

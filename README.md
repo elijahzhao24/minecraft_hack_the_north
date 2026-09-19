@@ -4,6 +4,8 @@ Capture a real person with two LiDAR iPhones, reconstruct a colored 3D snapshot,
 
 ## Repository status
 
+Workflow 1 now includes a runnable Xcode project under [`ios-capture/`](ios-capture/README.md). The Python service, Fabric mod, model assets, physical calibration, and real-device fixtures are not yet present. The documents below define the shared contracts and the remaining implementation lanes.
+
 Workflow 4 is implemented as the runnable `minecraft-mod/` Fabric project. It includes deterministic golden fixtures, strict `HMC1` decoding, stage-to-world conversion, a reconnecting backend client, batched point-cloud/debug rendering, integrated-server snapshot ownership, body-part ray hits, hand/foot contact queries, controls/HUD, and optional Sentry telemetry. The built-in fixture keeps this workflow independent of phones and the Python backend.
 
 The iPhone and Python workflows remain separately owned. The documents below are the shared source of truth for their contracts and integration gates.
@@ -24,8 +26,8 @@ The original product and acceptance brief remains in [minecraft_human_mvp_agent_
 
 These are implementation decisions, not evidence of existing code:
 
-- iOS: Swift 6, SwiftUI, ARKit scene depth, `URLSessionWebSocketTask`, physical LiDAR-capable iPhones.
-- Backend: Python 3.12, FastAPI, Uvicorn, Pydantic v2, NumPy, OpenCV, MediaPipe Tasks, and Sentry.
+- iOS: Xcode 16.4, Swift 6, iOS 17+, SwiftUI, ARKit scene depth, `URLSessionWebSocketTask`, and physical LiDAR-capable iPhones.
+- Backend: Python 3.12, FastAPI, Uvicorn, Pydantic v2, NumPy, OpenCV, and MediaPipe Tasks.
 - Game: Minecraft Java 1.21.1, Fabric Loader 0.19.5, Fabric API `0.116.17+1.21.1`, Fabric Loom 1.17.21, Gradle 9.5.1 wrapper, and JDK 21. Keep these pins together and upgrade them as one tested set.
 - Transport: versioned `HMC1` binary messages over WebSockets. Bulk images, depth, and points remain binary; small commands and results are JSON text messages.
 - Units/frame: meters in a calibrated stage frame until the Minecraft boundary; one shared transform converts every point, landmark, and collider to blocks.
