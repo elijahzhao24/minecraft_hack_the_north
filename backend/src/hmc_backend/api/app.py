@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -45,6 +46,9 @@ def build_runtime(settings: Settings) -> AppRuntime:
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
+    # hmc_backend loggers have no handler of their own; without this the
+    # structured log_event lines never reach the console.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     configure_sentry(
         settings.sentry_dsn,
         environment=settings.environment,

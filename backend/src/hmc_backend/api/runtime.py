@@ -9,6 +9,8 @@ here is touched on the event loop only, matching the single-worker model.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -74,6 +76,9 @@ class AppRuntime:
         self._capture_modes: OrderedDict[UUID, str] = OrderedDict()
         self._live_task: asyncio.Task[None] | None = None
         self._live_rate_hz: float = settings.live_rate_hz
+        # Live requests dispatched but not yet paired: capture_id -> send time.
+        self._live_inflight: dict[UUID, float] = {}
+        self._live_paired = asyncio.Event()
 
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
@@ -170,17 +175,36 @@ class AppRuntime:
             log_event("info", "live_stopped")
 
     async def _live_loop(self) -> None:
+        """Self-pacing request loop.
+
+        ``live_rate_hz`` is a ceiling. At most two requests are in flight; the
+        next goes out when one pairs (or is written off after a second), so a
+        slow phone is never asked for more than it can deliver and its queue
+        never overflows. That overflow is what stalled the first live attempt.
+        """
+        max_inflight = 2
+        self._live_inflight.clear()
         try:
             while True:
                 interval = 1.0 / self._live_rate_hz
-                if any(self._pairer.pending_depth(d) >= 4 for d in self._devices) if self._pairer else False:
-                    # A phone is falling behind; do not pile requests on top.
-                    await asyncio.sleep(interval)
+                now = time.monotonic()
+                for cid, sent in list(self._live_inflight.items()):
+                    if now - sent > 1.0:
+                        del self._live_inflight[cid]
+                if len(self._live_inflight) >= max_inflight:
+                    self._live_paired.clear()
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(self._live_paired.wait(), timeout=0.25)
                     continue
-                await self.dispatch_capture(uuid4(), "live")
+                capture_id = uuid4()
+                accepted, _ = await self.dispatch_capture(capture_id, "live")
+                if accepted:
+                    self._live_inflight[capture_id] = time.monotonic()
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:
             pass
+        finally:
+            self._live_inflight.clear()
 
     def is_expected_device(self, device_id: str) -> bool:
         return device_id in self._devices
@@ -226,6 +250,9 @@ class AppRuntime:
             return None
 
         pair = outcome.paired
+        if self._live_inflight.pop(pair.first.capture_id, None) is not None:
+            self._live_paired.set()
+        started = time.monotonic()
         with transaction(
             "character.snapshot",
             op="capture.process",
@@ -256,6 +283,8 @@ class AppRuntime:
             point_count=character.quality.point_count,
             valid_collider_count=character.quality.valid_collider_count,
             pair_skew_ms=round(pair.pair_skew_ms, 2),
+            mode=mode,
+            processing_ms=round((time.monotonic() - started) * 1000.0, 1),
         )
         return character
 
