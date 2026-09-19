@@ -1,5 +1,23 @@
 """ChArUco camera-to-stage calibration and calibration file IO."""
 
+from hmc_backend.calibration.charuco import (
+    STAGE_FROM_BOARD_ROTATION,
+    BoardObservation,
+    BoardSpec,
+    CameraSolution,
+    CharucoError,
+    average_rotations_so3,
+    build_board,
+    compose_stage_from_optical,
+    corner_coverage,
+    detect_board,
+    estimate_pose,
+    geodesic_angle_rad,
+    observe_frame,
+    solve_camera,
+    stage_from_board,
+    validate_solution,
+)
 from hmc_backend.calibration.model import (
     CalibrationError,
     RigCalibration,
@@ -15,13 +33,29 @@ from hmc_backend.calibration.synthetic import (
 )
 
 __all__ = [
+    "STAGE_FROM_BOARD_ROTATION",
+    "BoardObservation",
+    "BoardSpec",
     "CalibrationError",
+    "CameraSolution",
+    "CharucoError",
     "RigCalibration",
+    "average_rotations_so3",
+    "build_board",
     "build_synthetic_rig",
+    "compose_stage_from_optical",
+    "corner_coverage",
+    "detect_board",
+    "estimate_pose",
+    "geodesic_angle_rad",
     "intrinsics",
     "load_rig_calibration",
     "look_at_optical",
+    "observe_frame",
     "parse_rig_calibration",
     "rig_to_json",
     "save_rig_calibration",
+    "solve_camera",
+    "stage_from_board",
+    "validate_solution",
 ]
