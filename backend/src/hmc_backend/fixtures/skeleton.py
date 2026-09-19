@@ -46,8 +46,8 @@ class LimbRadii:
     forearm: float = 0.045
     thigh: float = 0.075
     shin: float = 0.055
-    torso_half_extents: Vec3 = (0.17, 0.26, 0.11)
-    pelvis_half_extents: Vec3 = (0.16, 0.10, 0.11)
+    torso_half_extents: Vec3 = (0.26, 0.17, 0.11)  # up, lateral, forward (matches torso_frames axes)
+    pelvis_half_extents: Vec3 = (0.10, 0.16, 0.11)
     head: float = 0.11
     hand_half_extents: Vec3 = (0.09, 0.045, 0.015)  # long, wide, thick
     foot_half_extents: Vec3 = (0.125, 0.045, 0.04)
@@ -195,9 +195,9 @@ def _obb_points(center, axes, half, color, n, rng):
 
 
 def _orthonormal(longitudinal, hint):
-    lo = np.asarray(longitudinal, float)
+    lo = np.array(longitudinal, dtype=float)  # copy: callers reuse their vectors
     lo /= np.linalg.norm(lo)
-    tr = np.asarray(hint, float)
+    tr = np.array(hint, dtype=float)
     tr -= lo * np.dot(tr, lo)
     tr /= np.linalg.norm(tr)
     return np.stack([lo, tr, np.cross(lo, tr)])
