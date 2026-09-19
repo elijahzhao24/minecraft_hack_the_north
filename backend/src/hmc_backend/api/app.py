@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
+from hmc_backend.api.discovery import start_discovery, stop_discovery
 from hmc_backend.api.runtime import AppRuntime
 from hmc_backend.calibration.model import CalibrationError, load_rig_calibration
 from hmc_backend.contracts.control import (
@@ -22,6 +23,7 @@ from hmc_backend.contracts.control import (
     CharacterHello,
     CharacterServerHello,
     ClientHello,
+    ClockPing,
     Error,
     ServerHello,
 )
@@ -50,7 +52,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         traces_sample_rate=settings.traces_sample_rate,
     )
     app.state.runtime = build_runtime(settings)
+    start_discovery(port=settings.port)
     yield
+    stop_discovery()
     # Shutdown: flush any pending Sentry events with a short timeout.
     flush_sentry()
 
@@ -100,6 +104,10 @@ async def ws_capture(ws: WebSocket) -> None:
         ),
     )
 
+    probe_task = asyncio.create_task(
+        _clock_probe_loop(ws, runtime.settings.clock_probe_interval_s)
+    )
+
     # 2. Receive loop.
     try:
         while True:
@@ -113,7 +121,31 @@ async def ws_capture(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        probe_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await probe_task
         runtime.unregister_capture(hello.device_id, token)
+
+
+async def _clock_probe_loop(ws: WebSocket, interval_s: float) -> None:
+    from uuid import uuid4
+    import time
+
+    for _ in range(4):
+        try:
+            ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
+            await _send_model(ws, ping)
+            await asyncio.sleep(0.05)
+        except Exception:
+            return
+
+    while True:
+        try:
+            await asyncio.sleep(interval_s)
+            ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
+            await _send_model(ws, ping)
+        except Exception:
+            break
 
 
 async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: str, text: str) -> None:
@@ -208,13 +240,14 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
         return
     if obj.get("type") == "request_capture":
-        from uuid import UUID
+        from uuid import UUID, uuid4
 
-        capture_id = UUID(obj["capture_id"])
+        capture_id = UUID(obj["capture_id"]) if "capture_id" in obj else uuid4()
+        request_id = UUID(obj["request_id"]) if "request_id" in obj else uuid4()
         accepted, code = await runtime.dispatch_capture(capture_id, obj.get("mode", "snapshot"))
         await _send_model(
             ws,
-            Ack(request_id=UUID(obj["request_id"]), accepted=accepted, code=code),
+            Ack(request_id=request_id, accepted=accepted, code=code),
         )
 
 

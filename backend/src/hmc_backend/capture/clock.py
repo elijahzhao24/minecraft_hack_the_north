@@ -66,6 +66,10 @@ class ClockEstimator:
         offset, delay = compute_offset_and_delay(t0, t1, t2, t3)
         if delay < 0 or delay > self._max_delay_s:
             return None
+        # If offset jumps by more than 1.0 second, a new device reconnected or clock stepped.
+        current_offset = self.offset_s()
+        if current_offset is not None and abs(offset - current_offset) > 1.0:
+            self._samples.clear()
         sample = ClockSample(request_id=request_id, offset_s=offset, delay_s=delay)
         self._samples.append(sample)
         # Keep only the lowest-delay samples.

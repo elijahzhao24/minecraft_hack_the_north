@@ -20,6 +20,7 @@
 		A0010000000000000000000B /* HumansCapture/Protocol/HMCEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000B /* HumansCapture/Protocol/HMCEnvelope.swift */; };
 		A0010000000000000000000C /* HumansCapture/State/CaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000C /* HumansCapture/State/CaptureStore.swift */; };
 		A0010000000000000000000D /* HumansCapture/Transport/CaptureSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000D /* HumansCapture/Transport/CaptureSocket.swift */; };
+		A00100000000000000000018 /* HumansCapture/Transport/BackendDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000018 /* HumansCapture/Transport/BackendDiscovery.swift */; };
 		A0010000000000000000000E /* HumansCapture/UI/ARCameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000E /* HumansCapture/UI/ARCameraPreview.swift */; };
 		A0010000000000000000000F /* HumansCapture/UI/CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0010000000000000000000F /* HumansCapture/UI/CaptureView.swift */; };
 		A00100000000000000000010 /* HumansCapture/UI/DepthPreviewRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000010 /* HumansCapture/UI/DepthPreviewRenderer.swift */; };
@@ -55,6 +56,7 @@
 		B0010000000000000000000B /* HumansCapture/Protocol/HMCEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Protocol/HMCEnvelope.swift; sourceTree = SOURCE_ROOT; };
 		B0010000000000000000000C /* HumansCapture/State/CaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/State/CaptureStore.swift; sourceTree = SOURCE_ROOT; };
 		B0010000000000000000000D /* HumansCapture/Transport/CaptureSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Transport/CaptureSocket.swift; sourceTree = SOURCE_ROOT; };
+		B00100000000000000000018 /* HumansCapture/Transport/BackendDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/Transport/BackendDiscovery.swift; sourceTree = SOURCE_ROOT; };
 		B0010000000000000000000E /* HumansCapture/UI/ARCameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/UI/ARCameraPreview.swift; sourceTree = SOURCE_ROOT; };
 		B0010000000000000000000F /* HumansCapture/UI/CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/UI/CaptureView.swift; sourceTree = SOURCE_ROOT; };
 		B00100000000000000000010 /* HumansCapture/UI/DepthPreviewRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HumansCapture/UI/DepthPreviewRenderer.swift; sourceTree = SOURCE_ROOT; };
@@ -114,6 +116,7 @@
 				B0010000000000000000000B /* HumansCapture/Protocol/HMCEnvelope.swift */,
 				B0010000000000000000000C /* HumansCapture/State/CaptureStore.swift */,
 				B0010000000000000000000D /* HumansCapture/Transport/CaptureSocket.swift */,
+				B00100000000000000000018 /* HumansCapture/Transport/BackendDiscovery.swift */,
 				B0010000000000000000000E /* HumansCapture/UI/ARCameraPreview.swift */,
 				B0010000000000000000000F /* HumansCapture/UI/CaptureView.swift */,
 				B00100000000000000000010 /* HumansCapture/UI/DepthPreviewRenderer.swift */,
@@ -268,6 +271,7 @@
 				A0010000000000000000000B /* HumansCapture/Protocol/HMCEnvelope.swift in Sources */,
 				A0010000000000000000000C /* HumansCapture/State/CaptureStore.swift in Sources */,
 				A0010000000000000000000D /* HumansCapture/Transport/CaptureSocket.swift in Sources */,
+				A00100000000000000000018 /* HumansCapture/Transport/BackendDiscovery.swift in Sources */,
 				A0010000000000000000000E /* HumansCapture/UI/ARCameraPreview.swift in Sources */,
 				A0010000000000000000000F /* HumansCapture/UI/CaptureView.swift in Sources */,
 				A00100000000000000000010 /* HumansCapture/UI/DepthPreviewRenderer.swift in Sources */,

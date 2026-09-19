@@ -140,9 +140,15 @@ def test_character_request_capture_forwards_to_phones():
                             }
                         )
                     )
+                    def _receive_capture_request(sock):
+                        while True:
+                            msg = json.loads(sock.receive_text())
+                            if msg.get("type") == "capture_request":
+                                return msg
+
                     # Both phones receive a capture_request.
-                    front_msg = json.loads(front.receive_text())
-                    side_msg = json.loads(side.receive_text())
+                    front_msg = _receive_capture_request(front)
+                    side_msg = _receive_capture_request(side)
                     assert front_msg["type"] == "capture_request"
                     assert side_msg["type"] == "capture_request"
                     # And the character client is acked.

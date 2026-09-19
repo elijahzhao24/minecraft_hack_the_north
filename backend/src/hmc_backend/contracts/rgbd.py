@@ -54,7 +54,7 @@ class DepthInfo(_Strict):
     width: int
     height: int
     unit: Literal["meter"]
-    confidence_encoding: str
+    confidence_encoding: str | None = None
 
     @field_validator("width", "height")
     @classmethod
@@ -62,6 +62,12 @@ class DepthInfo(_Strict):
         if not (_DIM_MIN <= v <= _DIM_MAX):
             raise ValueError(f"dimension {v} out of range [1, 8192]")
         return v
+
+
+class RGBDepthMappingModel(_Strict):
+    method: str = "normalized_uncropped_scale"
+    rgb_crop: list[int] | None = None
+    depth_crop: list[int] | None = None
 
 
 class BufferDescriptorModel(_Strict):
@@ -83,9 +89,11 @@ class RgbdFrameHeader(_Strict):
     sequence: int
     capture_timestamp_s: float
     image_orientation: ImageOrientation
+    mirrored: bool = False
     tracking_state: TrackingState
     rgb: RgbInfo
     depth: DepthInfo
+    rgb_depth_mapping: RGBDepthMappingModel | None = None
     t_arkit_world_from_camera_row_major: list[float]
     buffers: list[BufferDescriptorModel]
 
