@@ -193,6 +193,7 @@ public final class HumanRenderer implements AutoCloseable {
 			try {
 				matrices.translate(-camera.x, -camera.y, -camera.z);
 				RenderSystem.enableDepthTest();
+				RenderSystem.disableCull();
 				if (config.showCloud) {
 					draw(cloudBuffer, matrices, context);
 				}
@@ -204,6 +205,7 @@ public final class HumanRenderer implements AutoCloseable {
 				}
 			} finally {
 				VertexBuffer.unbind();
+				RenderSystem.enableCull();
 				matrices.popPose();
 			}
 		} catch (RuntimeException e) {
