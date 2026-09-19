@@ -9,13 +9,26 @@ fake substitutes for hardware.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from hmc_backend.calibration.model import RigCalibration
-from hmc_backend.contracts.internal import CharacterFrame, PairedFrames, TraceContext
+from hmc_backend.contracts.internal import (
+    CharacterFrame,
+    ColoredPointCloud,
+    FittedCharacter,
+    PairedFrames,
+    TraceContext,
+    ViewDetection,
+)
+from hmc_backend.observability import log_event
 from hmc_backend.pipeline.assembler import FrameAssembler
 from hmc_backend.reconstruction.reconstruct import CropBounds, merge_clouds, reconstruct_view
 from hmc_backend.vision.protocols import CharacterFitter, ViewDetector
+
+# Called on the processing thread after fitting, before assembly. Used for
+# debug artifacts; exceptions are swallowed so diagnostics never break publish.
+PostFitHook = Callable[[PairedFrames, dict[str, ViewDetection], ColoredPointCloud, FittedCharacter], None]
 
 
 class CharacterProcessor:
@@ -32,6 +45,7 @@ class CharacterProcessor:
         voxel_size_m: float,
         max_points: int,
         confidence_min: int,
+        post_fit_hook: PostFitHook | None = None,
     ) -> None:
         self._detector = detector
         self._fitter = fitter
@@ -41,6 +55,15 @@ class CharacterProcessor:
         self._voxel_size_m = voxel_size_m
         self._max_points = max_points
         self._confidence_min = confidence_min
+        self._post_fit_hook = post_fit_hook
+
+    @property
+    def detector(self) -> ViewDetector:
+        return self._detector
+
+    @property
+    def fitter(self) -> CharacterFitter:
+        return self._fitter
 
     def process(self, pair: PairedFrames, *, mode: str = "snapshot") -> CharacterFrame:
         """Run all stages and return one validated CharacterFrame."""
@@ -73,6 +96,12 @@ class CharacterProcessor:
         # Fit against the front camera's calibration (registration reference).
         front_calib = self._calibration.camera(pair.first.device_id)
         fitted = self._fitter.fit_character(pair, detections, merged, front_calib)
+
+        if self._post_fit_hook is not None:
+            try:
+                self._post_fit_hook(pair, detections, merged, fitted)
+            except Exception as exc:  # noqa: BLE001 - diagnostics must never block publishing
+                log_event("warning", "post_fit_hook_failed", pair_id=str(pair.pair_id), error=type(exc).__name__)
 
         warnings = ()
         if merged.count == 0:

@@ -242,6 +242,17 @@ class MediaPipeViewDetector:
         self._hands = None
         self._mp = None
 
+    @property
+    def models(self) -> ResolvedModels:
+        return self._models
+
+    def model_status(self) -> dict[str, str]:
+        """Short, non-secret description for ``/health``."""
+        return {
+            "pose": f"mediapipe:{self._models.pose_sha256[:12]}",
+            "hands": f"mediapipe:{self._models.hand_sha256[:12]}",
+        }
+
     # Lazy so importing this module never imports mediapipe (tests, fake mode).
     def _ensure(self) -> None:
         if self._pose is not None:

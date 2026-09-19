@@ -7,6 +7,8 @@ the environment and are never echoed by ``/health``.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -59,10 +61,21 @@ class Settings(BaseSettings):
     depth_max_m: float = 5.0
     confidence_min: int = 1  # ARKit confidence 0/1/2; accept >= this
 
+    # --- Vision / colliders (Workflow 3) ---------------------------------
+    # "fake" keeps fixtures and CI free of model weights; "mediapipe" runs the
+    # pinned Pose + Hand landmarkers; "anatomical" fits typed colliders from
+    # fused 3D landmarks and the person cloud.
+    vision_backend: Literal["fake", "mediapipe"] = "fake"
+    collider_backend: Literal["fake", "anatomical"] = "fake"
+    learn_subject_dimensions: bool = True
+    # When set, every processed frame writes overlays/PLYs/report.json here.
+    debug_artifacts_dir: str | None = None
+
     # --- Paths ------------------------------------------------------------
     calibration_path: str = "data/calibration.json"
     recording_root: str = "data/recordings"
     model_manifest_path: str = "models/manifest.json"
+    models_dir: str | None = None  # defaults to the manifest's directory
     pose_model_path: str | None = None
     hand_model_path: str | None = None
 

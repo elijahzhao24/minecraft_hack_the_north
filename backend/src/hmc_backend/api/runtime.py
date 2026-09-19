@@ -206,6 +206,17 @@ class AppRuntime:
 
     # --- health -----------------------------------------------------------
 
+    def _model_status(self) -> dict[str, str]:
+        """Describe the loaded vision stage without touching model objects."""
+        if self._processor is None:
+            return {"pose": "not_loaded", "hands": "not_loaded"}
+        detector = self._processor.detector
+        status = getattr(detector, "model_status", None)
+        if callable(status):
+            return dict(status())
+        name = type(detector).__name__
+        return {"pose": name, "hands": name}
+
     def health(self) -> tuple[HealthResponse, int]:
         """Build the health response and its HTTP status code."""
         calib = self._calibration
@@ -217,7 +228,7 @@ class AppRuntime:
             )
             for dev, state in self._devices.items()
         }
-        models = {"pose": "ready", "hands": "ready"} if self.is_ready() else {"pose": "not_loaded", "hands": "not_loaded"}
+        models = self._model_status()
 
         if self.is_ready():
             status = HealthStatus.READY
