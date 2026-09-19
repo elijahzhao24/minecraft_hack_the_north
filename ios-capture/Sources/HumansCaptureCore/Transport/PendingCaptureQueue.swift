@@ -19,6 +19,7 @@ public enum CaptureEnqueueResult: Equatable, Sendable {
     case replacedLive(UUID)
     case droppedLiveQueueFull
     case rejectedSnapshotQueueFull
+    case rejectedFrameTooLarge(maximumBytes: Int)
 }
 
 public struct PendingCaptureQueue: Sendable {

@@ -95,6 +95,19 @@ struct TransportTests {
         #expect(object["request_id"] as? String == requestID.uuidString.lowercased())
         #expect(object["accepted"] as? Bool == true)
         #expect(object["code"] as? String == "capture_queued")
+        #expect(object.keys.contains("detail"))
+        #expect(object["detail"] is NSNull)
+    }
+
+    @Test("Nullable control fields are required even when their value is null")
+    func requiredNullableFieldsCannotBeOmitted() throws {
+        let missingNotBefore = Data(#"{"type":"capture_request","protocol_version":1,"request_id":"bd36780c-37ac-47ad-8cbc-dba00734859f","capture_id":"6ee77aca-80b0-43e5-be8e-bb61c17eb8a4","mode":"snapshot"}"#.utf8)
+        let missingAckDetail = Data(#"{"type":"ack","protocol_version":1,"request_id":"bd36780c-37ac-47ad-8cbc-dba00734859f","accepted":true,"code":"capture_queued"}"#.utf8)
+        let missingErrorRequest = Data(#"{"type":"error","protocol_version":1,"code":"invalid_message","message":"bad","retryable":false}"#.utf8)
+
+        #expect(throws: DecodingError.self) { _ = try IncomingControlMessage.decode(missingNotBefore) }
+        #expect(throws: DecodingError.self) { _ = try IncomingControlMessage.decode(missingAckDetail) }
+        #expect(throws: DecodingError.self) { _ = try IncomingControlMessage.decode(missingErrorRequest) }
     }
 
     private func pending(_ id: String, mode: CaptureMode) -> PendingCapture {

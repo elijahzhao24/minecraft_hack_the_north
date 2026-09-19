@@ -14,6 +14,7 @@ public enum CaptureSocketEvent: Sendable {
     case acknowledged(Acknowledgement)
     case serverError(ServerErrorMessage)
     case localError(String)
+    case captureRejected(requestID: UUID?, code: String, detail: String)
     case queueChanged(Int)
 }
 
@@ -32,9 +33,9 @@ public actor CaptureSocket {
     private var socketTask: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
-    private var queue = PendingCaptureQueue()
+    private var sendBuffer = CaptureSendBuffer()
     private var state: CaptureSocketState = .disconnected
-    private var sending = false
+    private var negotiatedMaximumBinaryBytes = HMCProtocolLimits.maximumRGBDPayloadBytes
     private var deliberateDisconnect = false
     private var reconnectAttempt = 0
 
@@ -82,16 +83,19 @@ public actor CaptureSocket {
         receiveTask = nil
         socketTask?.cancel(with: .goingAway, reason: nil)
         socketTask = nil
-        queue.removeAll()
-        sending = false
+        sendBuffer.removeAll()
+        negotiatedMaximumBinaryBytes = HMCProtocolLimits.maximumRGBDPayloadBytes
         transition(to: .disconnected)
         eventContinuation.yield(.queueChanged(0))
     }
 
     @discardableResult
     public func enqueue(_ capture: PendingCapture) async -> CaptureEnqueueResult {
-        let result = queue.enqueue(capture)
-        eventContinuation.yield(.queueChanged(queue.pending.count + (sending ? 1 : 0)))
+        guard capture.envelope.count <= negotiatedMaximumBinaryBytes else {
+            return .rejectedFrameTooLarge(maximumBytes: negotiatedMaximumBinaryBytes)
+        }
+        let result = sendBuffer.enqueue(capture)
+        eventContinuation.yield(.queueChanged(sendBuffer.outstandingCount))
         await drainQueueIfPossible()
         return result
     }
@@ -163,6 +167,10 @@ public actor CaptureSocket {
             guard hello.acceptedDeviceID == deviceID else {
                 throw ProtocolValidationError.invalidBuffer("server accepted a different device ID")
             }
+            negotiatedMaximumBinaryBytes = min(
+                hello.maximumBinaryBytes,
+                HMCProtocolLimits.maximumRGBDPayloadBytes + HMCEnvelope.prefixLength + HMCProtocolLimits.maximumJSONHeaderBytes
+            )
             reconnectAttempt = 0
             transition(to: .ready)
             await drainQueueIfPossible()
@@ -183,18 +191,31 @@ public actor CaptureSocket {
     }
 
     private func drainQueueIfPossible() async {
-        guard state == .ready, !sending, let task = socketTask, let next = queue.dequeue() else { return }
-        sending = true
-        eventContinuation.yield(.queueChanged(queue.pending.count + 1))
+        guard state == .ready, let task = socketTask else { return }
+        let next: PendingCapture
+        switch sendBuffer.beginNextSend(maximumBytes: negotiatedMaximumBinaryBytes) {
+        case .none:
+            return
+        case .oversized(let rejected):
+            eventContinuation.yield(.captureRejected(
+                requestID: rejected.requestID,
+                code: "frame_too_large",
+                detail: "encoded envelope exceeds negotiated max_binary_bytes \(negotiatedMaximumBinaryBytes)"
+            ))
+            eventContinuation.yield(.queueChanged(sendBuffer.outstandingCount))
+            await drainQueueIfPossible()
+            return
+        case .frame(let frame):
+            next = frame
+        }
+        eventContinuation.yield(.queueChanged(sendBuffer.outstandingCount))
         do {
             try await task.send(.data(next.envelope))
-            sending = false
-            eventContinuation.yield(.queueChanged(queue.pending.count))
+            sendBuffer.succeedInFlight()
+            eventContinuation.yield(.queueChanged(sendBuffer.outstandingCount))
             await drainQueueIfPossible()
         } catch {
-            sending = false
-            // Preserve snapshots after a send failure; live frames can be replaced on reconnect.
-            _ = queue.enqueue(next)
+            sendBuffer.failInFlight()
             await connectionFailed(error)
         }
     }

@@ -14,6 +14,13 @@ struct CaptureFrameDiagnostics: Sendable {
     let calibrationInvalid: Bool
 }
 
+struct ExpectedRasterDimensions: Sendable, Equatable {
+    let rgbWidth: Int
+    let rgbHeight: Int
+    let depthWidth: Int
+    let depthHeight: Int
+}
+
 enum ARCaptureControllerError: Error, LocalizedError {
     case sceneDepthUnsupported
 
@@ -32,6 +39,8 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
     var onCapturedBuffers: (@Sendable (CapturedBuffers) -> Void)?
     var onDiagnostics: (@Sendable (CaptureFrameDiagnostics) -> Void)?
     var onError: (@Sendable (String) -> Void)?
+    var onCaptureFailed: (@Sendable (UUID, UUID?, String) -> Void)?
+    var onSessionStopped: (@Sendable (String) -> Void)?
 
     private struct RequestedCapture {
         let captureID: UUID
@@ -49,6 +58,9 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
     private var liveModeEnabled = false
     private var lastLiveCaptureTime: TimeInterval = -.infinity
     private var negotiatedRGBSize: (width: Int, height: Int)?
+    private var expectedRasterDimensions: ExpectedRasterDimensions?
+    private var calibrationInvalid = false
+    private var running = false
 
     // Ten frames per second is an initial ceiling for live mode; encoding/backpressure may lower it.
     private let minimumLiveFrameIntervalSeconds = 0.1
@@ -72,6 +84,8 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
             self.requestedCapture = nil
             self.lastLiveCaptureTime = -.infinity
             self.negotiatedRGBSize = nil
+            self.calibrationInvalid = false
+            self.running = true
 
             let configuration = ARWorldTrackingConfiguration()
             configuration.frameSemantics = [.sceneDepth]
@@ -86,7 +100,12 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
             session.pause()
             requestedCapture = nil
             liveModeEnabled = false
+            running = false
         }
+    }
+
+    func setExpectedRasterDimensions(_ dimensions: ExpectedRasterDimensions?) {
+        delegateQueue.async { [self] in expectedRasterDimensions = dimensions }
     }
 
     func setLiveModeEnabled(_ enabled: Bool) {
@@ -94,14 +113,18 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
     }
 
     @discardableResult
-    func requestSnapshot(_ request: CaptureRequest? = nil) -> Bool {
+    func requestSnapshot(
+        captureID: UUID,
+        requestID: UUID? = nil,
+        notBeforePhoneTimeSeconds: Double? = nil
+    ) -> Bool {
         delegateQueue.sync {
-            guard requestedCapture == nil else { return false }
+            guard running, !calibrationInvalid, requestedCapture == nil else { return false }
             requestedCapture = RequestedCapture(
-                captureID: request?.captureID ?? UUID(),
-                requestID: request?.requestID,
+                captureID: captureID,
+                requestID: requestID,
                 mode: .snapshot,
-                notBeforePhoneTimeSeconds: request?.notBeforePhoneTimeSeconds
+                notBeforePhoneTimeSeconds: notBeforePhoneTimeSeconds
             )
             return true
         }
@@ -122,6 +145,11 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
             negotiatedRGBSize = (rgbWidth, rgbHeight)
             changedResolution = false
         }
+        let differsFromExpected = expectedRasterDimensions.map {
+            $0.rgbWidth != rgbWidth || $0.rgbHeight != rgbHeight
+                || (depthWidth > 0 && ($0.depthWidth != depthWidth || $0.depthHeight != depthHeight))
+        } ?? false
+        calibrationInvalid = changedResolution || differsFromExpected
         onDiagnostics?(CaptureFrameDiagnostics(
             rgbWidth: rgbWidth,
             rgbHeight: rgbHeight,
@@ -129,11 +157,11 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
             depthHeight: depthHeight,
             sequence: sequence,
             trackingState: trackingState,
-            calibrationInvalid: changedResolution
+            calibrationInvalid: calibrationInvalid
         ))
 
         guard trackingState == .normal,
-              !changedResolution,
+              !calibrationInvalid,
               let depthData,
               let confidenceMap = depthData.confidenceMap else { return }
 
@@ -187,8 +215,26 @@ final class ARCaptureController: NSObject, ARSessionDelegate, @unchecked Sendabl
             ))
         } catch {
             logger.error("Frame copy failed: \(error.localizedDescription, privacy: .public)")
+            onCaptureFailed?(request.captureID, request.requestID, error.localizedDescription)
             onError?(error.localizedDescription)
         }
+    }
+
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        running = false
+        requestedCapture = nil
+        onSessionStopped?("AR session failed: \(error.localizedDescription)")
+    }
+
+    func sessionWasInterrupted(_ session: ARSession) {
+        running = false
+        requestedCapture = nil
+        onSessionStopped?("AR session was interrupted; restart to create a fresh session.")
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        // Do not silently resume: clock and calibration assumptions require a new session ID.
+        onSessionStopped?("AR interruption ended; start a new capture session.")
     }
 
     private static func mapTrackingState(_ state: ARCamera.TrackingState) -> TrackingState {

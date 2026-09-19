@@ -230,6 +230,12 @@ public struct CaptureRequest: Decodable, Equatable, Sendable {
         requestID = try canonicalUUID(container.decode(String.self, forKey: .requestID), field: "request_id")
         captureID = try canonicalUUID(container.decode(String.self, forKey: .captureID), field: "capture_id")
         mode = try container.decode(CaptureMode.self, forKey: .mode)
+        guard container.contains(.notBeforePhoneTimeSeconds) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.notBeforePhoneTimeSeconds,
+                .init(codingPath: decoder.codingPath, debugDescription: "required nullable field is missing")
+            )
+        }
         notBeforePhoneTimeSeconds = try container.decodeIfPresent(Double.self, forKey: .notBeforePhoneTimeSeconds)
         if let notBeforePhoneTimeSeconds {
             try requireFinite(notBeforePhoneTimeSeconds, field: "not_before_phone_time_s")
@@ -260,6 +266,12 @@ public struct Acknowledgement: Decodable, Equatable, Sendable {
         requestID = try canonicalUUID(container.decode(String.self, forKey: .requestID), field: "request_id")
         accepted = try container.decode(Bool.self, forKey: .accepted)
         code = try container.decode(String.self, forKey: .code)
+        guard container.contains(.detail) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.detail,
+                .init(codingPath: decoder.codingPath, debugDescription: "required nullable field is missing")
+            )
+        }
         detail = try container.decodeIfPresent(String.self, forKey: .detail)
     }
 }
@@ -293,7 +305,7 @@ public struct ClientAcknowledgement: Encodable, Equatable, Sendable {
         try container.encode(requestID.uuidString.lowercased(), forKey: .requestID)
         try container.encode(accepted, forKey: .accepted)
         try container.encode(code, forKey: .code)
-        try container.encodeIfPresent(detail, forKey: .detail)
+        try container.encode(detail, forKey: .detail)
     }
 }
 
@@ -317,6 +329,12 @@ public struct ServerErrorMessage: Decodable, Equatable, Sendable {
             throw ProtocolValidationError.invalidBuffer("expected error")
         }
         try requireVersion(container.decode(Int.self, forKey: .protocolVersion))
+        guard container.contains(.requestID) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.requestID,
+                .init(codingPath: decoder.codingPath, debugDescription: "required nullable field is missing")
+            )
+        }
         if let rawRequestID = try container.decodeIfPresent(String.self, forKey: .requestID) {
             requestID = try canonicalUUID(rawRequestID, field: "request_id")
         } else {
