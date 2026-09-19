@@ -19,23 +19,31 @@ from hmc_backend.contracts.internal import CameraCalibration
 
 
 def look_at_optical(
-    eye: NDArray[np.float64], target: NDArray[np.float64], world_up: NDArray[np.float64]
+    eye: NDArray[np.float64],
+    target: NDArray[np.float64],
+    world_up: NDArray[np.float64],
+    *,
+    orientation: str = "portrait",
 ) -> NDArray[np.float64]:
     """Return ``T_stage_from_optical`` for a camera at ``eye`` looking at ``target``.
 
-    Optical axes: +Z forward (toward target), +X image-right, +Y image-down.
-    A point at the optical origin maps to ``eye`` in stage coordinates.
+    Optical axes: +Z forward (toward target).
+    For landscape_right: +X image-right, +Y image-down.
+    For portrait (phone placed vertically, charging port down):
+        +X sensor down, +Y sensor right.
     """
     z = target - eye
     z = z / np.linalg.norm(z)
-    x = np.cross(world_up, z)
-    nx = np.linalg.norm(x)
-    if nx < 1e-8:
-        # Degenerate: view parallel to up; pick an arbitrary right axis.
-        x = np.array([1.0, 0.0, 0.0])
+    world_right = np.cross(z, world_up)
+    world_right = world_right / np.linalg.norm(world_right)
+    world_down = -world_up
+
+    if orientation == "portrait":
+        x = world_down
+        y = world_right
     else:
-        x = x / nx
-    y = np.cross(z, x)  # image-down
+        x = world_right
+        y = world_down
 
     r = np.column_stack([x, y, z])  # optical axes in stage frame
     t = np.eye(4)
@@ -56,6 +64,7 @@ def intrinsics(width: int, height: int, fov_x_deg: float = 60.0) -> NDArray[np.f
 def build_synthetic_rig(
     device_ids: tuple[str, str] = ("front-phone", "side-phone"),
     *,
+    orientation: str = "portrait",
     rgb_size: tuple[int, int] = (320, 240),
     depth_size: tuple[int, int] = (320, 240),
     distance_m: float = 2.5,
@@ -84,7 +93,7 @@ def build_synthetic_rig(
             rgb_size=rgb_size,
             depth_size=depth_size,
             K_rgb=k.copy(),
-            T_stage_from_optical=look_at_optical(eye, target, up),
+            T_stage_from_optical=look_at_optical(eye, target, up, orientation=orientation),
             reprojection_error_px=1.0,
             created_at_utc=created,
         )

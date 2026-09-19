@@ -53,11 +53,11 @@ def _resample_mask_to_depth(mask_rgb: np.ndarray, depth_hw: tuple[int, int]) -> 
 
 
 def _sample_rgb(rgb: np.ndarray, u_depth: np.ndarray, v_depth: np.ndarray, depth_wh, rgb_wh) -> np.ndarray:
-    """Nearest-neighbour color sampling from the RGB image for depth pixels."""
+    """Centered color sampling from the RGB image for depth pixels."""
     w_d, h_d = depth_wh
     w_r, h_r = rgb_wh
-    u_r = np.clip((u_depth * (w_r / w_d)).astype(np.int64), 0, w_r - 1)
-    v_r = np.clip((v_depth * (h_r / h_d)).astype(np.int64), 0, h_r - 1)
+    u_r = np.clip(np.round((u_depth + 0.5) * (w_r / w_d) - 0.5).astype(np.int64), 0, w_r - 1)
+    v_r = np.clip(np.round((v_depth + 0.5) * (h_r / h_d) - 0.5).astype(np.int64), 0, h_r - 1)
     return rgb[v_r, u_r]  # M x 3
 
 
@@ -91,7 +91,9 @@ def reconstruct_view(
         return ColoredPointCloud(empty_xyz, np.zeros((0, 4), np.uint8), np.zeros((0,), np.uint8))
 
     z = depth[vs, us].astype(np.float64)
-    k_depth = scale_intrinsics(calibration.K_rgb, calibration.rgb_size, calibration.depth_size)
+    depth_wh = (w_d, h_d)
+    rgb_wh = (frame.rgb.shape[1], frame.rgb.shape[0])
+    k_depth = scale_intrinsics(calibration.K_rgb, calibration.rgb_size, depth_wh)
     optical = unproject(us.astype(np.float64), vs.astype(np.float64), z, k_depth)
     stage = apply_transform(calibration.T_stage_from_optical, optical)
 
@@ -107,7 +109,7 @@ def reconstruct_view(
     stage = stage[in_stage]
     us_k, vs_k = us[in_stage], vs[in_stage]
 
-    rgb = _sample_rgb(frame.rgb, us_k, vs_k, calibration.depth_size, calibration.rgb_size)
+    rgb = _sample_rgb(frame.rgb, us_k, vs_k, depth_wh, rgb_wh)
     rgba = np.empty((stage.shape[0], 4), np.uint8)
     rgba[:, :3] = rgb
     rgba[:, 3] = 255

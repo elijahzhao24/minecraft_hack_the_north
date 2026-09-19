@@ -38,22 +38,22 @@ class Settings(BaseSettings):
     subscriber_queue_size: int = 1
 
     # --- Pairing / clock budgets -----------------------------------------
-    pair_skew_limit_ms: float = 50.0
-    clock_uncertainty_limit_ms: float = 20.0
+    pair_skew_limit_ms: float = 1000.0
+    clock_uncertainty_limit_ms: float = 100.0
     hello_deadline_s: float = 10.0
     clock_probe_interval_s: float = 2.0
 
     # --- Reconstruction tunables -----------------------------------------
-    voxel_size_m: float = 0.015
-    max_points: int = 50_000
+    voxel_size_m: float = 0.006
+    max_points: int = 80_000
 
     # Hard spatial crop in stage meters (rig-specific; generous defaults).
-    stage_min_x_m: float = -1.5
-    stage_max_x_m: float = 1.5
+    stage_min_x_m: float = -2.5
+    stage_max_x_m: float = 2.5
     stage_min_y_m: float = 0.0
     stage_max_y_m: float = 2.5
-    stage_min_z_m: float = -1.5
-    stage_max_z_m: float = 1.5
+    stage_min_z_m: float = -2.5
+    stage_max_z_m: float = 3.0
 
     depth_min_m: float = 0.2
     depth_max_m: float = 5.0
