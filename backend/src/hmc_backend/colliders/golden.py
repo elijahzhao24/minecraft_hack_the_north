@@ -127,13 +127,13 @@ def golden_document() -> dict:
     rays = []
     for case in _ray_cases():
         d = g.normalize(case["direction"])
-        t = g.ray_collider(case["origin"], d, shapes[case["shape"]])
+        hit_t = g.ray_collider(case["origin"], d, shapes[case["shape"]])
         rays.append(
             {
                 **case,
                 "direction_unit": [_round(v) for v in d],
-                "expected_t": _round(t),
-                "expected_hit": t is not None,
+                "expected_t": _round(hit_t),
+                "expected_hit": hit_t is not None,
             }
         )
 

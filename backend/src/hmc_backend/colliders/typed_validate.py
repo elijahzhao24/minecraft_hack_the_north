@@ -86,7 +86,7 @@ def _finite3(v) -> bool:
     return v is not None and len(v) == 3 and all(math.isfinite(float(x)) for x in v)
 
 
-def _check_common(c: FittedCollider, cfg: ValidationConfig) -> str | None:
+def _check_common(c: SphereCollider | CapsuleCollider | ObbCollider, cfg: ValidationConfig) -> str | None:
     spec = SPEC_BY_ID.get(c.id)
     if spec is None:
         return "unknown_id"

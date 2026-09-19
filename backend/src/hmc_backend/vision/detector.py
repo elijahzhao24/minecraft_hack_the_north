@@ -238,9 +238,10 @@ class MediaPipeViewDetector:
     def __init__(self, models: ResolvedModels, cfg: DetectorConfig | None = None) -> None:
         self._cfg = cfg or DetectorConfig()
         self._models = models
-        self._pose = None
-        self._hands = None
-        self._mp = None
+        # MediaPipe task objects; untyped because the import is deferred.
+        self._pose: Any = None
+        self._hands: Any = None
+        self._mp: Any = None
 
     @property
     def models(self) -> ResolvedModels:

@@ -112,8 +112,8 @@ def _canonical_2d(det: ViewDetection) -> dict[str, Landmark2DObservation]:
     out: dict[str, Landmark2DObservation] = {}
     for lm in det.body:
         out[body_name(lm.name)] = lm
-    for side, hand in (("left", det.left_hand), ("right", det.right_hand)):
-        for lm in hand:
+    for side in SIDES:
+        for lm in det.left_hand if side == "left" else det.right_hand:
             out[hand_name(side, lm.name)] = lm
     return out
 
@@ -141,7 +141,7 @@ def _fuse_observed(
 ) -> Landmark3D | None:
     """Triangulation-first, then depth. Returns ``None`` when neither qualifies."""
     depth_here = [(i, d[name]) for i, d in enumerate(depth) if name in d and d[name].quality >= cfg.min_depth_quality]
-    vis = [o[name].visibility for o in obs2d if name in o and o[name].visibility is not None]
+    vis = [v for o in obs2d if name in o and (v := o[name].visibility) is not None]
     visibility = max(vis) if vis else None
 
     valid2d = [(i, o[name]) for i, o in enumerate(obs2d) if name in o and o[name].valid]
@@ -177,12 +177,12 @@ def _fuse_observed(
         for _, d in depth_here
     ]
     if len(depth_here) == 2:
-        (ia, a), (ib, b) = depth_here
-        if np.linalg.norm(np.subtract(a.position_stage_m, b.position_stage_m)) <= cfg.two_view_depth_agreement_m:
-            p = np.average(np.stack([a.position_stage_m, b.position_stage_m]), axis=0, weights=[a.quality, b.quality])
+        (_, da), (_, db) = depth_here
+        if np.linalg.norm(np.subtract(da.position_stage_m, db.position_stage_m)) <= cfg.two_view_depth_agreement_m:
+            p = np.average(np.stack([da.position_stage_m, db.position_stage_m]), axis=0, weights=[da.quality, db.quality])
             return Landmark3D(
-                name, _t3(p), True, LandmarkSource.DEPTH_NEIGHBORHOOD.value, float(max(a.quality, b.quality)), visibility,
-                (a.device_id, b.device_id), None,
+                name, _t3(p), True, LandmarkSource.DEPTH_NEIGHBORHOOD.value, float(max(da.quality, db.quality)), visibility,
+                (da.device_id, db.device_id), None,
             )
         report["depth_two_view"] = "disagree"
     _, best = max(depth_here, key=lambda kv: kv[1].quality)
@@ -191,12 +191,18 @@ def _fuse_observed(
     )
 
 
+def _valid_anchors(observed: dict[str, Landmark3D], pairs: list[tuple[str, str]]) -> dict[str, Vec3]:
+    """``{short_name: position}`` for landmarks that are valid and positioned."""
+    out: dict[str, Vec3] = {}
+    for short, full in pairs:
+        lm = observed.get(full)
+        if lm is not None and lm.valid and lm.position_stage_m is not None:
+            out[short] = lm.position_stage_m
+    return out
+
+
 def _register_pose(views: list[ViewInput], observed: dict[str, Landmark3D], cfg: FusionConfig, report: FusionReport):
-    anchors = {
-        n: observed[body_name(n)].position_stage_m
-        for n in reg.POSE_ANCHOR_NAMES
-        if body_name(n) in observed and observed[body_name(n)].valid
-    }
+    anchors = _valid_anchors(observed, [(n, body_name(n)) for n in reg.POSE_ANCHOR_NAMES])
     best: reg.Similarity | None = None
     best_prior = None
     for v in views:
@@ -217,11 +223,7 @@ def _register_pose(views: list[ViewInput], observed: dict[str, Landmark3D], cfg:
 
 
 def _register_hand(side: Side, views: list[ViewInput], observed: dict[str, Landmark3D], cfg: FusionConfig, report: FusionReport):
-    anchors = {
-        n: observed[hand_name(side, n)].position_stage_m
-        for n in reg.HAND_ANCHOR_NAMES
-        if hand_name(side, n) in observed and observed[hand_name(side, n)].valid
-    }
+    anchors = _valid_anchors(observed, [(n, hand_name(side, n)) for n in reg.HAND_ANCHOR_NAMES])
     best = best_prior = None
     for v in views:
         prior = v.detection.hand_world_priors_m.get(side)
@@ -260,7 +262,12 @@ def _gate_single_view_depth(
     for short in names:
         n = to_name(short)
         lm = filled.get(n)
-        if lm is None or lm.source != LandmarkSource.DEPTH_NEIGHBORHOOD.value or len(lm.observed_by) != 1:
+        if (
+            lm is None
+            or lm.position_stage_m is None
+            or lm.source != LandmarkSource.DEPTH_NEIGHBORHOOD.value
+            or len(lm.observed_by) != 1
+        ):
             continue
         p = stage[index_of(short)]
         dist = float(np.linalg.norm(np.subtract(lm.position_stage_m, p)))
@@ -280,7 +287,7 @@ def _derive(observed: dict[str, Landmark3D], cfg: FusionConfig) -> dict[str, Lan
         return None if lm is None or not lm.valid else np.asarray(lm.position_stage_m)
 
     def conf(*shorts: str) -> float:
-        vals = [observed[body_name(s)].confidence for s in shorts if observed[body_name(s)].confidence is not None]
+        vals = [c for s in shorts if (c := observed[body_name(s)].confidence) is not None]
         return float(min(vals)) if vals else 0.0
 
     lh, rh = pos("left_hip"), pos("right_hip")

@@ -39,6 +39,9 @@ from hmc_backend.vision.triangulation import project_to_pixel
 
 Vec3 = tuple[float, float, float]
 
+# Side with its sign along stage +X (subject's right is +X in the front view).
+_SIDE_SIGNS: tuple[tuple[Side, float], ...] = (("left", -1.0), ("right", 1.0))
+
 
 @dataclass(frozen=True, slots=True)
 class LimbRadii:
@@ -133,7 +136,7 @@ def neutral_skeleton() -> Skeleton:
         "right_foot_index": (0.11, 0.03, 0.17),
     }
     hands: dict[Side, dict[str, Vec3]] = {}
-    for side, sx in (("left", -1.0), ("right", 1.0)):
+    for side, sx in _SIDE_SIGNS:
         wrist = b[f"{side}_wrist"]
         elbow = b[f"{side}_elbow"]
         longitudinal = np.subtract(wrist, elbow)
@@ -154,7 +157,7 @@ def right_arm_raised_skeleton() -> Skeleton:
     b["left_elbow"] = (-0.22, 1.18, 0.02)
     b["left_wrist"] = (-0.23, 0.92, 0.06)
     hands = dict(base.hands)
-    for side, sx in (("left", -1.0), ("right", 1.0)):
+    for side, sx in _SIDE_SIGNS:
         longitudinal = np.subtract(b[f"{side}_wrist"], b[f"{side}_elbow"])
         hands[side] = _hand_points(b[f"{side}_wrist"], tuple(longitudinal), (sx, 0.0, 0.0))
         b[f"{side}_pinky"] = hands[side]["pinky_mcp"]
@@ -352,8 +355,8 @@ class SkeletonViewDetector:
         sk = self.skeleton
 
         body = self._project(calib, {n: sk.body[n] for n in POSE_LANDMARK_NAMES}, rng, hidden, wh)
-        hands = {}
-        priors = {}
+        hands: dict[str, tuple[Landmark2DObservation, ...]] = {}
+        priors: dict[str, NDArray[np.float32]] = {}
         for side in SIDES:
             if side in self.drop_hands.get(frame.device_id, set()):
                 hands[side] = ()

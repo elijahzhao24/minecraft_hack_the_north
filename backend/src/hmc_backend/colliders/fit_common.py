@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 
 from hmc_backend.colliders.geometry import point_segment_distance
 from hmc_backend.colliders.models import FittedCollider
-from hmc_backend.colliders.subject import DimensionEstimate
+from hmc_backend.colliders.subject import DimensionEstimate, Side
 from hmc_backend.contracts.enums import FitSource
 from hmc_backend.contracts.internal import Landmark3D
 
@@ -56,7 +56,7 @@ class FitConfig:
     max_torso_half_extent_m: tuple[float, float, float] = (0.35, 0.25, 0.20)
 
 
-SubjectUpdate = tuple[str, str | None, DimensionEstimate]  # (field, side, estimate)
+SubjectUpdate = tuple[str, Side | None, DimensionEstimate]  # (field, side, estimate)
 
 
 @dataclass(slots=True)
@@ -81,7 +81,7 @@ def pos(lms: LandmarkMap, name: str) -> Vec | None:
 
 
 def landmark_conf(lms: LandmarkMap, *names: str) -> float:
-    vals = [lms[n].confidence for n in names if n in lms and lms[n].valid and lms[n].confidence is not None]
+    vals = [c for n in names if n in lms and lms[n].valid and (c := lms[n].confidence) is not None]
     return float(min(vals)) if vals else 0.0
 
 

@@ -196,9 +196,9 @@ def draw_view_overlay(
     h, w = img.shape[:2]
 
     # Mask contour (mask may be at depth resolution).
-    mask = detection.person_mask.astype(np.uint8)
+    mask: NDArray[np.uint8] = detection.person_mask.astype(np.uint8)
     if mask.shape != (h, w):
-        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        mask = np.asarray(cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST), dtype=np.uint8)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(img, contours, -1, COLOR_MASK, 1)
 

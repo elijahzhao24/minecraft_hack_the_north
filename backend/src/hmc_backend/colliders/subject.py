@@ -13,7 +13,7 @@ a noisier one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from hmc_backend.contracts.enums import FitSource
 
@@ -118,10 +118,13 @@ class SubjectDimensions:
         if not est.is_better_than(current, min_samples=min_samples):
             return self
         v = getattr(self, name)
+        changes: dict[str, Any]
         if isinstance(v, SideValues):
             assert side is not None
-            return replace(self, **{name: v.with_side(side, est)})
-        return replace(self, **{name: est})
+            changes = {name: v.with_side(side, est)}
+        else:
+            changes = {name: est}
+        return replace(self, **changes)
 
     def as_subject_default(self, name: str, side: Side | None = None) -> DimensionEstimate:
         """The stored value relabelled for use in a later pose.
