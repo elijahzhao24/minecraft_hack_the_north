@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 from numpy.typing import NDArray
+from pydantic import ValidationError
 
 from hmc_backend.contracts.rgbd import RgbdFrameHeader, parse_rgbd_header
 from hmc_backend.protocol.buffers import BufferEncoding, load_buffers
@@ -32,11 +33,26 @@ class DecodedRgbd:
 
 
 def decode_rgbd_frame(envelope: Envelope) -> DecodedRgbd:
-    """Validate and decode one RGBD envelope into arrays."""
+    """Validate and decode one RGBD envelope into arrays.
+
+    Every failure raises :class:`EnvelopeError` with a stable ``code`` so the
+    capture socket can reply with a proper ``error`` control message rather than
+    a generic internal failure.
+    """
     if envelope.message_type is not MessageType.RGBD_FRAME:
         raise EnvelopeError("invalid_message", "expected an RGBD_FRAME envelope")
 
-    header = parse_rgbd_header(envelope.header)
+    # Check the header schema version before full validation so a future
+    # version reports `unsupported_version` rather than a generic failure.
+    raw_version = envelope.header.get("schema_version")
+    if isinstance(raw_version, int) and not isinstance(raw_version, bool) and raw_version != 1:
+        raise EnvelopeError("unsupported_version", f"unsupported schema_version {raw_version}")
+
+    try:
+        header = parse_rgbd_header(envelope.header)
+    except ValidationError as exc:
+        raise EnvelopeError("invalid_message", f"invalid RGBD header: {exc.error_count()} error(s)") from exc
+
     buffers = load_buffers(envelope.header, envelope.payload)
 
     # --- RGB (JPEG) ---
