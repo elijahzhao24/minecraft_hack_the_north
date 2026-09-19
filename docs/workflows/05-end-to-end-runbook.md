@@ -82,7 +82,7 @@ Use traces/logs to identify one real bottleneck or geometry/integration defect, 
 ```bash
 cd backend
 uv sync --frozen
-uv run uvicorn hmc_backend.main:app --host 0.0.0.0 --port 8000 --workers 1
+uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
 Verify `http://<laptop-ip>:8000/health` reports calibration/models ready.
