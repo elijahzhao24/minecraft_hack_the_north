@@ -33,18 +33,26 @@ real Workflow‑3 capability — MediaPipe detector, hand association, depth
 sampling, two-view triangulation, prior registration, landmark fusion, and all
 collider fitters (capsule/hand/foot/torso) — exists **only on PR #5**.
 
-### Missing from every branch
+### ChArUco calibration — was missing, now built
 
-> **ChArUco calibration is not implemented.** `backend/src/hmc_backend/calibration/`
-> contains only `model.py` (file IO) and `synthetic.py` (a simulated rig). There is
-> no board detection, no `solvePnP`, no rotation averaging, no validation, and no
-> way to get board images from the phones into a calibration.
-> The words "ChArUco"/"ArUco" appear only in docstrings.
+At audit time this was **the single blocker** between the system and real
+hardware: `calibration/` held only `model.py` (file IO) and `synthetic.py` (a
+simulated rig), with no board detection, `solvePnP`, rotation averaging, or
+validation. Everything downstream — two-view merge, landmark registration,
+collider fitting, Minecraft placement — consumes `T_stage_from_optical`.
 
-**This is the single blocker between the current system and real hardware.**
-Everything downstream — two-view merge, landmark registration, collider fitting,
-and Minecraft placement — consumes `T_stage_from_optical`. Without a real one,
-two physical phones cannot be fused into one stage frame.
+It is now implemented on branch **`feat/charuco-calibration`**:
+
+| Piece | Location |
+|---|---|
+| Detection, `solvePnP`, SO(3) averaging, outlier rejection, validation | `backend/src/hmc_backend/calibration/charuco.py` |
+| Offline solve CLI → `calibration.json` | `backend/scripts/calibrate.py` |
+| Pose round-trip + full pipeline tests | `backend/tests/test_charuco.py`, `test_calibration_pipeline.py` |
+
+Verified end to end on synthetic board recordings: two cameras recovered to
+within **1 mm** of ground truth with sub-pixel reprojection, and the output file
+loads through the existing `load_rig_calibration()`. **Still unvalidated on real
+hardware** — §3.5 acceptance targets apply.
 
 ### Bug found during the audit
 
@@ -94,7 +102,7 @@ One-line fix to `05-end-to-end-runbook.md` §4.
 
 ---
 
-## 3. The critical path — build calibration
+## 3. Calibration (built — `feat/charuco-calibration`)
 
 ### 3.1 Design decision: record → solve offline
 
@@ -112,20 +120,32 @@ version bump, no new failure mode in the live path. It also means calibration is
 reproducible from saved bytes — you can re-solve without the person or the
 tripods present.
 
-### 3.2 What to build
+### 3.2 What was built
 
 **`backend/src/hmc_backend/calibration/charuco.py`**
 
 ```python
-def detect_board(gray, board) -> tuple[corners, ids] | None
-def estimate_pose(corners, ids, board, K, dist) -> tuple[R, t, reproj_px] | None
-def average_rotations_so3(rotations) -> np.ndarray    # NOT element-wise
-def solve_camera(frames, board, K) -> CameraSolution  # robust aggregate + residuals
+BoardSpec(dictionary, squares_x, squares_y, square_length_m, marker_length_m)
+build_board(spec)                     -> (board, detector)
+detect_board(image, detector)         -> (corners, ids) | None
+estimate_pose(corners, ids, board, K) -> (R, t, reproj_px) | None
+observe_frame(...)                    -> (BoardObservation | None, reason_code)
+average_rotations_so3(rotations, w)   -> R          # SVD projection, not element-wise
+solve_camera(observations, ...)       -> CameraSolution
+validate_solution(solution, held_out) -> dict
 ```
 
-**`backend/scripts/calibrate.py`** — reads one or more recording directories,
-runs `solve_camera` per device, holds out ~25% of frames for validation, and
-writes a `RigCalibration` via the existing `save_rig_calibration()`.
+**`backend/scripts/calibrate.py`**
+
+```bash
+uv run python scripts/calibrate.py \
+  --recordings data/recordings --out data/calibration.json \
+  --squares-x 7 --squares-y 10 --square-length-m 0.04 --marker-length-m 0.03
+```
+
+It prints, per camera, the solved stage position, reprojection median/max,
+held-out position error, and every rejection reason — then writes the file only
+if all cameras pass. Restart the backend to pick it up.
 
 ### 3.3 OpenCV API trap
 
@@ -145,28 +165,46 @@ ok, rvec, tvec = cv2.solvePnP(obj_pts, img_pts, K_rgb, dist)   # dist = zeros fo
 
 `solvePnP` returns **`T_camera_from_board`**. You need the inverse.
 
-### 3.4 The transform chain (and the handedness trap)
+### 3.4 The transform chain (and two orientation traps)
 
 ```
 T_stage_from_optical  =  T_stage_from_board  @  inverse(T_camera_from_board)
 ```
 
-Place the board **flat on the floor**, its origin corner on the stage mark, with
-its **+Y axis pointing away from the front camera**. Then:
+**OpenCV's ChArUco object frame follows the printed-image convention:** +X runs
+left→right across the page, **+Y runs top→bottom *down* the page**, and
++Z = X × Y therefore points **into** the page. The printed (visible) face is the
+**−Z** side. This was verified empirically by detecting the board in its own
+generated image — do not assume otherwise.
+
+**Physical placement:** board flat on the floor, **printed side up**, origin
+corner (printed top-left) on the stage mark, printed +X along stage +X, and
+printed +Y (down the page) along stage **+Z — toward the front camera**, so the
+bottom of the page is nearest that camera. Then:
 
 ```
-R_stage_from_board = [[1,  0, 0],
-                      [0,  0, 1],
-                      [0, -1, 0]]
+R_stage_from_board = [[1,  0,  0],
+                      [0,  0, -1],
+                      [0,  1,  0]]
 ```
 
-Verify: board +X → stage +X; board +Y → stage −Z (away from front camera);
-board +Z (up out of the board) → stage +Y. **det = +1.**
+Verify: board +X → stage +X; board +Y → stage **+Z** (toward front camera);
+board +Z → stage **−Y** (down into the floor, consistent with the printed face
+pointing up). **det = +1.**
 
-> The obvious-looking swap `[[1,0,0],[0,0,1],[0,1,0]]` has **det = −1**. It is a
-> reflection and it will mirror your person — the exact failure the workflow docs
-> warn about. Make `T_stage_from_board` a named constant with a unit test
-> asserting `det ≈ +1`, and confirm with the asymmetric-pose left/right check.
+> **Two distinct traps, and only one is catchable by a determinant check.**
+>
+> 1. `[[1,0,0],[0,0,1],[0,1,0]]` has **det = −1**. It is a reflection and will
+>    mirror your person, swapping left/right limbs.
+> 2. `[[1,0,0],[0,0,1],[0,-1,0]]` has **det = +1** but assumes board +Z points
+>    *up out of* the board. It does not (see above), so this silently flips the
+>    whole rig 180°. **A determinant assertion cannot catch this one** — only a
+>    real or rendered board can.
+>
+> Implemented as `STAGE_FROM_BOARD_ROTATION` in
+> `backend/src/hmc_backend/calibration/charuco.py`, covered by a round-trip test
+> that places a camera at a known stage pose and recovers it within 1 cm / 1°.
+> Still confirm on the rig with the asymmetric-pose left/right check.
 
 ### 3.5 Aggregation and validation
 
@@ -340,7 +378,7 @@ The server is authoritative. The client never decides what was hit.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| **Calibration not built** | Blocks everything real | Start immediately; Plan C fallback exists (§3.6) |
+| **Calibration unvalidated on real hardware** | Wrong geometry everywhere downstream | Built and tested synthetically (`feat/charuco-calibration`); Gate D validates on the rig, Plan C fallback exists (§3.6) |
 | PR #5 not merged | No real vision/colliders | Merge first (§2.1) |
 | Two iOS implementations | Wrong build on device | Resolve PR #3 before touching phones (§2.2) |
 | Only one LiDAR iPhone available | No two-view merge | Single-camera demo is still a valid gate; state the limitation |
@@ -372,8 +410,8 @@ Also keep:
 1. Merge PR #5; resolve PR #3; fix the runbook command. *(~30 min)*
 2. **Gate A** — Minecraft on synthetic data. *(~30 min, no hardware)*
 3. **Gate B** — backend ↔ Minecraft over the socket. *(~30 min)*
-4. **Build calibration** (§3) against *recorded synthetic board frames* first, so
-   the solver is tested before the tripods are set up. *(~2–3 h)*
+4. ~~Build calibration~~ — **done** on `feat/charuco-calibration`, verified
+   against recorded synthetic board frames. Merge it. *(~10 min)*
 5. **Gate C** — one real phone. *(~1 h)*
 6. **Gate D/E** — calibrate, merge, validate. *(~1–2 h)*
 7. **Gate F** — real person in Minecraft, record everything. *(~1 h)*
