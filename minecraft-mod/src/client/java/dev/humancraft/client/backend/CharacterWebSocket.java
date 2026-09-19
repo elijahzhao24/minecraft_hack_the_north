@@ -35,6 +35,7 @@ import java.util.function.LongSupplier;
  */
 public final class CharacterWebSocket implements AutoCloseable {
 	private static final int MAX_CONTROL_BYTES = 64 * 1024;
+	private static final long FAILURE_REPORT_INTERVAL_MS = 30_000;
 
 	private final HumanCraftConfig config;
 	private final Consumer<CharacterFrame> frameConsumer;
@@ -50,6 +51,8 @@ public final class CharacterWebSocket implements AutoCloseable {
 	private volatile boolean closed;
 	private volatile int reconnectAttempt;
 	private volatile String status = "disconnected";
+	private long lastFailureReportMs;
+	private int suppressedFailures;
 
 	public CharacterWebSocket(HumanCraftConfig config, LongSupplier lastFrameId,
 			Consumer<CharacterFrame> frameConsumer, Consumer<String> statusConsumer) {
@@ -144,13 +147,27 @@ public final class CharacterWebSocket implements AutoCloseable {
 		if (closed) {
 			return;
 		}
-		Telemetry.captureException(error, "client.websocket", Map.of("detail", detail));
+		reportConnectionFailure(error, detail);
 		long base = Math.min(config.reconnectMaxMs,
 				(long) config.reconnectMinMs << Math.min(20, reconnectAttempt++));
 		long jitter = Math.max(1, base / 5);
 		long delay = Math.min(config.reconnectMaxMs, base + Math.floorMod(System.nanoTime(), jitter));
 		setStatus(detail + "; retry in " + delay + " ms");
 		scheduleConnect(delay);
+	}
+
+	private synchronized void reportConnectionFailure(Throwable error, String detail) {
+		long now = System.currentTimeMillis();
+		if (lastFailureReportMs == 0 || now - lastFailureReportMs >= FAILURE_REPORT_INTERVAL_MS) {
+			Telemetry.captureException(error, "client.websocket", Map.of(
+					"detail", detail,
+					"suppressed_repeats", Integer.toString(suppressedFailures)));
+			lastFailureReportMs = now;
+			suppressedFailures = 0;
+		} else {
+			suppressedFailures++;
+			HumanCraft.LOGGER.debug("WebSocket {} (repeat {}): {}", detail, suppressedFailures, error.toString());
+		}
 	}
 
 	private void setStatus(String next) {
