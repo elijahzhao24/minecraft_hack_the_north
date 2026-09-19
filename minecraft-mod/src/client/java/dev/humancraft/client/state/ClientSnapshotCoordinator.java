@@ -43,6 +43,10 @@ public final class ClientSnapshotCoordinator {
 	private WorldSnapshot pending;
 	private WorldSnapshot active;
 	private long activeSinceMs;
+	/** Client ticks to wait after JOIN before the player's position is trustworthy. */
+	private static final int ANCHOR_SETTLE_TICKS = 5;
+
+	private int anchorPendingTicks;
 	private boolean joined;
 	private String backendStatus = "starting";
 	private String serverStatus = "not in world";
@@ -84,7 +88,11 @@ public final class ClientSnapshotCoordinator {
 		joined = true;
 		serverStatus = "ready";
 		if (config.anchorAuto) {
-			setAutomaticAnchor(client);
+			// The player entity exists at JOIN but its position has not been synced
+			// yet, so reading it here yields a placeholder well below the terrain
+			// (observed: y = -60) and the snapshot is anchored underground. Defer
+			// until the player has ticked; tick() applies it and reinstalls.
+			anchorPendingTicks = ANCHOR_SETTLE_TICKS;
 		}
 		if (latestDecoded != null) {
 			install(latestDecoded, "joined world");
@@ -196,7 +204,13 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
-	public void tick() {
+	public void tick(Minecraft client) {
+		if (anchorPendingTicks > 0) {
+			anchorPendingTicks--;
+			if (anchorPendingTicks == 0 && setAutomaticAnchor(client)) {
+				persistAndReinstall("anchor ready");
+			}
+		}
 		if (active != null && active.mode() == Mode.LIVE
 				&& System.currentTimeMillis() - activeSinceMs > config.liveFrameTtlMs) {
 			try {
@@ -255,8 +269,12 @@ public final class ClientSnapshotCoordinator {
 
 	public void resetAnchor(Minecraft client) {
 		config.anchorAuto = true;
-		setAutomaticAnchor(client);
-		persistAndReinstall("anchor reset");
+		if (setAutomaticAnchor(client)) {
+			persistAndReinstall("anchor reset");
+		} else {
+			// Player not positioned yet; let tick() place it once they are.
+			anchorPendingTicks = ANCHOR_SETTLE_TICKS;
+		}
 	}
 
 	public void scaleBy(double multiplier) {
@@ -278,17 +296,33 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
-	private void setAutomaticAnchor(Minecraft client) {
-		if (client.player == null) {
-			return;
+	/**
+	 * Places the anchor three blocks in front of the player at their feet.
+	 *
+	 * <p>Returns {@code false} and leaves the anchor untouched when the player's
+	 * position is not trustworthy yet, so a snapshot is never anchored below the
+	 * world. Callers that need a guaranteed placement should retry on a later
+	 * tick rather than using the stale value.
+	 */
+	private boolean setAutomaticAnchor(Minecraft client) {
+		if (client.player == null || client.level == null) {
+			return false;
+		}
+		double y = client.player.getY();
+		// Before the position packet arrives the player sits at a placeholder
+		// below the terrain. Anything at or under the build floor is not a real
+		// standing position.
+		if (!Double.isFinite(y) || y <= client.level.getMinBuildHeight()) {
+			return false;
 		}
 		Vec3 look = client.player.getLookAngle();
 		double length = Math.hypot(look.x, look.z);
 		double dx = length > 1e-6 ? look.x / length : 0;
 		double dz = length > 1e-6 ? look.z / length : 1;
 		config.anchorX = Math.floor(client.player.getX() + dx * 3.0) + 0.5;
-		config.anchorY = Math.floor(client.player.getY());
+		config.anchorY = Math.floor(y);
 		config.anchorZ = Math.floor(client.player.getZ() + dz * 3.0) + 0.5;
+		return true;
 	}
 
 	private StageToWorld transform() {

@@ -44,7 +44,7 @@ public final class HumanCraftClient implements ClientModInitializer {
 		HumanCraftHud hud = new HumanCraftHud(config, snapshots);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			keys.tick(client);
-			snapshots.tick();
+			snapshots.tick(client);
 		});
 		HudRenderCallback.EVENT.register((graphics, tickCounter) -> hud.render(graphics));
 

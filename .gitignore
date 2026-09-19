@@ -24,6 +24,7 @@ htmlcov/
 # Model weights (pinned via manifest + checksum, fetched separately)
 backend/models/*.task
 
-# Local capture recordings (may contain personal RGB/depth data)
-backend/data/recordings/
+# Local capture data: recordings may contain personal RGB/depth, and
+# calibration.json is rig-specific and generated.
+backend/data/
 .worktrees/
