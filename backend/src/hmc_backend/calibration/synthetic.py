@@ -28,7 +28,9 @@ def look_at_optical(
     """
     z = target - eye
     z = z / np.linalg.norm(z)
-    x = np.cross(world_up, z)
+    # image-right = forward x up  (so that image-down = forward x right points
+    # against world_up and the raster is upright).
+    x = np.cross(z, world_up)
     nx = np.linalg.norm(x)
     if nx < 1e-8:
         # Degenerate: view parallel to up; pick an arbitrary right axis.
