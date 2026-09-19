@@ -53,7 +53,12 @@ public final class SnapshotStore {
 		}
 
 		Cursor cursor = cursors.get(owner);
-		if (cursor != null && cursor.sessionId().equals(request.sessionId()) && request.frameId() <= cursor.lastFrameId()) {
+		boolean placementReinstall = cursor != null
+				&& cursor.sessionId().equals(request.sessionId())
+				&& request.frameId() == cursor.lastFrameId()
+				&& active.containsKey(owner);
+		if (cursor != null && cursor.sessionId().equals(request.sessionId())
+				&& (request.frameId() < cursor.lastFrameId() || (request.frameId() == cursor.lastFrameId() && !placementReinstall))) {
 			return InstallOutcome.rejected(InstallOutcome.REJECTED_STALE,
 					"frame " + request.frameId() + " is not newer than " + cursor.lastFrameId(), previous);
 		}

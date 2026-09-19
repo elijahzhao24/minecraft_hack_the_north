@@ -78,12 +78,14 @@ class SnapshotStoreTest {
 	}
 
 	@Test
-	void staleOrReplayedFramesAreRejectedWithinASession() {
+	void activeFrameCanBeReinstalledForAtomicPlacementChangesButOlderFramesAreRejected() {
 		SnapshotStore store = new SnapshotStore(500);
 		assertTrue(store.install(OWNER, DIM, request(5, Mode.SNAPSHOT), 0).accepted());
-		InstallOutcome same = store.install(OWNER, DIM, request(5, Mode.SNAPSHOT), 1);
+		StageToWorld moved = new StageToWorld(new Vector3(12, 65, -4), 1.5);
+		InstallOutcome same = store.install(OWNER, DIM, request(5, Mode.SNAPSHOT, SyntheticHuman.SESSION_ID, moved), 1);
 		InstallOutcome older = store.install(OWNER, DIM, request(4, Mode.SNAPSHOT), 2);
-		assertEquals(InstallOutcome.REJECTED_STALE, same.code());
+		assertTrue(same.accepted());
+		assertEquals(moved, store.active(OWNER, 2).orElseThrow().transform());
 		assertEquals(InstallOutcome.REJECTED_STALE, older.code());
 		assertEquals(5, store.active(OWNER, 3).orElseThrow().frameId());
 		assertTrue(store.install(OWNER, DIM, request(6, Mode.SNAPSHOT), 4).accepted());
@@ -104,6 +106,7 @@ class SnapshotStoreTest {
 		store.install(OWNER, DIM, request(7, Mode.SNAPSHOT), 0);
 		assertTrue(store.clear(OWNER));
 		assertTrue(store.active(OWNER, 1).isEmpty());
+		// Once cleared or expired, replaying the same frame cannot resurrect stale interaction.
 		assertEquals(InstallOutcome.REJECTED_STALE, store.install(OWNER, DIM, request(7, Mode.SNAPSHOT), 2).code());
 		store.forget(OWNER);
 		assertTrue(store.install(OWNER, DIM, request(7, Mode.SNAPSHOT), 3).accepted());
