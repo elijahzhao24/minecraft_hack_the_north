@@ -59,6 +59,12 @@ class FusionConfig:
     two_view_depth_agreement_m: float = 0.06
     head_center_back_offset_m: float = 0.07
     prior_confidence_cap: float = 0.5
+    # A single-view depth sample is a surface hit at the landmark's pixel: for an
+    # occluded landmark that surface belongs to whatever is in front (e.g. the
+    # shin in front of a heel). When it sits farther than this from the registered
+    # prior, the sample is treated as an occluder hit and the prior is used instead.
+    single_view_depth_prior_gate_m: float = 0.10
+    single_view_hand_depth_prior_gate_m: float = 0.06
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +233,36 @@ def _prior_conf(sim: reg.Similarity, max_rms: float, cap: float) -> float:
     return float(cap * max(0.0, 1.0 - sim.rms_residual_m / max_rms))
 
 
+def _gate_single_view_depth(
+    filled: dict[str, Landmark3D],
+    stage: np.ndarray,
+    names: tuple[str, ...],
+    to_name,
+    index_of,
+    gate_m: float,
+    prior_conf: float,
+    report: FusionReport,
+) -> None:
+    """Replace single-view depth samples that sit far from the registered prior.
+
+    Two-view depth agreement and depth-validated triangulation are left alone;
+    only a lone surface sample can be an occluder hit without any cross-check.
+    """
+    for short in names:
+        n = to_name(short)
+        lm = filled.get(n)
+        if lm is None or lm.source != LandmarkSource.DEPTH_NEIGHBORHOOD.value or len(lm.observed_by) != 1:
+            continue
+        p = stage[index_of(short)]
+        dist = float(np.linalg.norm(np.subtract(lm.position_stage_m, p)))
+        rec = report.per_landmark.setdefault(n, {})
+        if dist > gate_m:
+            filled[n] = Landmark3D(n, _t3(p), True, LandmarkSource.REGISTERED_MODEL_PRIOR.value, prior_conf, lm.visibility)
+            rec["depth_prior_gate"] = {"distance_m": dist, "replaced": True, "device": lm.observed_by[0]}
+        else:
+            rec["depth_prior_gate"] = {"distance_m": dist, "replaced": False}
+
+
 def _derive(observed: dict[str, Landmark3D], cfg: FusionConfig) -> dict[str, Landmark3D]:
     out: dict[str, Landmark3D] = {}
 
@@ -291,6 +327,9 @@ def fuse_landmarks(views: list[ViewInput], cfg: FusionConfig | None = None) -> F
     if sim is not None:
         stage = sim.apply(prior)
         c = _prior_conf(sim, cfg.registration.max_rms_residual_m, cfg.prior_confidence_cap)
+        _gate_single_view_depth(
+            filled, stage, POSE_LANDMARK_NAMES, body_name, pose_index, cfg.single_view_depth_prior_gate_m, c, report
+        )
         for short in POSE_LANDMARK_NAMES:
             n = body_name(short)
             if n not in filled:
@@ -306,6 +345,16 @@ def fuse_landmarks(views: list[ViewInput], cfg: FusionConfig | None = None) -> F
         if body_wrist is not None and body_wrist.valid and body_wrist.source != LandmarkSource.REGISTERED_MODEL_PRIOR.value:
             stage = stage + (np.asarray(body_wrist.position_stage_m) - stage[hand_index("wrist")])
         c = _prior_conf(hsim, cfg.registration.max_hand_rms_residual_m, cfg.prior_confidence_cap)
+        _gate_single_view_depth(
+            filled,
+            stage,
+            HAND_LANDMARK_NAMES,
+            lambda s, side=side: hand_name(side, s),
+            hand_index,
+            cfg.single_view_hand_depth_prior_gate_m,
+            c,
+            report,
+        )
         for short in HAND_LANDMARK_NAMES:
             n = hand_name(side, short)
             if n not in filled:

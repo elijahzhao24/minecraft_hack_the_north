@@ -90,6 +90,30 @@ def test_hidden_landmarks_come_from_registered_prior_not_zero(rig, neutral):
         assert np.linalg.norm(np.subtract(lm.position_stage_m, sk.body[short])) < 0.08
 
 
+def test_single_view_depth_occluder_hit_is_replaced_by_prior(rig, neutral):
+    """The right heel is behind the shin for the front camera and hidden from the
+    side camera: its lone depth sample lands on the shin surface (~17 cm off).
+    Fusion must recognize the occluder hit against the registered prior rather
+    than publish the shin as the heel."""
+    sk, frames = neutral
+    side_cam = [d for d in frames if d != next(iter(frames))]
+    det = skf.SkeletonViewDetector(rig, sk, hidden={d: {"right_heel"} for d in side_cam})
+    res = fuse_landmarks(_views(rig, frames, det), FusionConfig())
+    heel = res.by_name()[body_name("right_heel")]
+    assert heel.valid
+    err = float(np.linalg.norm(np.subtract(heel.position_stage_m, sk.body["right_heel"])))
+    assert err < 0.08, (heel.source, err)
+    gate = res.report.per_landmark[body_name("right_heel")].get("depth_prior_gate")
+    if heel.source == LandmarkSource.REGISTERED_MODEL_PRIOR.value:
+        assert gate is not None and gate["replaced"] is True
+    # Landmarks whose lone depth sample agrees with the prior are kept as depth observations.
+    kept = [
+        n for n, rec in res.report.per_landmark.items()
+        if rec.get("depth_prior_gate", {}).get("replaced") is False
+    ]
+    assert all(res.by_name()[n].source == LandmarkSource.DEPTH_NEIGHBORHOOD.value for n in kept)
+
+
 def test_prior_scale_is_recovered_not_trusted(rig, neutral):
     sk, frames = neutral
     hidden = {"left_knee"}
