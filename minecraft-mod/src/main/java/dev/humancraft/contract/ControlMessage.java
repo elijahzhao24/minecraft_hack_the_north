@@ -126,7 +126,7 @@ public sealed interface ControlMessage {
 	}
 
 	/** Strictly parses any control message the backend may send to Minecraft (or that Minecraft sends). */
-	static ControlMessage parse(String text) {
+	public static ControlMessage parse(String text) {
 		StrictJson.Obj o = new StrictJson.Obj(StrictJson.parseObject(text), "control");
 		String type = o.string("type");
 		long version = o.counter("protocol_version");
@@ -156,7 +156,7 @@ public sealed interface ControlMessage {
 		return Optional.empty();
 	}
 
-	static String serialize(ControlMessage message) {
+	public static String serialize(ControlMessage message) {
 		return message.toJson().toString();
 	}
 }

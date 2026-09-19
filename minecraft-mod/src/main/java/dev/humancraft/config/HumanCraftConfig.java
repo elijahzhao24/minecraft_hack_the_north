@@ -22,7 +22,7 @@ public final class HumanCraftConfig {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
 	/** Perception backend WebSocket URL (character stream). */
-	public String backendUrl = "ws://127.0.0.1:8765/character";
+	public String backendUrl = "ws://127.0.0.1:8000/ws/character";
 	/** Identifies this Minecraft client to the backend in {@code character_hello}. */
 	public String clientId = "minecraft-local";
 	/** Reconnect backoff bounds in milliseconds. */
