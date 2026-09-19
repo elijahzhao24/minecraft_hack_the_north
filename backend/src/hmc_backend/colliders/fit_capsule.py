@@ -67,8 +67,11 @@ def body_segments(lms: LandmarkMap, subject: SubjectDimensions) -> list[Segment]
     lh, rh = pos(lms, body_name("left_hip")), pos(lms, body_name("right_hip"))
     if ls is not None and rs is not None and lh is not None and rh is not None:
         sh_c, hp_c = (ls + rs) / 2.0, (lh + rh) / 2.0
-        half_width = float(np.linalg.norm(ls - rs)) / 2.0
-        segs.append(Segment("torso", hp_c, sh_c, max(half_width, 0.12)))
+        mid = hp_c + (sh_c - hp_c) * 0.35
+        # Two pseudo-segments so the narrower pelvis does not claim thigh tops
+        # with the shoulder half-width.
+        segs.append(Segment("torso", mid, sh_c, max(float(np.linalg.norm(ls - rs)) / 2.0, 0.12)))
+        segs.append(Segment("pelvis", hp_c, mid, max(float(np.linalg.norm(lh - rh)) / 2.0 + 0.06, 0.12)))
     head = pos(lms, body_name("head_center"))
     if head is not None:
         segs.append(Segment("head", head, head, subject.head_radius_m.value_m))
@@ -126,7 +129,7 @@ def fit_limb_capsule(
         quality = source_quality(FitSource.OBSERVED, 0.5 * conf + 0.5 * min(1.0, support / 200.0))
         return FitOutcome(
             make_capsule(spec.collider_id, body_part, a, b, radius, FitSource.OBSERVED, quality),
-            subject_update=(spec.dimension, spec.side, est),
+            subject_updates=((spec.dimension, spec.side, est),),
             report=rep,
         )
 

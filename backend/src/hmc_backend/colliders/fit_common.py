@@ -56,10 +56,13 @@ class FitConfig:
     max_torso_half_extent_m: tuple[float, float, float] = (0.35, 0.25, 0.20)
 
 
+SubjectUpdate = tuple[str, str | None, DimensionEstimate]  # (field, side, estimate)
+
+
 @dataclass(slots=True)
 class FitOutcome:
     collider: FittedCollider
-    subject_update: tuple[str, str | None, DimensionEstimate] | None = None  # (field, side, estimate)
+    subject_updates: tuple[SubjectUpdate, ...] = ()
     report: dict = field(default_factory=dict)
 
 

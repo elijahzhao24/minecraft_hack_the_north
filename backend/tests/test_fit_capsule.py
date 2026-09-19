@@ -56,7 +56,7 @@ def test_observed_radii_match_ground_truth(scene):
         assert c.fit_source is FitSource.OBSERVED, (c.id, o.report)
         part = c.id.split(".")[-1]
         assert c.radius == pytest.approx(truth[part], abs=0.012), (c.id, c.radius, truth[part])
-        assert o.subject_update is not None and o.subject_update[2].source is FitSource.OBSERVED
+        assert o.subject_updates and o.subject_updates[0][2].source is FitSource.OBSERVED
         # Endpoints are exactly the joints; never lengthened.
         a_name, b_name = o.report["joints"]
         assert c.a == pytest.approx(sk.body[a_name]) and c.b == pytest.approx(sk.body[b_name])
@@ -86,7 +86,7 @@ def test_missing_joint_disables_and_insufficient_support_uses_labelled_fallback(
     assert isinstance(thigh.collider, CapsuleCollider)
     assert thigh.collider.fit_source is FitSource.GLOBAL_DEFAULT
     assert thigh.report["reason"] == "insufficient_support"
-    assert thigh.subject_update is None
+    assert thigh.subject_updates == ()
 
 
 def test_subject_default_is_used_when_available(scene):
