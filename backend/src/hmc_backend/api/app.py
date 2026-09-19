@@ -28,7 +28,7 @@ from hmc_backend.contracts.control import (
     Error,
     ServerHello,
 )
-from hmc_backend.observability import configure_sentry, flush_sentry
+from hmc_backend.observability import configure_sentry, flush_sentry, log_event
 from hmc_backend.protocol.envelope import EnvelopeError
 from hmc_backend.settings import Settings, load_settings
 
@@ -122,7 +122,7 @@ async def ws_capture(ws: WebSocket) -> None:
             if (text := message.get("text")) is not None:
                 await _handle_capture_text(runtime, ws, hello.device_id, text)
             elif (data := message.get("bytes")) is not None:
-                await _handle_capture_binary(runtime, ws, data)
+                await _handle_capture_binary(runtime, ws, hello.device_id, data)
     except WebSocketDisconnect:
         pass
     finally:
@@ -161,6 +161,11 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
         return
     if _handle_live_control(runtime, obj):
         return
+    if obj.get("type") == "ack" and not obj.get("accepted", True):
+        # The phone could not honour a capture_request (typically a full
+        # capture queue because its AR session is not running).
+        log_event("warning", "capture_declined", device_id=device_id, code=obj.get("code"), detail=obj.get("detail"))
+        return
     if obj.get("type") == "clock_pong":
         # Backend records its own receive time on arrival.
         import time
@@ -175,12 +180,14 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
         )
 
 
-async def _handle_capture_binary(runtime: AppRuntime, ws: WebSocket, data: bytes) -> None:
+async def _handle_capture_binary(runtime: AppRuntime, ws: WebSocket, device_id: str, data: bytes) -> None:
     try:
         await runtime.handle_rgbd(data)
     except EnvelopeError as exc:
+        log_event("warning", "rgbd_rejected", device_id=device_id, code=exc.code, message=exc.message)
         await _send_model(ws, Error(code=exc.code, message=exc.message))
     except Exception:  # noqa: BLE001 - never let one frame kill the socket
+        log_event("error", "rgbd_processing_failed", device_id=device_id, bytes=len(data))
         await _send_model(ws, Error(code="internal_error", message="frame processing failed"))
 
 

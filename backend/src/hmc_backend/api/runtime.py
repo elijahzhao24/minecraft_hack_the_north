@@ -238,6 +238,15 @@ class AppRuntime:
         )
 
         outcome = self._pairer.offer(frame, self._calibration.calibration_id)
+        log_event(
+            "info",
+            "rgbd_received",
+            device_id=device_id,
+            capture_id=str(decoded.header.capture_id)[:8],
+            mode=mode,
+            paired=outcome.paired is not None,
+            reason=outcome.rejected_reason,
+        )
         if outcome.paired is None:
             if outcome.rejected_reason is not None:
                 log_event(
