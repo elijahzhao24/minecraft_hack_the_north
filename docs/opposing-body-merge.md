@@ -70,11 +70,15 @@ The report includes reference/rear IDs, slice count, maximum lateral/depth
 correction, vertical shift, and whether the thickness prior was needed.
 
 If tracking is limited, a view is missing, there is insufficient torso/lower-body
-depth, or widths differ by more than a factor of two, the backend keeps available
-points and emits `body_merge_unavailable:<reason>`. It never reuses a previous
-person's warp to disguise missing observations. Missing-contribution and stale
-frame warnings remain active. No alignment method can merge a view that the
-phone or person mask did not supply.
+depth, or widths differ by more than a factor of two, the processor records
+`body_merge_unavailable:<reason>` for diagnostics. The backend withholds that
+frame instead of publishing the unaligned clouds, for both live and snapshot
+captures. Minecraft retains the last aligned scan at its original age; live
+interactions expire normally. Before the first successful merge, no new scan is
+published. A rate-limited HUD error explains the blocker, and publication resumes
+automatically on the next successful merge. No previous warp is applied to new
+observations. No alignment method can merge a view that the phone or person mask
+did not supply.
 
 ## Verification
 

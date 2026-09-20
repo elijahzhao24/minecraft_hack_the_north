@@ -99,6 +99,8 @@ class AppRuntime:
         self._board_packets: OrderedDict = OrderedDict()
         self._freshness = RigFreshness(calibration) if calibration else None
         self._last_published_s: float | None = None
+        self._last_merge_rejection: str | None = None
+        self._last_merge_notice_s = 0.0
         self._closing = False
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
@@ -526,6 +528,26 @@ class AppRuntime:
                 character = await asyncio.to_thread(
                     self._processor.process, pair, mode=mode, trace=output_trace
                 )
+            # A failed forced merge still contains the original two clouds for
+            # diagnostics. Never promote that unaligned geometry to a playable
+            # snapshot. Retain the previous publication and its original age;
+            # live interactions expire normally rather than renewing stale hits.
+            merge_rejection = next((warning for warning in character.quality.warnings
+                                    if warning.startswith("body_merge_unavailable:")), None)
+            if self._settings.opposing_body_merge and merge_rejection is not None:
+                now_s = time.monotonic()
+                if (merge_rejection != self._last_merge_rejection
+                        or now_s - self._last_merge_notice_s >= 5.0):
+                    message = ("Body alignment unavailable; holding the last aligned scan. "
+                               "Keep both phones still and torso and legs visible in both views. "
+                               + merge_rejection.split(":", 1)[1])
+                    self._hub.broadcast(Error(code="body_merge_unavailable", message=message,
+                                              retryable=True).model_dump_json())
+                    log_event("warning", "unaligned_frame_withheld", reason=merge_rejection)
+                    self._last_merge_notice_s = now_s
+                self._last_merge_rejection = merge_rejection
+                return None
+            self._last_merge_rejection = None
             if mode == "live" and character.quality.point_count == 0:
                 # Nobody in frame; publishing an empty live frame only makes
                 # the client log a decode error and blank the figure.
