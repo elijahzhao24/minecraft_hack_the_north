@@ -64,9 +64,9 @@ class ArmSwingDetectorTest {
 	@Test void staleGapOutOfOrderAndSnapshotsNeverSwing() {
 		var d = new ArmSwingDetector(1.5, 500); settle(d);
 		assertTrue(d.update(frame(1, 0.3), 1200).isEmpty());
-		assertTrue(d.update(frame(2, 0.3), 1600).isEmpty(), "old arrival");
-		assertTrue(d.update(frame(9, 0.6), 1700).isEmpty(), "capture gap");
-		assertTrue(d.update(header(10, 1, Mode.SNAPSHOT, BASE.header().sessionId(), BASE.header().calibrationId(), arms(0, Vector3.ZERO)), 1800).isEmpty());
+		assertTrue(d.update(frame(2, 0.3), 2000).isEmpty(), "old arrival");
+		assertTrue(d.update(frame(9, 1.1), 2100).isEmpty(), "capture gap");
+		assertTrue(d.update(header(10, 1.5, Mode.SNAPSHOT, BASE.header().sessionId(), BASE.header().calibrationId(), arms(0, Vector3.ZERO)), 2200).isEmpty());
 	}
 	@Test void newSessionOrCalibrationNeedsNewBaseline() {
 		for (boolean session : List.of(true, false)) {

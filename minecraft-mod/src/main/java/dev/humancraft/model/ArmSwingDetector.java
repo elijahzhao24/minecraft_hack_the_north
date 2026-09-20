@@ -55,8 +55,10 @@ public final class ArmSwingDetector {
 				|| !phones.equals(phoneSessions);
 		if (!changed && frame.frameId() <= lastFrame) return Optional.empty();
 		double dt = frame.normalizedCaptureTimeS() - lastCapture;
-		boolean gap = changed || lastArrival < 0 || arrivalMs < lastArrival || arrivalMs - lastArrival > 350
-				|| dt < 0.02 || dt > 0.35;
+		// Two phones over event Wi-Fi deliver 3-5 fps; the original 350 ms gap
+		// reset the arms on almost every frame.
+		boolean gap = changed || lastArrival < 0 || arrivalMs < lastArrival || arrivalMs - lastArrival > 700
+				|| dt < 0.02 || dt > 0.7;
 		if (gap) { left.reset(); right.reset(); }
 		session = frame.sessionId(); calibration = frame.calibrationId(); phoneSessions = phones;
 		lastFrame = frame.frameId(); lastCapture = frame.normalizedCaptureTimeS(); lastArrival = arrivalMs;
@@ -72,7 +74,10 @@ public final class ArmSwingDetector {
 		if (current == null) { arm.reset(); return false; }
 		Sample previous = arm.previous;
 		arm.previous = current;
-		if (previous == null || !previous.provenance.equals(current.provenance)) {
+		// Provenance (which phone / method observed the joint) flips between
+		// frames on a real rig; only the landmark identity must match. A jump
+		// from a genuinely different observation is caught by the 12 m/s guard.
+		if (previous == null || !sameLandmarks(previous.provenance, current.provenance)) {
 			arm.speed = Double.NaN;
 			arm.armed = false;
 			return false;
@@ -90,6 +95,19 @@ public final class ArmSwingDetector {
 			return true;
 		}
 		return false;
+	}
+
+	private static boolean sameLandmarks(String a, String b) {
+		return names(a).equals(names(b));
+	}
+
+	private static String names(String provenance) {
+		StringBuilder out = new StringBuilder();
+		for (String part : provenance.split("/")) {
+			int colon = part.indexOf(':');
+			out.append(colon < 0 ? part : part.substring(0, colon)).append('/');
+		}
+		return out.toString();
 	}
 
 	/** Model-prior fills cannot cause damage when the wrist is actually occluded. */
