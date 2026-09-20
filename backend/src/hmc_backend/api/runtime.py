@@ -372,7 +372,14 @@ class AppRuntime:
             )
             for dev, state in self._devices.items()
         }
-        models = {"pose": "ready", "hands": "ready"} if self.is_ready() else {"pose": "not_loaded", "hands": "not_loaded"}
+        if self.is_ready():
+            models = {
+                "pose": f"ready:{self._settings.vision_backend}",
+                "hands": f"ready:{self._settings.vision_backend}",
+                "colliders": f"ready:{self._settings.collider_backend}",
+            }
+        else:
+            models = {"pose": "not_loaded", "hands": "not_loaded", "colliders": "not_loaded"}
 
         if self.is_ready():
             status = HealthStatus.READY

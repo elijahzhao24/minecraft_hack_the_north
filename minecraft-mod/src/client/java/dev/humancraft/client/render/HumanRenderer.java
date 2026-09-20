@@ -28,6 +28,7 @@ import net.minecraft.world.phys.Vec3;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Owns three persistent GPU buffers for the acknowledged snapshot. The cloud is uploaded as one batch of
@@ -56,6 +57,7 @@ public final class HumanRenderer implements AutoCloseable {
 	private VertexBuffer colliderBuffer;
 	private long uploadedFrame = -1;
 	private boolean renderFailed;
+	private UUID targetPlayerId;
 
 	public HumanRenderer(HumanCraftConfig config) {
 		this.config = config;
@@ -70,8 +72,10 @@ public final class HumanRenderer implements AutoCloseable {
 	}
 
 	/** Must run on the render thread. Builds all replacement buffers before releasing the active set. */
-	public void activate(WorldSnapshot snapshot) {
+	public void activate(WorldSnapshot snapshot, UUID targetPlayerId) {
 		RenderSystem.assertOnRenderThread();
+		this.targetPlayerId = targetPlayerId;
+		ScanRenderState.activate(targetPlayerId);
 		try (Telemetry.Span span = Telemetry.continueTransaction("client.gpu_upload", "hmc.render.upload", snapshot.trace())) {
 			long start = System.nanoTime();
 			VertexBuffer nextCloud = null;
@@ -112,6 +116,8 @@ public final class HumanRenderer implements AutoCloseable {
 		skeletonBuffer = null;
 		colliderBuffer = null;
 		uploadedFrame = -1;
+		targetPlayerId = null;
+		ScanRenderState.clear();
 	}
 
 	private VertexBuffer buildCloud(WorldSnapshot snapshot) {
@@ -186,12 +192,19 @@ public final class HumanRenderer implements AutoCloseable {
 		if (uploadedFrame < 0 || context.matrixStack() == null) {
 			return;
 		}
+		var client = net.minecraft.client.Minecraft.getInstance();
+		if (client.level == null || targetPlayerId == null) return;
+		var target = client.level.getPlayerByUUID(targetPlayerId);
+		if (target == null || target.isSwimming() || target.isFallFlying()) return;
+		if (target == client.player && client.options.getCameraType().isFirstPerson()) return;
 		try {
 			PoseStack matrices = context.matrixStack();
 			Vec3 camera = context.camera().getPosition();
 			matrices.pushPose();
 			try {
 				matrices.translate(-camera.x, -camera.y, -camera.z);
+				matrices.translate(target.getX(), target.getY(), target.getZ());
+				matrices.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-target.getYRot()));
 				RenderSystem.enableDepthTest();
 				RenderSystem.disableCull();
 				if (config.showCloud) {

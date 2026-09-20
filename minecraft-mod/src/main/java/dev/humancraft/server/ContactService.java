@@ -21,6 +21,11 @@ public final class ContactService {
 		boolean isSolid(int x, int y, int z);
 	}
 
+	@FunctionalInterface
+	public interface BlockCollision {
+		List<Aabb> boxes(int x, int y, int z);
+	}
+
 	public record Contact(String colliderId, BodyPart bodyPart, int x, int y, int z) {}
 
 	public record ContactState(long frameId, List<Contact> contacts, int cellsTested) {
@@ -41,6 +46,12 @@ public final class ContactService {
 	private ContactService() {}
 
 	public static ContactState compute(ServerSnapshot snapshot, BlockSolidity solidity) {
+		return computeWithShapes(snapshot, (x, y, z) ->
+				solidity.isSolid(x, y, z) ? List.of(Aabb.unitCube(x, y, z)) : List.of());
+	}
+
+	/** Exact collider overlap against each block's real collision boxes (slabs, stairs, fences, etc.). */
+	public static ContactState computeWithShapes(ServerSnapshot snapshot, BlockCollision collision) {
 		List<Contact> contacts = new ArrayList<>();
 		int cells = 0;
 		for (ColliderDto collider : snapshot.worldColliders()) {
@@ -63,10 +74,14 @@ public final class ContactService {
 				for (int y = minY; y <= maxY; y++) {
 					for (int z = minZ; z <= maxZ; z++) {
 						cells++;
-						if (!solidity.isSolid(x, y, z)) {
-							continue;
+						boolean overlaps = false;
+						for (Aabb blockBox : collision.boxes(x, y, z)) {
+							if (shape.overlaps(blockBox)) {
+								overlaps = true;
+								break;
+							}
 						}
-						if (shape.overlaps(Aabb.unitCube(x, y, z))) {
+						if (overlaps) {
 							contacts.add(new Contact(collider.id(), collider.bodyPart(), x, y, z));
 						}
 					}

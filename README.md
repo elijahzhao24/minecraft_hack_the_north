@@ -1,6 +1,6 @@
 # Humans in Minecraft
 
-Capture a real person with two LiDAR iPhones, reconstruct a colored 3D snapshot, fit body-part hit volumes, and render/interact with that snapshot inside Minecraft Java Edition.
+Capture a real person with two LiDAR iPhones and use the RGB point cloud as the body of a real Minecraft player. Minecraft keeps player health, inventory, movement, gravity, collision, damage, and respawn while HumanCraft supplies appearance and anatomical hit volumes.
 
 ## Repository status
 
@@ -8,7 +8,7 @@ Workflow 1 now includes a runnable Xcode project under [`ios-capture/`](ios-capt
 
 Workflow 4 is implemented as the runnable `minecraft-mod/` Fabric project. It includes deterministic golden fixtures, strict `HMC1` decoding, stage-to-world conversion, a reconnecting backend client, batched point-cloud/debug rendering, integrated-server snapshot ownership, body-part ray hits, hand/foot contact queries, controls/HUD, and optional Sentry telemetry. The built-in fixture keeps this workflow independent of phones and the Python backend.
 
-The iPhone and Python workflows remain separately owned. The documents below are the shared source of truth for their contracts and integration gates.
+The Python backend includes selectable fixture and production vision pipelines. Production mode uses checksum-pinned MediaPipe Pose and Hand models plus anatomical collider fitting.
 
 The original product and acceptance brief remains in [minecraft_human_mvp_agent_brief.md](minecraft_human_mvp_agent_brief.md). Start implementation from the narrower documents in `docs/`:
 
@@ -59,7 +59,22 @@ java -version
 
 The remapped distributable is `minecraft-mod/build/libs/humancraft-0.1.0.jar`. `runClient` supplies Fabric API on the development classpath. For a normal launcher profile, use Minecraft 1.21.1 with Fabric Loader 0.19.5 and install both that HumanCraft JAR and Fabric API `0.116.17+1.21.1`.
 
-HumanCraft creates `run/config/humancraft.json` under `runClient` (or `.minecraft/config/humancraft.json` in a launcher profile). The backend defaults to `ws://127.0.0.1:8000/ws/character`; change `backendUrl` or set `HUMANCRAFT_BACKEND_URL`. Host and port are therefore fully external to the JAR. The client reconnects with bounded backoff and keeps an acknowledged snapshot active across backend reconnects. Live-mode frames are hidden and made non-interactive after `liveFrameTtlMs`; snapshot-mode frames intentionally persist.
+HumanCraft creates `run/config/humancraft.json` under `runClient` (or `.minecraft/config/humancraft.json` in a launcher profile). The backend defaults to `ws://127.0.0.1:8000/ws/character`; change `backendUrl` or set `HUMANCRAFT_BACKEND_URL`. Live-mode frames are hidden and made non-interactive after 500 ms; snapshot-mode frames persist.
+
+The scan starts bound to your own player. These commands manage the two supported modes:
+
+```text
+/humancraft mode self
+/humancraft mode separate
+/humancraft spawn
+/humancraft despawn
+/humancraft control
+/humancraft release
+/humancraft calibrate
+/humancraft debug on|off
+```
+
+Separate mode creates a server-controlled player named `HumanScan`; it does not require another Minecraft account. While controlled, WASD, look, jump, sneak, and sprint are sent as intent to the logical server.
 
 Sentry is off by default and never gates gameplay. To enable crash/error reporting, Logs, and performance spans without putting a DSN in git or the JSON file:
 
@@ -77,12 +92,12 @@ The DSN environment value is deliberately blanked whenever config is saved.
 Cloud CI can load the client and validate entrypoints, but final rendering and input acceptance should be done locally with a GPU:
 
 1. Run `cd minecraft-mod && ./gradlew runClient`. No Microsoft login is required for the development client.
-2. Create a single-player Creative flat world. Do not start a dedicated server. With `fixtureOnStart: true`, the neutral 6,000-point synthetic human is installed about three blocks in front of the player even if no backend is running.
+2. Create a single-player Creative flat world. With `fixtureOnStart: true`, the neutral fixture replaces your player model even if no backend is running. Use third-person view to inspect it.
 3. Confirm the HUD reaches `active frame 0`, reports 6,000 points, 77 landmarks, and 15 colliders. Verify the colored surface is depth-tested; skeleton lines and collider wireframes stay aligned while walking around it. Hands are magenta and feet orange in the collider overlay.
 4. Aim directly at torso, each hand, and each foot and press `P`. Confirm the chat/HUD reports the nearest exact body part. Aim through the arm/torso gap and confirm `MISS`.
 5. Place a solid wall between the player and human, aim through it, and press `P`; confirm `BLOCK_OCCLUDED`. Remove the wall and confirm the same aim can hit again.
 6. In the neutral fixture, check the HUD contact count while both foot OBBs meet the flat floor. Place a cube against a hand and verify contact updates. This is a query indicator, not physical collision response.
-7. Move the anchor with numpad `8/2/4/6`, Page Up/Page Down, then reset with Home. Change scale with `=`/`-`. Each change must briefly show pending and then active; point cloud, debug geometry, probes, and contacts must move together only after the logical-server ack.
+7. Walk, turn, jump, collide with walls and stairs, and take knockback. The cloud and colliders must follow the player together. Run `/humancraft mode separate`, then `/humancraft control`, and repeat with the internal player.
 8. Toggle cloud/skeleton/colliders with `O`/`I`/`U`, the registration-color diagnostic with `Y`, and the HUD with `H`. Use F6 to reconnect, F7 to request capture, and F8 to clear. All bindings are remappable under Options → Controls → HumanCraft.
 9. Leave the world running for ten minutes while toggling overlays and reconnecting. Confirm frame age/status remains sane and `run/logs/latest.log` has no renderer, buffer, or stale-interaction error.
 

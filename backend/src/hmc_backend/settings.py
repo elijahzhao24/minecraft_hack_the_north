@@ -7,6 +7,8 @@ the environment and are never echoed by ``/health``.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -38,7 +40,7 @@ class Settings(BaseSettings):
     subscriber_queue_size: int = 1
 
     # --- Pairing / clock budgets -----------------------------------------
-    pair_skew_limit_ms: float = 1000.0
+    pair_skew_limit_ms: float = 80.0
     clock_uncertainty_limit_ms: float = 100.0
     hello_deadline_s: float = 10.0
     clock_probe_interval_s: float = 2.0
@@ -68,10 +70,17 @@ class Settings(BaseSettings):
     # Persisted stage->stage corrections from person-target registration.
     registration_path: str = "data/registration.json"
 
+    # Real inference is opt-in so fixtures and CI do not require model weights.
+    vision_backend: Literal["fake", "mediapipe"] = "fake"
+    collider_backend: Literal["fake", "anatomical"] = "fake"
+    learn_subject_dimensions: bool = True
+    debug_artifacts_dir: str | None = None
+
     # --- Paths ------------------------------------------------------------
     calibration_path: str = "data/calibration.json"
     recording_root: str = "data/recordings"
     model_manifest_path: str = "models/manifest.json"
+    models_dir: str | None = None
     pose_model_path: str | None = None
     hand_model_path: str | None = None
 
