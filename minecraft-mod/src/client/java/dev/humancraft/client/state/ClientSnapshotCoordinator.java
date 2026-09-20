@@ -317,7 +317,9 @@ public final class ClientSnapshotCoordinator {
 				}
 			}
 		}
-		if (active != null && active.mode() == Mode.LIVE
+		// While a live session is running a late frame keeps the previous figure
+		// on screen; clearing would flash the vanilla player model back in.
+		if (active != null && active.mode() == Mode.LIVE && !liveRequested
 				&& System.currentTimeMillis() - activeSinceMs > config.liveFrameTtlMs) {
 			try {
 				ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
