@@ -71,13 +71,20 @@ capture frames can be missed; use a deliberate visible swing.
 
 ## Alignment and physical checks
 
-Scan points, landmarks, and colliders share the same hip-centered transform.
-Scale stays fixed until normalization or a new session/calibration; missing or implausible hips
-use the current visible lower-body center so walking in the capture space cannot
-leave the rendered scan displaced from the entity.
-Feet provide the floor when tracked; otherwise the previous floor is retained.
-The cloud draws inside Minecraft's player renderer using the entity's own position stack. The vanilla skin is
-hidden only while its replacement cloud is available and enabled.
+Scan points, landmarks, and colliders share one transform anchored on the dense
+body region. A smoothed horizontal density grid finds that region; its middle
+height band sets the center and its trimmed vertical bounds set the floor and
+initial scale. Sparse distant points and extended arms cannot pull that center
+away. Feet refine the floor only when they agree with the visible cloud.
+
+The cloud draws inside Minecraft's player renderer. Its VBO shader receives
+**camera model-view × entity pose**: Minecraft stores the camera transform
+separately from the entity's pose stack. Omitting that factor made the scan
+appear displaced from the correctly rendered shadow as the camera turned.
+Press **U** to see a cyan ground cross at the actual entity origin, and **H**
+to see how many points contributed to the dense-body anchor. Use F3+B to compare
+with Minecraft's ordinary entity bounding box. Install the updated JAR and
+restart Minecraft before checking the change.
 
 Automated tests cover velocity, frame/session guards, cooldown, arc boundaries,
 and normalization. Verify these remaining checks on the real rig:
@@ -110,3 +117,23 @@ The previous 8 FPS config default is migrated once to 15 FPS. The backend also
 defaults to 15 capture requests/second; actual delivered FPS depends on phone,
 network, and inference throughput. Restart both backend and Minecraft after
 installing the updated mod.
+
+
+## Survival and PvP status
+
+In `/humancraft mode self`, the scan replaces your existing player visually.
+Survival damage, armor, health, death, and ordinary PvP still belong to that
+Minecraft player. The cloud does not make the player invulnerable.
+
+In separate mode the internal `HumanScan` player is currently explicitly
+invulnerable (`AvatarService.spawnSeparate`), despite being assigned Survival
+mode. It can deliver detected punches, but does not currently take normal damage
+or die from PvP. Changing your observer's game mode does not remove that flag.
+
+Physical punches use five-block 3D distance between entity positions and the
+forward horizontal 180° half-space, plus line of sight. Every eligible living
+target in that region receives 1 damage (half a heart before armor) and knockback,
+with a shared 500 ms cooldown. PvP/team and ordinary damage-immunity rules still
+apply. These checks use the server's player position/yaw, not the displayed
+cloud's apparent position or individual points. Ordinary mouse/weapon attacks
+continue to use Minecraft's normal reach and damage rules.

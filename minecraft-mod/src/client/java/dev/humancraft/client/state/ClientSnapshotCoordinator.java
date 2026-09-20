@@ -577,6 +577,9 @@ public final class ClientSnapshotCoordinator {
 		lines.add("last swing: " + lastSwing);
 		if (config.mouseMovementEnabled) lines.add("Mouse: hold buttons 4/5 to turn left/right");
 		lines.add(String.format(Locale.ROOT, "capture target: %.0f FPS", config.liveRateHz));
+		var anchor = normalization.estimate();
+		if (anchor != null) lines.add("anchor: dense body " + anchor.bodyPoints() + "/" + anchor.totalPoints()
+				+ " pts; cyan cross = player feet");
 		lines.add("last probe: " + lastProbe);
 		return lines;
 	}

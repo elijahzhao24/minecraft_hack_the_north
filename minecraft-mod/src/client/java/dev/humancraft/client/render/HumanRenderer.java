@@ -18,6 +18,7 @@ import dev.humancraft.geometry.Shape;
 import dev.humancraft.geometry.Sphere;
 import dev.humancraft.geometry.Vector3;
 import dev.humancraft.model.PointCloud;
+import dev.humancraft.model.EntityRenderTransform;
 import dev.humancraft.model.WorldSnapshot;
 import dev.humancraft.telemetry.Telemetry;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
@@ -183,6 +184,9 @@ public final class HumanRenderer implements AutoCloseable {
 	private VertexBuffer buildColliders(WorldSnapshot snapshot) {
 		try (ByteBufferBuilder bytes = new ByteBufferBuilder(Math.max(8192, snapshot.colliders().size() * 256 * VERTEX_BYTES))) {
 			BufferBuilder builder = new BufferBuilder(bytes, VertexFormat.Mode.DEBUG_LINES, DefaultVertexFormat.POSITION_COLOR);
+			// Cyan ground cross marks the real entity/shadow origin, not a fitted joint.
+			line(builder, new Vector3(-.3, .015, 0), new Vector3(.3, .015, 0), 0, 255, 255, 255);
+			line(builder, new Vector3(0, .015, -.3), new Vector3(0, .015, .3), 0, 255, 255, 255);
 			for (ColliderDto collider : snapshot.colliders()) {
 				if (!collider.valid() || collider.geometry().isEmpty()) {
 					continue;
@@ -225,7 +229,8 @@ public final class HumanRenderer implements AutoCloseable {
 	private static void draw(VertexBuffer buffer, PoseStack matrices) {
 		if (buffer != null && !buffer.isInvalid()) {
 			buffer.bind();
-			buffer.drawWithShader(matrices.last().pose(), RenderSystem.getProjectionMatrix(), GameRenderer.getPositionColorShader());
+			buffer.drawWithShader(EntityRenderTransform.modelView(RenderSystem.getModelViewMatrix(), matrices.last().pose()),
+					RenderSystem.getProjectionMatrix(), GameRenderer.getPositionColorShader());
 		}
 	}
 
