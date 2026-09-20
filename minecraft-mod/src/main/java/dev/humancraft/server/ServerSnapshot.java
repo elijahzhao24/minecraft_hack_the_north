@@ -18,6 +18,7 @@ public record ServerSnapshot(
 		long frameId,
 		UUID sessionId,
 		UUID calibrationId,
+		UUID fusionId,
 		Mode mode,
 		StageToWorld transform,
 		List<ColliderDto> worldColliders,

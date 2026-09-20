@@ -134,7 +134,7 @@ public final class MalformedFixtures {
 
 		// Schema version bump.
 		JsonObject futureSchema = golden.header().toJson();
-		futureSchema.addProperty("schema_version", 2);
+		futureSchema.addProperty("schema_version", 3);
 		cases.put("future_schema_version", new Case("future_schema_version", envelope(futureSchema.toString(), payload), ProtocolException.UNSUPPORTED_VERSION));
 
 		// Too many colliders (129 copies with distinct IDs).

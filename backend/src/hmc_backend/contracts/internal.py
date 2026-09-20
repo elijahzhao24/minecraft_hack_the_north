@@ -34,6 +34,9 @@ class CapturedFrame:
     confidence: NDArray[np.uint8]   # H_depth x W_depth
     K_rgb: NDArray[np.float64]      # 3 x 3
     arkit_pose: NDArray[np.float64]  # 4 x 4, diagnostic only
+    source_frame_id: UUID | None = None
+    trace: TraceContext = field(default_factory=lambda: TraceContext())
+    received_monotonic_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +157,7 @@ class SourceFrameRef:
     session_id: UUID
     capture_id: UUID
     sequence: int
+    source_frame_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,3 +192,4 @@ class CharacterFrame:
     landmarks: tuple[Landmark3D, ...]
     colliders: tuple[Collider, ...]
     trace: TraceContext = field(default_factory=TraceContext)
+    fusion_id: UUID | None = None

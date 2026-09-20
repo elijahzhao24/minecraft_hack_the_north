@@ -70,7 +70,10 @@ class Settings(BaseSettings):
     sentry_dsn: str | None = None
     environment: str = "development"
     release: str = "hmc-backend@0.1.0"
-    traces_sample_rate: float = 1.0
+    traces_sample_rate: float = 0.2
+    sentry_send_default_pii: bool = False
+    # Opt-in demonstration hook; zero in every normal environment.
+    observability_demo_delay_ms: int = 0
 
     @field_validator("expected_device_ids", mode="before")
     @classmethod

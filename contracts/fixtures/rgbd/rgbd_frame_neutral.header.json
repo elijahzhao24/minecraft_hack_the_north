@@ -1,9 +1,14 @@
 {
   "schema": "hmc.rgbd_frame",
-  "schema_version": 1,
+  "schema_version": 2,
   "device_id": "front-phone",
   "session_id": "44487d7c-b847-49db-aa37-cf326ad76078",
   "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4",
+  "source_frame_id": "e37f3b01-2a69-486f-86f0-9024abf18c47",
+  "trace": {
+    "sentry_trace": null,
+    "baggage": null
+  },
   "sequence": 184,
   "capture_timestamp_s": 9922.107184,
   "image_orientation": "landscape_right",
@@ -52,12 +57,12 @@
       "name": "rgb",
       "encoding": "jpeg",
       "offset": 0,
-      "length": 1461
+      "length": 1549
     },
     {
       "name": "depth",
       "encoding": "float32_le",
-      "offset": 1461,
+      "offset": 1549,
       "length": 12288,
       "shape": [
         48,
@@ -67,7 +72,7 @@
     {
       "name": "confidence",
       "encoding": "uint8",
-      "offset": 13749,
+      "offset": 13837,
       "length": 3072,
       "shape": [
         48,

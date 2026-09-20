@@ -30,7 +30,11 @@ final class FrameEncoder: @unchecked Sendable {
             throw error
         }
 
-        let copySpan = diagnostics.startSpan(captureID: captureID, operation: "capture.copy_buffers")
+        let copySpan = diagnostics.startSpan(
+            captureID: captureID,
+            operation: "hmc.point_cloud_generation",
+            description: "copy valid LiDAR depth samples"
+        )
         let encodedDepth: EncodedDepth
         do {
             encodedDepth = try DepthEncoder.encode(
@@ -38,6 +42,7 @@ final class FrameEncoder: @unchecked Sendable {
                 confidence: source.confidencePixelBuffer
             )
             copySpan?.setData(value: encodedDepth.validFraction, key: "valid_depth_fraction")
+            copySpan?.setData(value: encodedDepth.validPointCount, key: "point_count")
             copySpan?.finish(status: .ok)
         } catch {
             copySpan?.finish(status: .internalError)
@@ -71,10 +76,11 @@ final class FrameEncoder: @unchecked Sendable {
         let descriptors = try HMCEnvelope.descriptors(for: buffers)
         let header = RGBDFrameHeader(
             schema: "hmc.rgbd_frame",
-            schemaVersion: 1,
+            schemaVersion: 2,
             deviceID: deviceID,
             sessionID: source.sessionID,
             captureID: captureID,
+            sourceFrameID: source.sourceFrameID,
             sequence: source.sequence,
             captureTimestampSeconds: source.captureTimestampSeconds,
             imageOrientation: .portrait,
@@ -93,10 +99,11 @@ final class FrameEncoder: @unchecked Sendable {
             ),
             rgbDepthMapping: .normalizedUncropped,
             arkitWorldFromCameraRowMajor: MatrixWireEncoding.rowMajor(source.arkitWorldFromCamera),
-            buffers: descriptors
+            buffers: descriptors,
+            trace: diagnostics.traceContext(captureID: captureID)
         )
 
-        let serializeSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.serialize")
+        let serializeSpan = diagnostics.startSpan(captureID: captureID, operation: "hmc.serialize")
         do {
             let envelope = try HMCEnvelope.encode(header: header, buffers: buffers)
             serializeSpan?.setData(value: envelope.count, key: "payload_bytes")

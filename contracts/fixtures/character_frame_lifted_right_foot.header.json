@@ -1,21 +1,24 @@
 {
   "schema": "hmc.character_frame",
-  "schema_version": 1,
+  "schema_version": 2,
   "session_id": "25b981d5-b9a6-4df5-8495-c95c5a9a65d9",
   "calibration_id": "f766f462-d405-4c30-89f9-f626da70547b",
   "frame_id": 42,
+  "fusion_id": "6a66c778-ba73-38f7-b54d-303350216421",
   "source_frames": [
     {
       "device_id": "front-phone",
       "session_id": "44487d7c-b847-49db-aa37-cf326ad76078",
       "capture_id": "8fab0b2b-21df-36ea-9051-8baf932cbbab",
-      "sequence": 142
+      "sequence": 142,
+      "source_frame_id": null
     },
     {
       "device_id": "side-phone",
       "session_id": "18619e93-736f-4f18-afdb-7f3ea369b7d5",
       "capture_id": "8fab0b2b-21df-36ea-9051-8baf932cbbab",
-      "sequence": 242
+      "sequence": 242,
+      "source_frame_id": null
     }
   ],
   "normalized_capture_time_s": 61441.0,

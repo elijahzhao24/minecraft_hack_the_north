@@ -1,5 +1,6 @@
 plugins {
 	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'io.sentry.jvm.gradle' version '6.22.0'
 	id 'maven-publish'
 }
 
@@ -12,6 +13,11 @@ base {
 
 repositories {
 	// Loom adds the Fabric, Mojang and Maven Central repositories automatically.
+	mavenCentral()
+}
+
+configurations {
+	sentryAgent
 }
 
 loom {
@@ -34,9 +40,28 @@ dependencies {
 	// Sentry (Tracing + Logs). Bundled into the mod jar via Loom's jar-in-jar.
 	implementation "io.sentry:sentry:${project.sentry_version}"
 	include "io.sentry:sentry:${project.sentry_version}"
+	implementation "io.sentry:sentry-async-profiler:${project.sentry_version}"
+	include "io.sentry:sentry-async-profiler:${project.sentry_version}"
+	sentryAgent "io.sentry:sentry-opentelemetry-agent:${project.sentry_version}"
 
 	testImplementation "org.junit.jupiter:junit-jupiter:${project.junit_version}"
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+sentry {
+	includeSourceContext = true
+	org = "jonathan-zhu"
+	projectName = "java-minecraft"
+	authToken = System.getenv("SENTRY_AUTH_TOKEN")
+}
+
+// The development launcher gets the same OpenTelemetry agent used by a packaged launch.
+// Resolution remains lazy, so ordinary compilation does not start or attach an agent.
+tasks.named('runClient').configure {
+	doFirst {
+		jvmArgs "-javaagent:${configurations.sentryAgent.singleFile.absolutePath}"
+		environment "SENTRY_PROPERTIES_FILE", file("sentry.properties").absolutePath
+	}
 }
 
 processResources {

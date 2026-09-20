@@ -27,6 +27,7 @@ struct EncodedDepth: Sendable {
     let depthMetersLittleEndian: Data
     let confidence: Data?
     let validFraction: Double
+    let validPointCount: Int
 }
 
 enum DepthEncoder {
@@ -85,7 +86,8 @@ enum DepthEncoder {
             height: height,
             depthMetersLittleEndian: depthData,
             confidence: confidenceData,
-            validFraction: Double(validCount) / Double(width * height)
+            validFraction: Double(validCount) / Double(width * height),
+            validPointCount: validCount
         )
     }
 

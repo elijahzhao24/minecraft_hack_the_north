@@ -60,6 +60,7 @@ def build_processor(
         voxel_size_m=settings.voxel_size_m,
         max_points=settings.max_points,
         confidence_min=settings.confidence_min,
+        observability_delay_ms=settings.observability_demo_delay_ms,
     )
 
 

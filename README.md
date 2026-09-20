@@ -21,6 +21,7 @@ The original product and acceptance brief remains in [minecraft_human_mvp_agent_
 | [Workflow 3 — Vision and colliders](docs/workflows/03-vision-and-colliders.md) | MediaPipe models, 2D-to-3D registration, landmark DTOs, and collider fitting |
 | [Workflow 4 — Minecraft integration](docs/workflows/04-minecraft-fabric.md) | Fabric setup, client rendering, client/server synchronization, hit and contact queries |
 | [End-to-end runbook](docs/workflows/05-end-to-end-runbook.md) | Startup order, calibration/capture/demo sequences, failure isolation, and gate checklist |
+| [Sentry observability](docs/observability.md) | Cross-runtime latency, scan quality, frame identity/freshness, and controlled demonstrations |
 
 ## Chosen implementation baseline
 
@@ -61,16 +62,15 @@ The remapped distributable is `minecraft-mod/build/libs/humancraft-0.1.0.jar`. `
 
 HumanCraft creates `run/config/humancraft.json` under `runClient` (or `.minecraft/config/humancraft.json` in a launcher profile). The backend defaults to `ws://127.0.0.1:8000/ws/character`; change `backendUrl` or set `HUMANCRAFT_BACKEND_URL`. Host and port are therefore fully external to the JAR. The client reconnects with bounded backoff and keeps an acknowledged snapshot active across backend reconnects. Live-mode frames are hidden and made non-interactive after `liveFrameTtlMs`; snapshot-mode frames intentionally persist.
 
-Sentry is off by default and never gates gameplay. To enable crash/error reporting, Logs, and performance spans without putting a DSN in git or the JSON file:
+The mod's Sentry development configuration is in `minecraft-mod/sentry.properties` and
+never gates gameplay. See the [Minecraft mod README](minecraft-mod/README.md) for the
+agent-enabled launch, opt-in verification event and metrics, packaged-launch JVM
+arguments, and source-context upload command.
 
 ```bash
-export HUMANCRAFT_SENTRY_DSN='https://public-key@your-sentry-host/project-id'
-export HUMANCRAFT_SENTRY_ENVIRONMENT='local-visual-test'
-export HUMANCRAFT_SENTRY_TRACES_SAMPLE_RATE='1.0'
+cd minecraft-mod
 ./gradlew runClient
 ```
-
-The DSN environment value is deliberately blanked whenever config is saved.
 
 ## Local visual and hitbox verification
 

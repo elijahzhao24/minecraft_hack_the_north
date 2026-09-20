@@ -69,7 +69,7 @@ public final class SnapshotStore {
 			world.add(transform.collider(c));
 		}
 		ServerSnapshot snapshot = new ServerSnapshot(owner, dimension, request.frameId(), request.sessionId(), request.calibrationId(),
-				request.mode(), transform, world, nowMillis);
+				request.fusionId(), request.mode(), transform, world, nowMillis);
 		active.put(owner, snapshot);
 		cursors.put(owner, new Cursor(request.sessionId(), request.frameId()));
 		return InstallOutcome.accepted(request.frameId());

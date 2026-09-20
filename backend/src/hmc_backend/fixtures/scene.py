@@ -121,6 +121,9 @@ def encode_rgbd_packet(
     rgb: NDArray[np.uint8],
     depth: NDArray[np.float32],
     confidence: NDArray[np.uint8],
+    source_frame_id: UUID | None = None,
+    sentry_trace: str | None = None,
+    baggage: str | None = None,
 ) -> bytes:
     """Encode arrays into a real HMC1 RGBD packet."""
     h_rgb, w_rgb = rgb.shape[:2]
@@ -137,10 +140,12 @@ def encode_rgbd_packet(
     off_conf = off_depth + len(depth_bytes)
     header = {
         "schema": "hmc.rgbd_frame",
-        "schema_version": 1,
+        "schema_version": 2,
         "device_id": device_id,
         "session_id": str(session_id),
         "capture_id": str(capture_id),
+        "source_frame_id": str(source_frame_id or uuid4()),
+        "trace": {"sentry_trace": sentry_trace, "baggage": baggage},
         "sequence": sequence,
         "capture_timestamp_s": capture_timestamp_s,
         "image_orientation": "landscape_right",

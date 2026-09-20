@@ -116,9 +116,12 @@ public final class HumanCraftServer {
 				emitter.reset();
 			}
 			span.tag("result", outcome.code());
-			Telemetry.log(outcome.accepted() ? SentryLevel.INFO : SentryLevel.WARNING,
-					"install frame=%d owner=%s result=%s %s", payload.frameId(), owner, outcome.code(), outcome.detail());
-			ServerPlayNetworking.send(player, HumanCraftPayloads.SnapshotAck.of(payload.frameId(), outcome, validColliders));
+			if (!outcome.accepted()) {
+				Telemetry.log(SentryLevel.WARNING, "install frame=%d owner=%s result=%s %s",
+						payload.frameId(), owner, outcome.code(), outcome.detail());
+			}
+			ServerPlayNetworking.send(player, HumanCraftPayloads.SnapshotAck.of(
+					payload.frameId(), outcome, validColliders, payload.fusionId()));
 		}
 	}
 

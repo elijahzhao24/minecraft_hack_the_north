@@ -133,12 +133,23 @@ struct RGBDepthMapping: Codable, Equatable, Sendable {
     )
 }
 
+struct CaptureTraceContext: Codable, Equatable, Sendable {
+    let sentryTrace: String?
+    let baggage: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sentryTrace = "sentry_trace"
+        case baggage
+    }
+}
+
 struct RGBDFrameHeader: Codable, Equatable, Sendable {
     let schema: String
     let schemaVersion: UInt16
     let deviceID: String
     @LowercaseUUID var sessionID: UUID
     @LowercaseUUID var captureID: UUID
+    @LowercaseUUID var sourceFrameID: UUID
     let sequence: UInt64
     let captureTimestampSeconds: Double
     let imageOrientation: ImageOrientation
@@ -149,6 +160,45 @@ struct RGBDFrameHeader: Codable, Equatable, Sendable {
     let rgbDepthMapping: RGBDepthMapping
     let arkitWorldFromCameraRowMajor: [Double]
     let buffers: [BufferDescriptor]
+    let trace: CaptureTraceContext?
+
+    init(
+        schema: String,
+        schemaVersion: UInt16,
+        deviceID: String,
+        sessionID: UUID,
+        captureID: UUID,
+        sourceFrameID: UUID = UUID(),
+        sequence: UInt64,
+        captureTimestampSeconds: Double,
+        imageOrientation: ImageOrientation,
+        mirrored: Bool,
+        trackingState: CaptureTrackingState,
+        rgb: RGBMetadata,
+        depth: DepthMetadata,
+        rgbDepthMapping: RGBDepthMapping,
+        arkitWorldFromCameraRowMajor: [Double],
+        buffers: [BufferDescriptor],
+        trace: CaptureTraceContext? = nil
+    ) {
+        self.schema = schema
+        self.schemaVersion = schemaVersion
+        self.deviceID = deviceID
+        self.sessionID = sessionID
+        self.captureID = captureID
+        self.sourceFrameID = sourceFrameID
+        self.sequence = sequence
+        self.captureTimestampSeconds = captureTimestampSeconds
+        self.imageOrientation = imageOrientation
+        self.mirrored = mirrored
+        self.trackingState = trackingState
+        self.rgb = rgb
+        self.depth = depth
+        self.rgbDepthMapping = rgbDepthMapping
+        self.arkitWorldFromCameraRowMajor = arkitWorldFromCameraRowMajor
+        self.buffers = buffers
+        self.trace = trace
+    }
 
     enum CodingKeys: String, CodingKey {
         case schema
@@ -156,6 +206,7 @@ struct RGBDFrameHeader: Codable, Equatable, Sendable {
         case deviceID = "device_id"
         case sessionID = "session_id"
         case captureID = "capture_id"
+        case sourceFrameID = "source_frame_id"
         case sequence
         case captureTimestampSeconds = "capture_timestamp_s"
         case imageOrientation = "image_orientation"
@@ -164,7 +215,7 @@ struct RGBDFrameHeader: Codable, Equatable, Sendable {
         case rgb, depth
         case rgbDepthMapping = "rgb_depth_mapping"
         case arkitWorldFromCameraRowMajor = "T_arkit_world_from_camera_row_major"
-        case buffers
+        case buffers, trace
     }
 }
 
@@ -310,7 +361,7 @@ enum MatrixWireEncoding {
 
 extension RGBDFrameHeader {
     func validate() throws {
-        guard schema == "hmc.rgbd_frame", schemaVersion == 1 else {
+        guard schema == "hmc.rgbd_frame", (1...2).contains(schemaVersion) else {
             throw HMCEnvelopeError.invalidHeader("unsupported RGBD schema/version")
         }
         guard !deviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -320,13 +371,13 @@ extension RGBDFrameHeader {
             throw HMCEnvelopeError.invalidHeader("capture_timestamp_s is not a non-negative finite value")
         }
         guard (imageOrientation == .landscapeRight || imageOrientation == .portrait), mirrored == false else {
-            throw HMCEnvelopeError.invalidHeader("v1 capture must be unmirrored landscape_right or portrait")
+            throw HMCEnvelopeError.invalidHeader("capture must be unmirrored landscape_right or portrait")
         }
         guard (1...UInt32(HMCProtocol.maximumRasterDimension)).contains(rgb.width),
               (1...UInt32(HMCProtocol.maximumRasterDimension)).contains(rgb.height),
               (1...UInt32(HMCProtocol.maximumRasterDimension)).contains(depth.width),
               (1...UInt32(HMCProtocol.maximumRasterDimension)).contains(depth.height) else {
-            throw HMCEnvelopeError.invalidHeader("raster dimensions exceed v1 limits")
+            throw HMCEnvelopeError.invalidHeader("raster dimensions exceed protocol limits")
         }
         guard rgb.intrinsicsRowMajor.count == 9,
               rgb.intrinsicsRowMajor.allSatisfy(\.isFinite),

@@ -267,10 +267,12 @@ The backend accepts it only when both configured phones are connected, clock-rea
 ```json
 {
   "schema": "hmc.rgbd_frame",
-  "schema_version": 1,
+  "schema_version": 2,
   "device_id": "front-phone",
   "session_id": "44487d7c-b847-49db-aa37-cf326ad76078",
   "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4",
+  "source_frame_id": "48aa9859-f4b9-4bac-9d2c-a973f341604a",
+  "trace": {"sentry_trace": "<trace-id>-<span-id>-1", "baggage": null},
   "sequence": 184,
   "capture_timestamp_s": 9922.107184,
   "image_orientation": "landscape_right",
@@ -310,6 +312,7 @@ Invariants:
 - Confidence has exactly `width * height` bytes. ARKit values are 0/1/2; unknown values are rejected in v1.
 - Raster orientation is locked per session. A change requires a new session and calibration.
 - The ARKit pose is diagnostic and not calibration truth.
+- Schema v2 adds one per-camera `source_frame_id` and per-message Sentry trace context. WebSocket messages carry this context individually; v1 remains decodable during rollout.
 
 ## 5. Python internal data structures
 
@@ -330,6 +333,8 @@ class CapturedFrame:
     confidence: NDArray[np.uint8]   # H_depth × W_depth
     K_rgb: NDArray[np.float64]      # 3 × 3
     arkit_pose: NDArray[np.float64] # 4 × 4, diagnostic
+    source_frame_id: UUID | None
+    trace: TraceContext
 
 @dataclass(frozen=True, slots=True)
 class CameraCalibration:
@@ -397,6 +402,7 @@ class CharacterFrame:
     session_id: UUID                 # backend character-stream session
     calibration_id: UUID
     frame_id: int
+    fusion_id: UUID
     source_frames: tuple[SourceFrameRef, SourceFrameRef]
     normalized_capture_time_s: float
     pair_skew_ms: float
@@ -416,13 +422,14 @@ Landmarks and colliders stay in the JSON header because they are small and inspe
 ```json
 {
   "schema": "hmc.character_frame",
-  "schema_version": 1,
+  "schema_version": 2,
   "session_id": "25b981d5-b9a6-4df5-8495-c95c5a9a65d9",
   "calibration_id": "f766f462-d405-4c30-89f9-f626da70547b",
   "frame_id": 42,
+  "fusion_id": "cf78cf31-9db3-4e31-a74b-3541768fa882",
   "source_frames": [
-    {"device_id": "front-phone", "session_id": "44487d7c-b847-49db-aa37-cf326ad76078", "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4", "sequence": 184},
-    {"device_id": "side-phone", "session_id": "18619e93-736f-4f18-afdb-7f3ea369b7d5", "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4", "sequence": 203}
+    {"device_id": "front-phone", "session_id": "44487d7c-b847-49db-aa37-cf326ad76078", "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4", "sequence": 184, "source_frame_id": "48aa9859-f4b9-4bac-9d2c-a973f341604a"},
+    {"device_id": "side-phone", "session_id": "18619e93-736f-4f18-afdb-7f3ea369b7d5", "capture_id": "6ee77aca-80b0-43e5-be8e-bb61c17eb8a4", "sequence": 203, "source_frame_id": "d8d4c831-c4dd-46e5-abd4-7dad75e791ee"}
   ],
   "normalized_capture_time_s": 61420.716991,
   "pair_skew_ms": 18.4,
@@ -436,11 +443,14 @@ Landmarks and colliders stay in the JSON header because they are small and inspe
   },
   "landmarks": [],
   "colliders": [],
+  "trace": {"sentry_trace": "<trace-id>-<span-id>-1", "baggage": "<dynamic-sampling-context>"},
   "buffers": [
     {"name": "points", "encoding": "xyzrgba16_le", "offset": 0, "length": 614736, "shape": [38421]}
   ]
 }
 ```
+
+`fusion_id` identifies this exact multi-camera fusion. `source_frame_id` values preserve the contributing phone frames. The Fabric client echoes `fusion_id` through its logical-server install/ack boundary before activating the corresponding cloud and hitboxes. Schema v1 remains readable for checked-in historical fixtures; new writers emit v2.
 
 `xyzrgba16_le` is a packed 16-byte record repeated N times:
 
