@@ -78,6 +78,14 @@ fixtures require explicit `HMC_SIMULATION_MODE=true` at runtime; their nominal g
 
 ## Diagnose a missing side
 
+If both phones look idle after enabling live capture, check the phone status or
+Minecraft backend HUD. Live capture waits for a valid calibration, both connected
+device IDs, and clock sync. It now reports `not_ready`, `devices_unavailable`, or
+`clocks_not_ready` with recovery instructions instead of silently sending no requests.
+After restarting/reconnecting an AR session, press **N** to recalibrate, wait for
+`calibration_ready`, then enable **V** if live mode is off. The capturing Minecraft
+client must have `captureEnabled: true`; `false` is only for LAN viewers.
+
 Press **Y** to display actual contributing cameras: first/source `front-phone`
 is cyan, second/source `side-phone` is magenta, shared voxels are yellow. Gray
 means a legacy frame has no source metadata; it does not indicate camera failure.

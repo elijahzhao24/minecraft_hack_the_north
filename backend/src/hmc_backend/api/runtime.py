@@ -32,6 +32,7 @@ from hmc_backend.contracts.control import (
     CalibrationHealth,
     CaptureRequest,
     DeviceHealth,
+    Error,
     HealthResponse,
 )
 from hmc_backend.contracts.enums import HealthStatus, Mode
@@ -172,8 +173,35 @@ class AppRuntime:
         payload = req.model_dump_json()
         for state in self._devices.values():
             assert state.send_text is not None
-            await state.send_text(payload)
+            token = state.token
+            try:
+                await state.send_text(payload)
+            except Exception:  # A disconnected phone must not kill live/calibration capture.
+                self.unregister_capture(state.device_id, token)
+                log_event("warning", "capture_send_failed", device_id=state.device_id)
+                return False, "devices_unavailable"
         return True, "capture_dispatched"
+
+    async def _announce_capture_blocked(self, code: str) -> None:
+        details = {
+            "not_ready": "Camera calibration required. Press N in Minecraft with the board visible to both phones.",
+            "calibration_in_progress": "Camera calibration is still running; keep the board visible and phones still.",
+            "devices_unavailable": "Connect both phones using distinct IDs: " + ", ".join(self._devices),
+            "clocks_not_ready": "Waiting for clock sync from both phones; keep both capture apps open.",
+        }
+        detail = details.get(code, code)
+        if code == "not_ready" and self._freshness and self._freshness.invalid_reason:
+            detail += " Reason: " + self._freshness.invalid_reason
+        payload = Error(code=code, message=detail, retryable=True).model_dump_json()
+        self._hub.broadcast(payload)
+        log_event("warning", "live_capture_blocked", code=code, detail=detail)
+        for state in self._devices.values():
+            if state.connected and state.send_text is not None:
+                token = state.token
+                try:
+                    await state.send_text(payload)
+                except Exception:
+                    self.unregister_capture(state.device_id, token)
 
     # --- rig registration -------------------------------------------------
 
@@ -363,6 +391,8 @@ class AppRuntime:
         """
         max_inflight = 2
         self._live_inflight.clear()
+        last_blocker = None
+        last_notice = 0.0
         try:
             while True:
                 interval = 1.0 / self._live_rate_hz
@@ -376,9 +406,13 @@ class AppRuntime:
                         await asyncio.wait_for(self._live_paired.wait(), timeout=0.25)
                     continue
                 capture_id = uuid4()
-                accepted, _ = await self.dispatch_capture(capture_id, "live")
+                accepted, code = await self.dispatch_capture(capture_id, "live")
                 if accepted:
                     self._live_inflight[capture_id] = time.monotonic()
+                    last_blocker = None
+                elif code != last_blocker or now - last_notice >= 5.0:
+                    await self._announce_capture_blocked(code)
+                    last_blocker, last_notice = code, now
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:
             pass
