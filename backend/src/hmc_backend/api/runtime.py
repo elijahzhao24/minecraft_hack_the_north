@@ -218,6 +218,18 @@ class AppRuntime:
             result["state"] = "failed"
             result["error"] = result["error"] or result["invalid_reason"]
         result["max_range_m"] = self._settings.max_range_m
+        # Where the active rig thinks each phone sits, and how far apart — the
+        # numbers to tape-measure against the real rig when the render splits.
+        if self._calibration is not None:
+            result["synthetic"] = self._calibration.board is None
+            positions = {
+                dev: self._calibration.camera(dev).T_stage_from_optical[:3, 3].tolist()
+                for dev in self._calibration.device_ids()
+            }
+            result["camera_positions_m"] = positions
+            if len(positions) == 2:
+                a, b = (np.asarray(p) for p in positions.values())
+                result["baseline_m"] = round(float(np.linalg.norm(a - b)), 3)
         return result
 
     def _announce_calibration(self) -> None:
@@ -230,6 +242,10 @@ class AppRuntime:
         detail = status.get("error") or "; ".join(details)
         if status["state"] == "collecting":
             detail = "Board face up on floor, phones still, step out. " + detail
+        if status["state"] == "ready" and status.get("baseline_m") is not None:
+            # The baseline is a tape-measure check: if the announced distance
+            # does not match the phones on the floor, the solve was biased.
+            detail = f"Solved baseline {status['baseline_m']:.2f} m — tape-measure it"
         self._hub.broadcast(json.dumps({"type": "ack", "protocol_version": 1,
             "accepted": status["state"] != "failed",
             "code": "calibration_" + status["state"],

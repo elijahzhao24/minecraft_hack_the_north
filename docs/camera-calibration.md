@@ -3,6 +3,13 @@
 Camera calibration measures where both phones sit in one physical coordinate
 system. Avatar normalization only sizes/places that scan in Minecraft.
 
+The backend never aligns the two views against each other. Each phone's masked
+depth is unprojected through that phone's own solved pose and the two clouds are
+concatenated — a plain union plus voxel downsample. Fusing one person from two
+cameras is entirely a property of the calibration: if either phone's stage pose
+is wrong, that view's person renders displaced and the result looks like two
+people. Noise removal cannot fix a displaced view.
+
 ## Print and place the board
 
 Open [calibration-board.svg](calibration-board.svg) in a browser or vector viewer
@@ -21,6 +28,31 @@ camera views. They can observe it from opposite sides. Step out of the view.
 Do **not** tip a phone down for calibration and then tip it back up. If the
 board is not visible or occupies too little of the frame, reposition the fixed
 rig before starting. Keep the person near the marked stage afterward.
+
+A straight-line rig (front phone sees the subject's front, back phone sees the
+back) is the least forgiving geometry. The two views share almost no surface,
+so nothing downstream can detect — let alone repair — a placement error, and
+the two shells sit a body-thickness apart even when the rig is perfect. It
+also makes the board hardest to see: at least one phone always views it at a
+grazing angle. A board seen edge-on gives a weakly constrained solve — the
+distance along that camera's view axis is its largest error direction — so a
+biased solve passes the self-consistency checks and renders the person twice.
+If either phone must tilt sharply downward to see the board, move the phones
+or the board until the print fills a real strip of both images.
+
+Three safeguards catch a bad solve instead of splitting the person:
+
+- Each camera pose is chosen from the planar solver's candidate list using the
+  phone's own gravity (ARKit measures which way is up, independently of the
+  board image), not whichever solution the iterative solver happened to reach.
+- The aggregated solve is rejected when it contradicts that phone's measured
+  gravity by more than 12°.
+- On **calibration_ready** the HUD announces the solved distance between the
+  two phones. Tape-measure it: a baseline that does not match the floor means
+  the solve was biased and the rig must be redone with the board more visible.
+
+`GET /rig/register` reports `camera_positions_m` per device plus `baseline_m`
+for the active rig — the same tape-measure check on demand.
 
 ## Calibrate in Minecraft
 
@@ -53,6 +85,13 @@ means a legacy frame has no source metadata; it does not indicate camera failure
 A missing view leaves the available scan visible with `missing_view:<device>:<step>`.
 `GET /health` reports connection and clock readiness, frame age, tracking,
 raw valid depths, and counts after range, confidence, mask, stage crop, and merge.
+Each device's `cross_view_nn_m` — the median distance from its points to the
+nearest point of the other view — is the direct "are the two views fused"
+measurement: it sits near the subject's surface thickness on an aligned rig
+(roughly 0.15–0.25 m on a front/back setup, far less on a same-side one) and
+rises with the misalignment when the person renders twice. A `views_misaligned`
+warning appears on the frame and the HUD when it exceeds
+`HMC_VIEW_ALIGNMENT_WARN_M` (default 0.3 m).
 No new pair produces a stale scan label; stale server collision data still expires.
 A phone sending no packet cannot form a new pair, so the last scan stays visible.
 
@@ -76,7 +115,8 @@ This is sample filtering, not a command that changes LiDAR hardware sensing rang
 - `POST /rig/register` or WebSocket `register_rig` starts **board** calibration,
   not body ICP. An accepted request is not evidence that calibration succeeded.
 - `GET /rig/register` returns state (`collecting`, `validating`, `ready`, `failed`),
-  per-device accepted counts/rejections, error, active calibration ID and range.
+  per-device accepted counts/rejections, error, active calibration ID and range,
+  plus `synthetic`, `camera_positions_m` and `baseline_m` for the active rig.
 - `DELETE /rig/register` cancels setup; it preserves a previously validated rig.
 - Existing ACK messages carry progress/results to Minecraft. Character-frame v2
   optionally adds `point_sources`, a `uint8` buffer of shape `[point_count]`.

@@ -23,8 +23,14 @@ from hmc_backend.calibration.charuco import (
 )
 from hmc_backend.calibration.model import RigCalibration, valid_rigid_transform
 from hmc_backend.contracts.internal import CameraCalibration, CapturedFrame
+from hmc_backend.reconstruction.registration import optical_up_from_arkit_pose
 
 REQUIRED_OBSERVATIONS = 12
+
+# Median angle between the solved camera's up direction and the phone's own
+# gravity measurement. ARKit pitch/roll is accurate to ~1 deg, so a solution
+# this far off is physically impossible for a correctly observed board.
+MAX_GRAVITY_ERROR_DEG = 12.0
 
 
 def frame_metadata(frame: CapturedFrame) -> dict:
@@ -107,6 +113,7 @@ class BoardCalibrationSession:
         observation, reason = observe_frame(
             frame.rgb, k, self.board, self.detector, device_id=dev,
             sequence=frame.sequence, max_reprojection_px=2.0,
+            up_optical=optical_up_from_arkit_pose(frame.arkit_pose),
         )
         if observation is None:
             self.rejections[dev][reason] += 1
@@ -141,13 +148,35 @@ class BoardCalibrationSession:
                     or solution.max_reprojection_error_px > 2 or solution.camera_position_stage_m[1] <= 0
                     or not valid_rigid_transform(solution.T_stage_from_optical)):
                 raise CharucoError(f"{dev}: board validation failed")
+            # An identical pose bias in every frame is invisible to the
+            # agreement checks above, but the phone measures gravity
+            # independently of the board image, so it catches it.
+            ups = [o.up_optical for o in obs if o.up_optical is not None]
+            gravity_error_deg = None
+            if ups:
+                r_sol = solution.T_stage_from_optical[:3, :3]
+                gravity_error_deg = float(np.median([
+                    np.degrees(np.arccos(np.clip((r_sol @ u)[1], -1.0, 1.0))) for u in ups
+                ]))
+                if gravity_error_deg > MAX_GRAVITY_ERROR_DEG:
+                    raise CharucoError(
+                        f"{dev}: solved pose contradicts phone gravity by {gravity_error_deg:.0f} deg; "
+                        "the board was probably seen too edge-on. Tip the phones toward the "
+                        "board and recalibrate"
+                    )
             frame = self.frames[dev]
             cameras[dev] = CameraCalibration(
                 calibration_id, dev, (frame.rgb.shape[1], frame.rgb.shape[0]),
                 (frame.depth_m.shape[1], frame.depth_m.shape[0]), frame.K_rgb.copy(),
                 solution.T_stage_from_optical, solution.median_reprojection_error_px, created,
             )
-            validation[dev] = {**report, "accepted_frames": len(obs), "baseline": self.baselines[dev]}
+            validation[dev] = {
+                **report,
+                "accepted_frames": len(obs),
+                "baseline": self.baselines[dev],
+                "camera_position_stage_m": solution.camera_position_stage_m.tolist(),
+                **({"gravity_error_deg": gravity_error_deg} if gravity_error_deg is not None else {}),
+            }
         return RigCalibration(calibration_id, created,
                               {"unit": "meter", "x": "board_right", "y": "up", "z": "toward_front_camera"},
                               self.spec.to_json(), cameras, validation)
