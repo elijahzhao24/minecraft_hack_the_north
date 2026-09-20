@@ -299,8 +299,9 @@ public final class ClientSnapshotCoordinator {
 					ack.frameId(), ack.code(), ack.detail());
 			return;
 		}
-		CharacterFrame visualFrame = SharedScanCodec.prepare(accepted.frame());
-		WorldSnapshot next = accepted.snapshot().transform().snapshot(visualFrame);
+		// Render the complete accepted cloud. The LAN point budget applies only
+		// when encoding the relay, never to the capturing player's appearance.
+		WorldSnapshot next = accepted.snapshot();
 		if (active != null && active.sessionId().equals(next.sessionId()) && next.frameId() < active.frameId()) return;
 		try {
 			renderer.activate(next, targetPlayerId);
@@ -712,7 +713,9 @@ public final class ClientSnapshotCoordinator {
 		lines.add("last swing: " + lastSwing);
 		if (config.mouseMovementEnabled) lines.add("Mouse: hold buttons 4/5 to turn left/right");
 		lines.add(String.format(Locale.ROOT, "capture target: %.0f FPS", config.liveRateHz));
-		lines.add("anchor: " + normalization.anchorSource() + "; cyan cross = player feet");
+		var anchor = normalization.estimate();
+		if (anchor != null) lines.add("anchor: dense body " + anchor.bodyPoints() + "/" + anchor.totalPoints()
+				+ " pts; cyan cross = player feet");
 		lines.add("last probe: " + lastProbe);
 		return lines;
 	}
