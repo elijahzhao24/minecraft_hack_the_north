@@ -24,6 +24,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -48,6 +49,11 @@ public final class ClientSnapshotCoordinator {
 	private WorldSnapshot active;
 	private long activeSinceMs;
 	private long lastReceivedMs;
+	private long pendingReceivedMs, displayedReceivedMs;
+	private boolean invalidFrameStreak;
+	private boolean holdingLastScan;
+	// Clear acknowledgements are ordered; automatic dropout clears retain the visual.
+	private final ArrayDeque<Boolean> retainVisualOnClear = new ArrayDeque<>();
 	private boolean liveRequested;
 	private Mode lastInstalledMode;
 	/** Client ticks to wait after JOIN before the player's position is trustworthy. */
@@ -145,6 +151,9 @@ public final class ClientSnapshotCoordinator {
 
 	public void onDisconnect() {
 		joined = false;
+		retainVisualOnClear.clear();
+		invalidFrameStreak = false;
+		holdingLastScan = false;
 		swings.reset();
 		normalization.reset();
 		pending = null;
@@ -164,16 +173,22 @@ public final class ClientSnapshotCoordinator {
 		latestDecoded = frame;
 		lastReceivedMs = System.currentTimeMillis();
 		if (!hasRenderableCloud(frame)) {
-			if (joined) {
+			swings.reset();
+			pending = null;
+			contactCount = 0;
+			holdingLastScan = active != null;
+			if (joined && !invalidFrameStreak) {
 				try {
-					ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
+					sendClear(true);
+					invalidFrameStreak = true;
 				} catch (RuntimeException e) {
 					HumanCraft.LOGGER.debug("Could not clear invalid tracked frame", e);
 				}
 			}
-			clearLocal("no usable cloud in received frame");
+			serverStatus = holdingLastScan ? "tracking lost; holding last scan (interactions cleared)" : "waiting for usable cloud";
 			return;
 		}
+		invalidFrameStreak = false;
 		if (pendingCapture != null && frame.header().sourceFrames().stream()
 				.anyMatch(source -> pendingCapture.equals(source.captureId()))) {
 			serverStatus = "capture complete: " + shortId(pendingCapture);
@@ -218,6 +233,7 @@ public final class ClientSnapshotCoordinator {
 					frame.header().mode(), transform, frame.header().colliders(), frame.header().landmarks().size(), frame.cloud().count(),
 					sentFusionId, sourceFrameIds(frame), targetPlayerId, bindingGeneration, normalizationRevision);
 			pending = next;
+			pendingReceivedMs = lastReceivedMs;
 			ClientPlayNetworking.send(HumanCraftPayloads.InstallSnapshot.of(request));
 			// Ordered immediately after install: server validates the exact live frame before causing damage.
 			// Reinstalls caused by display toggles or binding changes must never replay physical gestures.
@@ -237,7 +253,11 @@ public final class ClientSnapshotCoordinator {
 
 	public void onAck(HumanCraftPayloads.SnapshotAck ack) {
 		if (ack.frameId() == -1 && "cleared".equals(ack.code())) {
-			clearLocal("cleared by server");
+			if ("world changed".equals(ack.detail())) {
+				clearLocal("world changed");
+			} else if (!Boolean.TRUE.equals(retainVisualOnClear.pollFirst())) {
+				clearLocal("cleared by server");
+			}
 			return;
 		}
 		if (pending == null || ack.frameId() != pending.frameId()) {
@@ -261,14 +281,24 @@ public final class ClientSnapshotCoordinator {
 					ack.frameId(), ack.code(), ack.detail());
 			return;
 		}
-		active = pending;
+		WorldSnapshot next = pending;
 		pending = null;
-		activeSinceMs = System.currentTimeMillis();
-		serverStatus = "active frame " + active.frameId() + " (" + ack.validColliders() + " colliders)";
 		try {
-			renderer.activate(active, targetPlayerId);
+			renderer.activate(next, targetPlayerId);
+			active = next;
+			displayedReceivedMs = pendingReceivedMs;
+			activeSinceMs = System.currentTimeMillis();
+			holdingLastScan = false;
+			serverStatus = "active frame " + active.frameId() + " (" + ack.validColliders() + " colliders)";
 		} catch (RuntimeException e) {
-			clearLocal("renderer upload failed");
+			// activate builds replacement buffers before releasing the old scan.
+			holdingLastScan = active != null;
+			swings.reset();
+			contactCount = 0;
+			serverStatus = "renderer upload failed; holding last scan";
+			try { sendClear(true); } catch (RuntimeException clearError) {
+				HumanCraft.LOGGER.debug("Could not clear failed render snapshot", clearError);
+			}
 			Telemetry.captureException(e, "client.renderer.upload");
 		}
 	}
@@ -282,7 +312,7 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	public void onContactState(HumanCraftPayloads.ContactState state) {
-		if (active != null && state.frameId() == active.frameId()) {
+		if (!holdingLastScan && active != null && state.frameId() == active.frameId()) {
 			contactCount = state.contacts().size();
 		}
 	}
@@ -379,8 +409,13 @@ public final class ClientSnapshotCoordinator {
 			clearLocal("cleared locally");
 			return;
 		}
-		ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
+		sendClear(false);
 		serverStatus = "clearing";
+	}
+
+	private void sendClear(boolean keepVisual) {
+		ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
+		retainVisualOnClear.addLast(keepVisual);
 	}
 
 	public void requestCapture() {
@@ -536,6 +571,7 @@ public final class ClientSnapshotCoordinator {
 
 	private void clearLocal(String reason) {
 		swings.reset();
+		holdingLastScan = false;
 		pending = null;
 		active = null;
 		contactCount = 0;
@@ -552,9 +588,9 @@ public final class ClientSnapshotCoordinator {
 		lines.add("frames decoded/pending/active: " + lastDecodedFrameId() + "/"
 				+ (pending == null ? "-" : pending.frameId()) + "/" + (active == null ? "-" : active.frameId()));
 		if (active != null) {
-			long age = System.currentTimeMillis() - lastReceivedMs;
+			long age = System.currentTimeMillis() - displayedReceivedMs;
 			lines.add("calibration: " + shortId(active.calibrationId()) + "  age: " + age + " ms");
-			if (age > 2000) lines.add("STALE scan: no new paired frame for " + age / 1000 + " s");
+			if (holdingLastScan || age > 2000) lines.add("STALE scan: holding last usable frame (" + age + " ms old)");
 			if (latestDecoded != null) {
 				for (String warning : latestDecoded.header().quality().warnings()) lines.add("WARNING: " + warning);
 				if (latestDecoded.header().quality().validColliderCount() < 3)
@@ -568,9 +604,7 @@ public final class ClientSnapshotCoordinator {
 		lines.add("last swing: " + lastSwing);
 		if (config.mouseMovementEnabled) lines.add("Mouse: hold buttons 4/5 to turn left/right");
 		lines.add(String.format(Locale.ROOT, "capture target: %.0f FPS", config.liveRateHz));
-		var anchor = normalization.estimate();
-		if (anchor != null) lines.add("anchor: dense body " + anchor.bodyPoints() + "/" + anchor.totalPoints()
-				+ " pts; cyan cross = player feet");
+		lines.add("anchor: " + normalization.anchorSource() + "; cyan cross = player feet");
 		lines.add("last probe: " + lastProbe);
 		return lines;
 	}

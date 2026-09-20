@@ -82,7 +82,6 @@ public final class HumanRenderer implements AutoCloseable {
 	/** Must run on the render thread. Builds all replacement buffers before releasing the active set. */
 	public void activate(WorldSnapshot snapshot, UUID targetPlayerId) {
 		RenderSystem.assertOnRenderThread();
-		this.targetPlayerId = targetPlayerId;
 		try (Telemetry.Span span = Telemetry.continueTransaction("client.gpu_upload", "hmc.render.upload", snapshot.trace())) {
 			long start = System.nanoTime();
 			VertexBuffer nextCloud = null;
@@ -104,6 +103,7 @@ public final class HumanRenderer implements AutoCloseable {
 			cloudBuffer = nextCloud;
 			skeletonBuffer = nextSkeleton;
 			colliderBuffer = nextColliders;
+			this.targetPlayerId = targetPlayerId;
 			uploadedFrame = snapshot.frameId();
 			renderFailed = false;
 			refreshSkinReplacement();

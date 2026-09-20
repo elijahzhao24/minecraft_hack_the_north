@@ -71,18 +71,26 @@ capture frames can be missed; use a deliberate visible swing.
 
 ## Alignment and physical checks
 
-Scan points, landmarks, and colliders share one transform anchored on the dense
-body region. A smoothed horizontal density grid finds that region; its middle
-height band sets the center and its trimmed vertical bounds set the floor and
-initial scale. Sparse distant points and extended arms cannot pull that center
-away. Feet refine the floor only when they agree with the visible cloud.
+Scan points, landmarks, and colliders share one transform anchored on the
+observed hip midpoint. If hips are missing or more than 35 cm from the visible
+torso, the middle-height cloud median provides the fallback. This restores the
+earlier hip-based positioning without selecting a new density peak each frame.
+A 180 ms temporal filter and small deadband reduce root jitter; horizontal lag
+is capped at 15 cm and large stage shifts recenter immediately. Trimmed vertical
+bounds set the initial scale, which stays fixed until normalization is reset.
+Observed feet refine the floor only when they agree with the visible cloud.
+
+Invalid tracking frames retain the last successfully uploaded scan instead of
+flashing back to the Minecraft skin. Interactions are cleared during the dropout,
+and the HUD marks the held scan as stale using the displayed frame's age.
+Manual clear, world changes, and disconnect still remove the scan.
 
 The cloud draws inside Minecraft's player renderer. Its VBO shader receives
 **camera model-view × entity pose**: Minecraft stores the camera transform
 separately from the entity's pose stack. Omitting that factor made the scan
 appear displaced from the correctly rendered shadow as the camera turned.
 Press **U** to see a cyan ground cross at the actual entity origin, and **H**
-to see how many points contributed to the dense-body anchor. Use F3+B to compare
+to see whether hips or the torso fallback are driving the anchor. Use F3+B to compare
 with Minecraft's ordinary entity bounding box. Install the updated JAR and
 restart Minecraft before checking the change.
 
