@@ -90,8 +90,17 @@ class CharacterProcessor:
         target = clouds_by_device[ref].xyz_stage_m
         for dev in others:
             source = clouds_by_device[dev].xyz_stage_m
+            # First pass recovers a coarse placement error and is tuned to
+            # tolerate large gaps. Once a correction exists the views nearly
+            # coincide, so refine with tight matching and no yaw seeding.
+            refine = dev in self._corrections
+            kwargs = (
+                {"initial_yaws_deg": (0.0,), "voxel_m": 0.01, "max_pair_distance_m": 0.08, "keep_fraction": 0.8}
+                if refine
+                else {}
+            )
             try:
-                t_inc, rms, inliers = register_yaw_translation(source, target)
+                t_inc, rms, inliers = register_yaw_translation(source, target, **kwargs)
             except ValueError as exc:
                 self.last_registration = {"ok": False, "device_id": dev, "error": str(exc)}
                 log_event("warning", "rig_registration_failed", device_id=dev, error=str(exc))
@@ -106,6 +115,7 @@ class CharacterProcessor:
                 "inliers": inliers,
                 "yaw_deg": round(yaw_deg, 2),
                 "shift_m": [round(float(v), 3) for v in t_inc[:3, 3]],
+                "pass": "refine" if refine else "coarse",
             }
             log_event("info", "rig_registered", **self.last_registration)
 
