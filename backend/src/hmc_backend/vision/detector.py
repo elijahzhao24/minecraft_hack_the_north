@@ -13,7 +13,7 @@ joint confidence is invented by averaging unrelated values.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import replace, dataclass, field
 from typing import Any
 
 import numpy as np
@@ -50,6 +50,9 @@ class DetectorConfig:
     min_hand_presence_confidence: float = 0.5
     num_hands: int = 2
     mask_threshold: float = 0.5
+    # Which person mask reaches reconstruction: "depth" (LiDAR foreground),
+    # "mediapipe" (RGB segmentation) or "union".
+    mask_source: str = "depth"
     min_landmark_visibility: float = 0.5
     min_landmark_presence: float = 0.5
     crop_fallback: bool = True
@@ -184,6 +187,44 @@ def build_view_detection(
     )
 
 
+def upright_rotation_k(frame: CapturedFrame) -> int:
+    """``np.rot90`` count that turns the transmitted raster upright.
+
+    Uses the ARKit gravity-aligned pose carried by every frame: the world "up"
+    vector expressed in the optical raster says which image edge is the top.
+    Falls back to no rotation when the pose is missing or synthetic.
+    """
+    pose = getattr(frame, "arkit_pose", None)
+    if pose is None or pose.shape != (4, 4) or not np.all(np.isfinite(pose)):
+        return 0
+    r = pose[:3, :3]
+    if np.allclose(r, np.eye(3), atol=1e-6):
+        return 0
+    up_cam = r.T @ np.array([0.0, 1.0, 0.0])
+    up_x, up_y = up_cam[0], -up_cam[1]  # ARKit camera y-up -> optical y-down
+    if abs(up_y) >= abs(up_x):
+        # Up points along -y (top edge) -> already upright; along +y -> upside down.
+        return 0 if up_y < 0 else 2
+    # Up points along -x (left edge): rotate clockwise; +x: counter-clockwise.
+    return -1 if up_x < 0 else 1
+
+
+def _unrotate_landmark(lm: Landmark2DObservation, k: int, orig_wh: tuple[int, int]) -> Landmark2DObservation:
+    """Map a pixel coordinate measured on ``rot90(img, k)`` back to ``img``."""
+    w, h = orig_wh
+    x, y = lm.xy_px
+    k %= 4
+    if k == 1:      # counter-clockwise: rotated (x', y') <- original (w-1-y', x')
+        ox, oy = (w - 1) - y, x
+    elif k == 2:
+        ox, oy = (w - 1) - x, (h - 1) - y
+    elif k == 3:    # clockwise (k=-1): rotated (x', y') <- original (y', h-1-x')
+        ox, oy = y, (h - 1) - x
+    else:
+        return lm
+    return replace(lm, xy_px=(float(ox), float(oy)))
+
+
 def empty_detection(frame: CapturedFrame) -> ViewDetection:
     h, w = frame.rgb.shape[:2]
     return ViewDetection(frame.device_id, frame.capture_id, np.zeros((h, w), np.bool_), (), (), (), None)
@@ -297,9 +338,57 @@ class MediaPipeViewDetector:
         return mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb, dtype=np.uint8))
 
     def detect_view(self, frame: CapturedFrame) -> ViewDetection:
+        """Detect on an upright copy of the raster, then map results back.
+
+        The phones transmit the sensor's landscape raster whichever way they
+        are propped; a portrait phone therefore hands MediaPipe a person lying
+        on their side, which the pose model detects poorly. The rotation that
+        makes the image upright is derived from the frame's gravity vector.
+        """
+        k = upright_rotation_k(frame)
+        if k == 0:
+            det = self._detect_upright(frame, frame.rgb)
+        else:
+            rgb_up = np.ascontiguousarray(np.rot90(frame.rgb, k))
+            det = self._detect_upright(frame, rgb_up)
+            h, w = frame.rgb.shape[:2]
+            mask = np.ascontiguousarray(np.rot90(det.person_mask, -k)) if det.person_mask.size else det.person_mask
+            if mask.shape != (h, w):
+                mask = np.zeros((h, w), np.bool_)
+            remap = lambda lms: tuple(_unrotate_landmark(lm, k, (w, h)) for lm in lms)  # noqa: E731
+            det = replace(
+                det,
+                person_mask=mask,
+                body=remap(det.body),
+                left_hand=remap(det.left_hand),
+                right_hand=remap(det.right_hand),
+            )
+        return self._with_mask_source(frame, det)
+
+    def _with_mask_source(self, frame: CapturedFrame, det: ViewDetection) -> ViewDetection:
+        """Choose the person mask that feeds reconstruction.
+
+        MediaPipe's RGB segmentation is tuned for a silhouette overlay and on
+        real LiDAR phones it keeps only a fraction of the body; the depth-based
+        foreground segmentation keeps the whole person and drops the room. The
+        skeleton still comes from MediaPipe either way.
+        """
+        source = self._cfg.mask_source
+        if source == "mediapipe":
+            return det
+        from hmc_backend.vision.fake import segment_person_depth
+
+        depth_mask = segment_person_depth(frame.depth_m, frame.confidence)
+        if source == "union" and det.person_mask.size:
+            from hmc_backend.reconstruction.reconstruct import _resample_mask_to_depth
+
+            mp_on_depth = _resample_mask_to_depth(det.person_mask, depth_mask.shape)
+            depth_mask = depth_mask | mp_on_depth
+        return replace(det, person_mask=np.ascontiguousarray(depth_mask, dtype=np.bool_))
+
+    def _detect_upright(self, frame: CapturedFrame, rgb: NDArray[np.uint8]) -> ViewDetection:
         self._ensure()
         cfg = self._cfg
-        rgb = frame.rgb
         h, w = rgb.shape[:2]
         image = self._mp_image(rgb)
 
