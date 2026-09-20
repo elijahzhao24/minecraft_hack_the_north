@@ -237,6 +237,7 @@ dependencies = [
     { name = "opencv-contrib-python" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "scipy" },
     { name = "sentry-sdk" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -259,6 +260,7 @@ requires-dist = [
     { name = "opencv-contrib-python", specifier = ">=4.10" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },
+    { name = "scipy", specifier = ">=1.14" },
     { name = "sentry-sdk", specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]

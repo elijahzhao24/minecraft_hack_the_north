@@ -18,7 +18,7 @@ from hmc_backend.contracts.internal import (
 from hmc_backend.protocol.envelope import MessageType, encode_envelope
 
 CHARACTER_SCHEMA = "hmc.character_frame"
-CHARACTER_SCHEMA_VERSION = 1
+CHARACTER_SCHEMA_VERSION = 2
 
 # Packed record: 3x float32 LE (xyz) then r,g,b,a uint8 = 16 bytes.
 _POINT_DTYPE = np.dtype(
@@ -49,6 +49,7 @@ def _source_ref_json(ref: SourceFrameRef) -> dict:
         "session_id": str(ref.session_id),
         "capture_id": str(ref.capture_id),
         "sequence": ref.sequence,
+        "source_frame_id": str(ref.source_frame_id) if ref.source_frame_id else None,
     }
 
 
@@ -110,6 +111,7 @@ def build_character_header(frame: CharacterFrame, payload_length: int) -> dict:
         "session_id": str(frame.session_id),
         "calibration_id": str(frame.calibration_id),
         "frame_id": frame.frame_id,
+        "fusion_id": str(frame.fusion_id) if frame.fusion_id else None,
         "source_frames": [_source_ref_json(r) for r in frame.source_frames],
         "normalized_capture_time_s": frame.normalized_capture_time_s,
         "pair_skew_ms": frame.pair_skew_ms,

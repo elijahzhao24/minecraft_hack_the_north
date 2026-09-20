@@ -27,6 +27,7 @@ actor CapturePipeline {
     private var liveSentSinceAggregate: UInt64 = 0
     private var liveDroppedAtLastAggregate: UInt64 = 0
     private var lastLiveAggregateTime = ProcessInfo.processInfo.systemUptime
+    private var queueWaitSpans: [UUID: CaptureDiagnosticSpan] = [:]
     private var epoch: UInt64 = 0
 
     var eventHandler: (@Sendable (CapturePipelineEvent) -> Void)?
@@ -54,8 +55,14 @@ actor CapturePipeline {
     }
 
     func submit(_ source: CapturedFrameSource) {
+        let captureID = source.intent.captureID
+        let queueSpan = diagnostics.startSpan(captureID: captureID, operation: "hmc.queue_wait")
+        queueSpan?.setData(value: source.sourceFrameID.uuidString.lowercased(), key: "frame_id")
+        queueSpan?.setData(value: queue.count, key: "queue_depth_at_enqueue")
+        queueWaitSpans[captureID] = queueSpan
         if source.intent.mode == .snapshot {
             guard case .accepted = queue.enqueueSnapshot(source) else {
+                queueWaitSpans.removeValue(forKey: captureID)?.finish(status: .internalError)
                 diagnostics.log(.warning, "capture.queue.snapshot_rejected", attributes: [
                     "capture_id": source.intent.captureID.uuidString.lowercased(),
                     "queue_depth": statistics.queueDepth
@@ -69,6 +76,7 @@ actor CapturePipeline {
             }
         } else {
             if case .replacedLive(let replaced) = queue.enqueueLive(source) {
+                queueWaitSpans.removeValue(forKey: replaced.intent.captureID)?.finish(status: .internalError)
                 statistics.droppedLiveFrames &+= 1
                 diagnostics.finishCapture(
                     captureID: replaced.intent.captureID,
@@ -95,6 +103,7 @@ actor CapturePipeline {
     func clear() {
         epoch &+= 1
         for source in queue.removeAll() {
+            queueWaitSpans.removeValue(forKey: source.intent.captureID)?.finish(status: .internalError)
             diagnostics.finishCapture(
                 captureID: source.intent.captureID,
                 error: PipelineError.sessionEnded
@@ -108,15 +117,17 @@ actor CapturePipeline {
             let captureID = source.intent.captureID
             let sourceEpoch = epoch
             do {
-                let queueSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.queue_wait")
-                queueSpan?.setData(value: statistics.queueDepth, key: "queue_depth")
+                let queueSpan = queueWaitSpans.removeValue(forKey: captureID)
+                queueSpan?.setData(value: queue.count, key: "queue_depth_at_dequeue")
                 queueSpan?.finish(status: .ok)
 
-                let encodeSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.encode")
+                let encodeSpan = diagnostics.startSpan(captureID: captureID, operation: "hmc.serialize_and_forward")
                 let start = ProcessInfo.processInfo.systemUptime
                 let encoded = try encoder.encode(source: source, deviceID: deviceID)
                 let encodeDurationMS = (ProcessInfo.processInfo.systemUptime - start) * 1_000
                 encodeSpan?.setData(value: encodeDurationMS, key: "encode_duration_ms")
+                encodeSpan?.setData(value: encoded.envelope.count, key: "payload_size")
+                encodeSpan?.setData(value: source.sourceFrameID.uuidString.lowercased(), key: "frame_id")
                 encodeSpan?.finish(status: .ok)
                 guard sourceEpoch == epoch else { throw PipelineError.sessionEnded }
 
@@ -133,7 +144,7 @@ actor CapturePipeline {
                 }
                 guard sourceEpoch == epoch else { throw PipelineError.sessionEnded }
 
-                let sendSpan = diagnostics.startSpan(captureID: captureID, operation: "capture.websocket_send")
+                let sendSpan = diagnostics.startSpan(captureID: captureID, operation: "hmc.websocket_forward")
                 let sendStart = ProcessInfo.processInfo.systemUptime
                 do {
                     try await socket.sendFrame(encoded.envelope)
@@ -149,10 +160,12 @@ actor CapturePipeline {
 
                 statistics.sentFrames &+= 1
                 statistics.lastValidDepthFraction = encoded.validDepthFraction
+                let pointCount = encoded.validPointCount
                 let frameAttributes: [String: Any] = [
                     "device_id": deviceID,
                     "session_id": source.sessionID.uuidString.lowercased(),
                     "sequence": source.sequence,
+                    "frame_id": source.sourceFrameID.uuidString.lowercased(),
                     "capture_mode": source.intent.mode.rawValue,
                     "rgb_width": encoded.header.rgb.width,
                     "rgb_height": encoded.header.rgb.height,
@@ -161,10 +174,21 @@ actor CapturePipeline {
                     "valid_depth_fraction": encoded.validDepthFraction,
                     "encoded_rgb_bytes": encoded.jpegBytes,
                     "payload_bytes": encoded.envelope.count,
+                    "point_count": pointCount,
                     "dropped_frame_count": statistics.droppedLiveFrames
                 ]
                 if source.intent.mode == .snapshot {
                     diagnostics.log(.info, "capture.frame.sent", attributes: frameAttributes)
+                    diagnostics.recordCaptureMetrics(
+                        deviceID: deviceID,
+                        mode: source.intent.mode.rawValue,
+                        framesSent: 1,
+                        framesDropped: 0,
+                        pointCount: pointCount,
+                        payloadSize: encoded.envelope.count,
+                        validDepthFraction: encoded.validDepthFraction,
+                        queueDepth: queue.count
+                    )
                 } else {
                     liveSentSinceAggregate &+= 1
                     emitLiveAggregateIfNeeded(frameAttributes: frameAttributes)
@@ -213,6 +237,16 @@ actor CapturePipeline {
         attributes["frames_sent"] = liveSentSinceAggregate
         attributes["frames_dropped"] = statistics.droppedLiveFrames - liveDroppedAtLastAggregate
         diagnostics.log(.info, "capture.live.aggregate", attributes: attributes)
+        diagnostics.recordCaptureMetrics(
+            deviceID: deviceID,
+            mode: CaptureMode.live.rawValue,
+            framesSent: liveSentSinceAggregate,
+            framesDropped: statistics.droppedLiveFrames - liveDroppedAtLastAggregate,
+            pointCount: frameAttributes["point_count"] as? Int ?? 0,
+            payloadSize: frameAttributes["payload_bytes"] as? Int ?? 0,
+            validDepthFraction: frameAttributes["valid_depth_fraction"] as? Double ?? 0,
+            queueDepth: queue.count
+        )
         liveSentSinceAggregate = 0
         liveDroppedAtLastAggregate = statistics.droppedLiveFrames
         lastLiveAggregateTime = now

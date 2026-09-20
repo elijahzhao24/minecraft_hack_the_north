@@ -17,6 +17,7 @@ import java.util.UUID;
  */
 public record WorldSnapshot(
 		long frameId,
+		UUID fusionId,
 		UUID sessionId,
 		UUID calibrationId,
 		Mode mode,

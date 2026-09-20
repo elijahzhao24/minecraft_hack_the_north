@@ -13,6 +13,7 @@ public record CharacterFrameHeader(
 		UUID sessionId,
 		UUID calibrationId,
 		long frameId,
+		UUID fusionId,
 		List<SourceFrameRef> sourceFrames,
 		double normalizedCaptureTimeS,
 		double pairSkewMs,
@@ -59,12 +60,13 @@ public record CharacterFrameHeader(
 			throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "unexpected schema '" + schema + "'");
 		}
 		long schemaVersion = o.counter("schema_version");
-		if (schemaVersion != ProtocolLimits.CHARACTER_FRAME_SCHEMA_VERSION) {
+		if (schemaVersion != 1 && schemaVersion != ProtocolLimits.CHARACTER_FRAME_SCHEMA_VERSION) {
 			throw new ProtocolException(ProtocolException.UNSUPPORTED_VERSION, "unsupported character_frame schema_version " + schemaVersion);
 		}
 		UUID sessionId = o.uuid("session_id");
 		UUID calibrationId = o.uuid("calibration_id");
 		long frameId = o.counter("frame_id");
+		UUID fusionId = o.optionalString("fusion_id").map(CharacterFrameHeader::uuid).orElse(null);
 		List<SourceFrameRef> sources = o.objectList("source_frames", 16, ProtocolException.LIMIT_EXCEEDED).stream()
 				.map(SourceFrameRef::parse).toList();
 		double captureTime = o.finiteDouble("normalized_capture_time_s");
@@ -79,7 +81,7 @@ public record CharacterFrameHeader(
 		List<BufferDescriptor> buffers = o.objectList("buffers", 16, ProtocolException.LIMIT_EXCEEDED).stream()
 				.map(BufferDescriptor::parse).toList();
 		o.finish();
-		return new CharacterFrameHeader(sessionId, calibrationId, frameId, sources, captureTime, skew, mode, quality,
+		return new CharacterFrameHeader(sessionId, calibrationId, frameId, fusionId, sources, captureTime, skew, mode, quality,
 				landmarks, colliders, trace, buffers);
 	}
 
@@ -90,6 +92,8 @@ public record CharacterFrameHeader(
 		o.addProperty("session_id", sessionId.toString());
 		o.addProperty("calibration_id", calibrationId.toString());
 		o.addProperty("frame_id", frameId);
+		if (fusionId == null) o.add("fusion_id", com.google.gson.JsonNull.INSTANCE);
+		else o.addProperty("fusion_id", fusionId.toString());
 		JsonArray sources = new JsonArray();
 		sourceFrames.forEach(s -> sources.add(s.toJson()));
 		o.add("source_frames", sources);
@@ -120,5 +124,15 @@ public record CharacterFrameHeader(
 		}
 		o.add("buffers", bufs);
 		return o;
+	}
+
+	private static UUID uuid(String value) {
+		try {
+			UUID parsed = UUID.fromString(value);
+			if (!parsed.toString().equals(value)) throw new IllegalArgumentException();
+			return parsed;
+		} catch (IllegalArgumentException e) {
+			throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "invalid fusion_id");
+		}
 	}
 }

@@ -13,6 +13,7 @@ import dev.humancraft.model.WorldSnapshot;
 import dev.humancraft.network.HumanCraftPayloads;
 import dev.humancraft.server.InstallRequest;
 import dev.humancraft.telemetry.Telemetry;
+import dev.humancraft.telemetry.FrameConsistencyMonitor;
 import io.sentry.SentryLevel;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
@@ -35,6 +36,7 @@ public final class ClientSnapshotCoordinator {
 	private final HumanCraftConfig config;
 	private final HumanRenderer renderer;
 	private final AtomicInteger probeIds = new AtomicInteger();
+	private final FrameConsistencyMonitor consistency;
 
 	private CharacterWebSocket backend;
 	private CharacterFrame latestDecoded;
@@ -65,6 +67,7 @@ public final class ClientSnapshotCoordinator {
 	public ClientSnapshotCoordinator(HumanCraftConfig config, HumanRenderer renderer) {
 		this.config = config;
 		this.renderer = renderer;
+		this.consistency = new FrameConsistencyMonitor("mismatch_ids".equals(config.observabilityFault) ? 1 : 2);
 	}
 
 	public void setBackend(CharacterWebSocket backend) {
@@ -121,12 +124,16 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	public void receiveBackend(CharacterFrame frame) {
+		if ("stale_updates".equals(config.observabilityFault) && lastBackendFrameId >= 0) {
+			return; // explicit demo hook: simulate a stream that stops after one frame
+		}
 		if (!frame.header().sessionId().equals(lastBackendSession)) {
 			lastBackendSession = frame.header().sessionId();
 			lastBackendFrameId = frame.frameId();
 		} else {
 			lastBackendFrameId = Math.max(lastBackendFrameId, frame.frameId());
 		}
+		consistency.fresh(frame.frameId(), frame.header().fusionId(), sourceFrameIds(frame));
 		receive(frame);
 	}
 
@@ -199,15 +206,19 @@ public final class ClientSnapshotCoordinator {
 		}
 		lastInstalledMode = frame.header().mode();
 		StageToWorld transform = playerLocalTransform(frame);
-		WorldSnapshot next = transform.snapshot(frame);
-		InstallRequest request = new InstallRequest(frame.frameId(), frame.header().sessionId(), frame.header().calibrationId(),
-				frame.header().mode(), transform, frame.header().colliders(), frame.header().landmarks().size(), frame.cloud().count(),
-				targetPlayerId, bindingGeneration, normalizationRevision);
-		pending = next;
 		serverStatus = "pending frame " + frame.frameId() + " (" + reason + ")";
 		try (Telemetry.Span span = Telemetry.continueTransaction("client.install_snapshot", "hmc.install", frame.header().trace())) {
-			span.data("frame_id", frame.frameId()).data("collider_count", frame.header().colliders().size())
-					.data("point_count", frame.cloud().count());
+			span.data("frame_id", frame.frameId()).data("fusion_id", frame.header().fusionId())
+					.data("payload_size", (long) frame.cloud().count() * 16)
+					.data("collider_count", frame.header().colliders().size()).data("point_count", frame.cloud().count());
+			WorldSnapshot next = Telemetry.timed(span, "hmc.prepare_cloud", "stage-to-world render snapshot",
+					() -> transform.snapshot(frame));
+			UUID sentFusionId = frame.header().fusionId();
+			if ("mismatch_ids".equals(config.observabilityFault)) sentFusionId = UUID.randomUUID();
+			InstallRequest request = new InstallRequest(frame.frameId(), frame.header().sessionId(), frame.header().calibrationId(),
+					frame.header().mode(), transform, frame.header().colliders(), frame.header().landmarks().size(), frame.cloud().count(),
+					sentFusionId, sourceFrameIds(frame), targetPlayerId, bindingGeneration, normalizationRevision);
+			pending = next;
 			ClientPlayNetworking.send(HumanCraftPayloads.InstallSnapshot.of(request));
 		} catch (RuntimeException e) {
 			pending = null;
@@ -223,6 +234,12 @@ public final class ClientSnapshotCoordinator {
 		}
 		if (pending == null || ack.frameId() != pending.frameId()) {
 			serverStatus = "ignored mismatched ack " + ack.frameId();
+			return;
+		}
+		consistency.compatible(ack.frameId(), pending.fusionId(), ack.fusionId(), sourceFrameIds(pending));
+		if (!java.util.Objects.equals(pending.fusionId(), ack.fusionId())) {
+			pending = null;
+			serverStatus = "rejected mismatched fusion identity";
 			return;
 		}
 		if (ack.bindingGeneration() != bindingGeneration || ack.normalizationRevision() != normalizationRevision) {
@@ -321,6 +338,7 @@ public final class ClientSnapshotCoordinator {
 		// on screen; clearing would flash the vanilla player model back in.
 		if (active != null && active.mode() == Mode.LIVE && !liveRequested
 				&& System.currentTimeMillis() - activeSinceMs > config.liveFrameTtlMs) {
+			consistency.checkStale(config.liveFrameTtlMs);
 			try {
 				ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
 			} catch (RuntimeException e) {
@@ -328,6 +346,18 @@ public final class ClientSnapshotCoordinator {
 			}
 			clearLocal("live frame expired");
 		}
+	}
+
+	private static String sourceFrameIds(CharacterFrame frame) {
+		return frame.header().sourceFrames().stream()
+				.map(source -> source.sourceFrameId() == null ? source.captureId() : source.sourceFrameId())
+				.map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+	}
+
+	private static String sourceFrameIds(WorldSnapshot snapshot) {
+		return snapshot.sourceFrames().stream()
+				.map(source -> source.sourceFrameId() == null ? source.captureId() : source.sourceFrameId())
+				.map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
 	}
 
 	public void probe() {

@@ -1,5 +1,8 @@
 import Foundation
 import os
+// Sentry Cocoa documents these SDK-wide logging/metrics facades as thread-safe,
+// but its Swift 5 module does not yet carry Swift 6 Sendable annotations.
+@preconcurrency import Sentry
 
 enum CaptureLogLevel {
     case debug, info, warning, error
@@ -15,18 +18,21 @@ final class CaptureDiagnosticSpan: @unchecked Sendable {
     private let captureID: UUID
     private let startedAt = ProcessInfo.processInfo.systemUptime
     private let logger: Logger
+    private let sentrySpan: (any Span)?
     private let lock = NSLock()
     private var attributes: [String: Any] = [:]
     private var finished = false
 
-    init(operation: String, captureID: UUID, logger: Logger) {
+    init(operation: String, captureID: UUID, logger: Logger, sentrySpan: (any Span)?) {
         self.operation = operation
         self.captureID = captureID
         self.logger = logger
+        self.sentrySpan = sentrySpan
     }
 
     func setData(value: Any, key: String) {
         lock.withLock { attributes[key] = value }
+        sentrySpan?.setData(value: value, key: key)
     }
 
     func finish(status: CaptureSpanStatus) {
@@ -37,6 +43,7 @@ final class CaptureDiagnosticSpan: @unchecked Sendable {
         }
         guard result.0 else { return }
         let durationMS = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+        sentrySpan?.finish(status: status == .ok ? .ok : .internalError)
         logger.debug(
             "\(self.operation, privacy: .public) capture_id=\(self.captureID.uuidString.lowercased(), privacy: .public) status=\(status.rawValue, privacy: .public) duration_ms=\(durationMS, privacy: .public) attributes=\(String(describing: result.1), privacy: .private(mask: .hash))"
         )
@@ -49,12 +56,35 @@ final class CaptureEventLogger: @unchecked Sendable {
     private let localLogger = Logger(subsystem: "dev.hmc.HumansCapture", category: "capture")
     private let lock = NSLock()
     private var capturesStartedAt: [UUID: TimeInterval] = [:]
+    private var transactions: [UUID: any Span] = [:]
     private var lastWarningAt: [String: TimeInterval] = [:]
 
-    private init() {}
+    private init() {
+        guard let dsn = ProcessInfo.processInfo.environment["HMC_SENTRY_DSN"], !dsn.isEmpty else {
+            return
+        }
+        SentrySDK.start { options in
+            options.dsn = dsn
+            options.environment = ProcessInfo.processInfo.environment["HMC_SENTRY_ENVIRONMENT"] ?? "development"
+            options.releaseName = "humans-capture@\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")"
+            let configuredRate = Double(ProcessInfo.processInfo.environment["HMC_SENTRY_TRACES_SAMPLE_RATE"] ?? "0.2") ?? 0.2
+            options.tracesSampleRate = NSNumber(value: min(1, max(0, configuredRate)))
+            options.enableLogs = true
+            options.enableMetrics = true
+            options.sendDefaultPii = false
+            options.debug = ProcessInfo.processInfo.environment["HMC_SENTRY_DEBUG"] == "true"
+        }
+    }
 
     func beginCapture(captureID: UUID, mode: CaptureMode, attributes: [String: Any]) {
-        lock.withLock { capturesStartedAt[captureID] = ProcessInfo.processInfo.systemUptime }
+        let transaction = SentrySDK.startTransaction(name: "ios.capture_frame", operation: "hmc.capture")
+        transaction.setData(value: captureID.uuidString.lowercased(), key: "frame_id")
+        transaction.setData(value: mode.rawValue, key: "capture_mode")
+        attributes.forEach { transaction.setData(value: $0.value, key: $0.key) }
+        lock.withLock {
+            capturesStartedAt[captureID] = ProcessInfo.processInfo.systemUptime
+            transactions[captureID] = transaction
+        }
         log(
             .debug,
             "capture.started",
@@ -66,13 +96,23 @@ final class CaptureEventLogger: @unchecked Sendable {
     }
 
     func startSpan(captureID: UUID, operation: String, description: String? = nil) -> CaptureDiagnosticSpan? {
-        let span = CaptureDiagnosticSpan(operation: operation, captureID: captureID, logger: localLogger)
+        let parent = lock.withLock { transactions[captureID] }
+        let sentrySpan = parent?.startChild(operation: operation, description: description)
+        let span = CaptureDiagnosticSpan(
+            operation: operation,
+            captureID: captureID,
+            logger: localLogger,
+            sentrySpan: sentrySpan
+        )
         if let description { span.setData(value: description, key: "description") }
         return span
     }
 
     func finishCapture(captureID: UUID, error: Error? = nil) {
-        let startedAt = lock.withLock { capturesStartedAt.removeValue(forKey: captureID) }
+        let result = lock.withLock {
+            (capturesStartedAt.removeValue(forKey: captureID), transactions.removeValue(forKey: captureID))
+        }
+        let startedAt = result.0
         var attributes: [String: Any] = ["capture_id": captureID.uuidString.lowercased()]
         if let startedAt {
             attributes["duration_ms"] = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
@@ -81,7 +121,16 @@ final class CaptureEventLogger: @unchecked Sendable {
             attributes["error"] = error.localizedDescription
         }
         attributes["status"] = error == nil ? "ok" : "failed"
+        result.1?.finish(status: error == nil ? .ok : .internalError)
         log(.debug, "capture.finished", attributes: attributes)
+    }
+
+    func traceContext(captureID: UUID) -> CaptureTraceContext? {
+        guard let transaction = lock.withLock({ transactions[captureID] }) else { return nil }
+        return CaptureTraceContext(
+            sentryTrace: transaction.toTraceHeader().value(),
+            baggage: transaction.baggageHttpHeader()
+        )
     }
 
     func log(
@@ -104,6 +153,71 @@ final class CaptureEventLogger: @unchecked Sendable {
         localLogger.log(
             level: level.osLogType,
             "\(message, privacy: .public) \(String(describing: attributes), privacy: .private(mask: .hash))"
+        )
+        let scalarAttributes = attributes.filter { _, value in
+            value is String || value is Bool || value is Int || value is UInt ||
+                value is Int64 || value is UInt64 || value is Double || value is Float
+        }
+        switch level {
+        case .debug:
+            SentrySDK.logger.debug(message, attributes: scalarAttributes)
+        case .info:
+            SentrySDK.logger.info(message, attributes: scalarAttributes)
+        case .warning:
+            SentrySDK.logger.warn(message, attributes: scalarAttributes)
+        case .error:
+            SentrySDK.logger.error(message, attributes: scalarAttributes)
+        }
+        guard level == .warning || level == .error else { return }
+        SentrySDK.capture(message: message) { scope in
+            scope.setLevel(level == .error ? .error : .warning)
+            attributes.forEach { scope.setExtra(value: $0.value, key: $0.key) }
+        }
+    }
+
+    func recordCaptureMetrics(
+        deviceID: String,
+        mode: String,
+        framesSent: UInt64,
+        framesDropped: UInt64,
+        pointCount: Int,
+        payloadSize: Int,
+        validDepthFraction: Double,
+        queueDepth: Int
+    ) {
+        SentrySDK.metrics.count(
+            key: "humancraft.capture.frames_sent",
+            value: UInt(framesSent),
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        if framesDropped > 0 {
+            SentrySDK.metrics.count(
+                key: "humancraft.capture.frames_dropped",
+                value: UInt(framesDropped),
+                attributes: ["device_id": deviceID, "mode": mode]
+            )
+        }
+        SentrySDK.metrics.distribution(
+            key: "humancraft.capture.point_count",
+            value: Double(pointCount),
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        SentrySDK.metrics.distribution(
+            key: "humancraft.capture.payload_size",
+            value: Double(payloadSize),
+            unit: .byte,
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        SentrySDK.metrics.gauge(
+            key: "humancraft.capture.valid_depth_fraction",
+            value: validDepthFraction,
+            unit: .ratio,
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        SentrySDK.metrics.gauge(
+            key: "humancraft.capture.queue_depth",
+            value: Double(queueDepth),
+            attributes: ["device_id": deviceID, "mode": mode]
         )
     }
 }

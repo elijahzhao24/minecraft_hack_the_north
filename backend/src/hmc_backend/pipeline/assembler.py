@@ -101,6 +101,7 @@ class FrameAssembler:
             landmarks=fitted.landmarks,
             colliders=fitted.colliders,
             trace=trace or TraceContext(),
+            fusion_id=pair.pair_id,
         )
         # Only advance the counter once assembly fully succeeds.
         self._next_frame_id += 1
@@ -113,4 +114,5 @@ def _source_ref(frame) -> SourceFrameRef:
         session_id=frame.session_id,
         capture_id=frame.capture_id,
         sequence=frame.sequence,
+        source_frame_id=frame.source_frame_id,
     )

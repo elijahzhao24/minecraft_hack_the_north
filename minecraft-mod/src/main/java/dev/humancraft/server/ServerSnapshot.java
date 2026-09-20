@@ -20,6 +20,7 @@ public record ServerSnapshot(
 		long frameId,
 		UUID sessionId,
 		UUID calibrationId,
+		UUID fusionId,
 		Mode mode,
 		StageToWorld transform,
 		List<ColliderDto> worldColliders,
@@ -34,7 +35,7 @@ public record ServerSnapshot(
 
 	public ServerSnapshot(UUID owner, String dimension, long frameId, UUID sessionId, UUID calibrationId,
 			Mode mode, StageToWorld transform, List<ColliderDto> worldColliders, long installedAtMillis) {
-		this(owner, dimension, frameId, sessionId, calibrationId, mode, transform, worldColliders, installedAtMillis,
+		this(owner, dimension, frameId, sessionId, calibrationId, null, mode, transform, worldColliders, installedAtMillis,
 				owner, 0, 0);
 	}
 
@@ -52,7 +53,7 @@ public record ServerSnapshot(
 	}
 
 	public ServerSnapshot resolved(Entity target) {
-		return new ServerSnapshot(owner, dimension, frameId, sessionId, calibrationId, mode, transform,
+		return new ServerSnapshot(owner, dimension, frameId, sessionId, calibrationId, fusionId, mode, transform,
 				resolvedColliders(target), installedAtMillis, targetPlayerId, bindingGeneration, normalizationRevision);
 	}
 }

@@ -59,6 +59,7 @@ public record StageToWorld(Vector3 anchor, double blocksPerMeter) {
 	public WorldSnapshot snapshot(CharacterFrame frame) {
 		return new WorldSnapshot(
 				frame.header().frameId(),
+				frame.header().fusionId(),
 				frame.header().sessionId(),
 				frame.header().calibrationId(),
 				frame.header().mode(),

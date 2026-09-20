@@ -130,6 +130,7 @@ extension ARCaptureController: ARSessionDelegate {
         }
 
         let source = CapturedFrameSource(
+            sourceFrameID: UUID(),
             sessionID: sessionID,
             intent: intent,
             sequence: sequence,

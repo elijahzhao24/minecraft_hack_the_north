@@ -117,6 +117,7 @@ def build_processor(
         voxel_size_m=settings.voxel_size_m,
         max_points=settings.max_points,
         confidence_min=settings.confidence_min,
+        observability_delay_ms=settings.observability_demo_delay_ms,
         post_fit_hook=build_debug_hook(settings, calibration, fitter),
         reference_device=settings.expected_device_ids[0],
         gravity_align=settings.gravity_align,
