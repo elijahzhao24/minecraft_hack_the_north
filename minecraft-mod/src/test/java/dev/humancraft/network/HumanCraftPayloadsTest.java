@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,7 +40,8 @@ class HumanCraftPayloadsTest {
 	static InstallRequest request(SyntheticHuman.Pose pose) {
 		CharacterFrame frame = SyntheticHuman.frame(pose, 3, Mode.LIVE, 32);
 		return new InstallRequest(3, SyntheticHuman.SESSION_ID, SyntheticHuman.CALIBRATION_ID, Mode.LIVE,
-				new StageToWorld(new Vector3(1.5, 70, -2.25), 1.25), frame.header().colliders(), frame.header().landmarks().size(), frame.cloud().count());
+				new StageToWorld(new Vector3(1.5, 70, -2.25), 1.25), frame.header().colliders(), frame.header().landmarks().size(), frame.cloud().count(),
+				UUID.fromString("00000000-0000-0000-0000-000000000123"), 7, 4);
 	}
 
 	@Test
@@ -54,6 +56,9 @@ class HumanCraftPayloadsTest {
 		assertEquals(original.transform(), decoded.transform());
 		assertEquals(original.landmarkCount(), decoded.landmarkCount());
 		assertEquals(original.pointCount(), decoded.pointCount());
+		assertEquals(original.targetPlayerId(), decoded.targetPlayerId());
+		assertEquals(7, decoded.bindingGeneration());
+		assertEquals(4, decoded.normalizationRevision());
 		assertEquals(original.stageColliders().size(), decoded.stageColliders().size());
 		for (int i = 0; i < original.stageColliders().size(); i++) {
 			ColliderDto a = original.stageColliders().get(i);
@@ -91,11 +96,13 @@ class HumanCraftPayloadsTest {
 	@Test
 	void ackProbeAndContactRoundTrip() {
 		HumanCraftPayloads.SnapshotAck ack = roundTrip(HumanCraftPayloads.SnapshotAck.CODEC,
-				HumanCraftPayloads.SnapshotAck.of(9, InstallOutcome.rejected(InstallOutcome.REJECTED_STALE, "frame 9 is not newer than 12", OptionalLong.of(12)), 15));
+				HumanCraftPayloads.SnapshotAck.of(9, InstallOutcome.rejected(InstallOutcome.REJECTED_STALE, "frame 9 is not newer than 12", OptionalLong.of(12)), 15, 7, 4));
 		assertFalse(ack.accepted());
 		assertEquals("stale_frame", ack.code());
 		assertEquals(12, ack.activeFrameId());
 		assertEquals(9, ack.frameId());
+		assertEquals(7, ack.bindingGeneration());
+		assertEquals(4, ack.normalizationRevision());
 
 		ProbeService.ProbeOutcome outcome = new ProbeService.ProbeOutcome(4, ProbeResultCode.HIT, 3, Optional.of("hand.left"),
 				Optional.of(BodyPart.LEFT_HAND), 2.5, Optional.of(new Vector3(1, 2, 3)), 6, 2);

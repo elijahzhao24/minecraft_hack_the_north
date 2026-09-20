@@ -16,9 +16,18 @@ public record InstallRequest(
 		StageToWorld transform,
 		List<ColliderDto> stageColliders,
 		int landmarkCount,
-		int pointCount) {
+		int pointCount,
+		UUID targetPlayerId,
+		long bindingGeneration,
+		long normalizationRevision) {
 
 	public InstallRequest {
 		stageColliders = List.copyOf(stageColliders);
+	}
+
+	public InstallRequest(long frameId, UUID sessionId, UUID calibrationId, Mode mode, StageToWorld transform,
+			List<ColliderDto> stageColliders, int landmarkCount, int pointCount) {
+		this(frameId, sessionId, calibrationId, mode, transform, stageColliders, landmarkCount, pointCount,
+				new UUID(0, 0), 0, 0);
 	}
 }

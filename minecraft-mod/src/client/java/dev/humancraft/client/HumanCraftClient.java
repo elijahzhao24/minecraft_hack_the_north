@@ -3,6 +3,8 @@ package dev.humancraft.client;
 import dev.humancraft.HumanCraft;
 import dev.humancraft.client.backend.CharacterWebSocket;
 import dev.humancraft.client.input.HumanCraftKeybindings;
+import dev.humancraft.client.input.SeparatePlayerControl;
+import dev.humancraft.client.input.AnatomyAttackInput;
 import dev.humancraft.client.render.HumanCraftHud;
 import dev.humancraft.client.render.HumanRenderer;
 import dev.humancraft.client.state.ClientSnapshotCoordinator;
@@ -39,6 +41,10 @@ public final class HumanCraftClient implements ClientModInitializer {
 				(payload, context) -> snapshots.onProbeResult(payload));
 		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.ContactState.TYPE,
 				(payload, context) -> snapshots.onContactState(payload));
+		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.AvatarState.TYPE,
+				(payload, context) -> snapshots.onAvatarState(payload));
+		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.DebugState.TYPE,
+				(payload, context) -> snapshots.setDebug(payload.enabled()));
 
 		HumanCraftKeybindings keys = new HumanCraftKeybindings(config, snapshots);
 		HumanCraftHud hud = new HumanCraftHud(config, snapshots);
@@ -46,6 +52,8 @@ public final class HumanCraftClient implements ClientModInitializer {
 			keys.tick(client);
 			snapshots.tick(client);
 		});
+		ClientTickEvents.START_CLIENT_TICK.register(client -> SeparatePlayerControl.tick(client, snapshots));
+		ClientTickEvents.END_CLIENT_TICK.register(client -> AnatomyAttackInput.tick(client, snapshots));
 		HudRenderCallback.EVENT.register((graphics, tickCounter) -> hud.render(graphics));
 
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> snapshots.onJoin(client));
