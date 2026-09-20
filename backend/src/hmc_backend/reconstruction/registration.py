@@ -43,7 +43,11 @@ def _unit(v: NDArray[np.float64]) -> NDArray[np.float64]:
 
 def has_usable_pose(frame: CapturedFrame) -> bool:
     """True when the frame carries a real (non-identity, finite) ARKit pose."""
-    pose = frame.arkit_pose
+    return arkit_pose_is_usable(frame.arkit_pose)
+
+
+def arkit_pose_is_usable(pose: NDArray[np.float64] | None) -> bool:
+    """True for a real (non-identity, finite, rigid) ARKit camera pose."""
     if pose is None or pose.shape != (4, 4) or not np.all(np.isfinite(pose)):
         return False
     r = pose[:3, :3]
@@ -52,19 +56,29 @@ def has_usable_pose(frame: CapturedFrame) -> bool:
     return not np.allclose(r, np.eye(3), atol=1e-6)
 
 
+def optical_up_from_arkit_pose(arkit_pose: NDArray[np.float64] | None) -> NDArray[np.float64] | None:
+    """Gravity "up" expressed in the optical frame, or ``None`` if unusable.
+
+    ARKit runs with gravity world alignment, so ``T_arkit_world_from_camera``
+    tells us which optical-frame direction is physically up — an independent
+    measurement of the camera's pitch/roll that no board detection can give.
+    """
+    if not arkit_pose_is_usable(arkit_pose):
+        return None
+    r_world_from_cam = np.asarray(arkit_pose, dtype=np.float64)[:3, :3]
+    up_cam = r_world_from_cam.T @ np.array([0.0, 1.0, 0.0])
+    return _unit(_OPTICAL_FROM_ARKIT_CAMERA @ up_cam)
+
+
 def gravity_aligned(calibration: CameraCalibration, frame: CapturedFrame) -> CameraCalibration:
     """Replace the nominal pose's pitch/roll with the phone's measured ones.
 
     Keeps the nominal yaw (horizontal viewing direction) and position.
     Returns the calibration unchanged when the frame has no usable pose.
     """
-    if not has_usable_pose(frame):
+    up_opt = optical_up_from_arkit_pose(frame.arkit_pose)
+    if up_opt is None:
         return calibration
-
-    r_world_from_cam = frame.arkit_pose[:3, :3]
-    # Gravity "up" expressed in the optical frame.
-    up_cam = r_world_from_cam.T @ np.array([0.0, 1.0, 0.0])
-    up_opt = _unit(_OPTICAL_FROM_ARKIT_CAMERA @ up_cam)
 
     t_nominal = calibration.T_stage_from_optical
     r_nominal = t_nominal[:3, :3]

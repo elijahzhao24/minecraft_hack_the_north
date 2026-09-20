@@ -130,6 +130,7 @@ def build_processor(
         reference_device=settings.expected_device_ids[0],
         gravity_align=settings.gravity_align,
         use_frame_intrinsics=settings.use_frame_intrinsics,
+        view_alignment_warn_m=settings.view_alignment_warn_m,
     )
 
 

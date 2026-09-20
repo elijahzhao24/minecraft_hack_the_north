@@ -17,6 +17,7 @@ from uuid import UUID
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.spatial import cKDTree
 
 from hmc_backend.calibration.model import RigCalibration
 from hmc_backend.contracts.internal import (
@@ -63,6 +64,7 @@ class CharacterProcessor:
         reference_device: str | None = None,
         gravity_align: bool = False,
         use_frame_intrinsics: bool = False,
+        view_alignment_warn_m: float = 0.4,
     ) -> None:
         self._detector = detector
         self._fitter = fitter
@@ -78,6 +80,7 @@ class CharacterProcessor:
         self._reference_device = reference_device
         self._gravity_align = gravity_align
         self._use_frame_intrinsics = use_frame_intrinsics
+        self._view_alignment_warn_m = view_alignment_warn_m
         # device -> 4x4 stage->stage correction learned by registration.
         self._corrections: dict[str, NDArray[np.float64]] = {}
         self._register_requested = threading.Event()
@@ -246,6 +249,14 @@ class CharacterProcessor:
                             )
                             reconstruct_span.set_data("point_count", clouds[i].count)
 
+            cross_view_gap = None
+            if len(clouds) == 2 and min(clouds[0].count, clouds[1].count) >= 50:
+                cross_view_gap = _cross_view_nn_m(
+                    clouds[0].xyz_stage_m, clouds[1].xyz_stage_m
+                )
+                for diagnostics in self.view_diagnostics.values():
+                    diagnostics["cross_view_nn_m"] = round(cross_view_gap, 3)
+
             seed = _seed_from_pair(pair)
             with span("hmc.fuse", "merge, voxel downsample and cap") as merge_span:
                 merged = merge_clouds(
@@ -273,6 +284,9 @@ class CharacterProcessor:
                     )
 
             warnings = ["empty_cloud"] if merged.count == 0 else []
+            if cross_view_gap is not None and cross_view_gap > self._view_alignment_warn_m:
+                warnings.append(f"views_misaligned:{cross_view_gap * 100:.0f}cm")
+                log_event("warning", "views_misaligned", cross_view_nn_m=round(cross_view_gap, 3))
             for i, (dev, diag) in enumerate(self.view_diagnostics.items()):
                 diag["contribution_count"] = int(np.count_nonzero(merged.source_mask & (1 << i)))
                 if diag["contribution_count"] == 0:
@@ -300,6 +314,32 @@ class CharacterProcessor:
                 quality=quality,
             )
         return result
+
+
+def _cross_view_nn_m(
+    a: NDArray[np.float64],
+    b: NDArray[np.float64],
+    *,
+    max_points: int = 2048,
+) -> float:
+    """Symmetric median nearest-neighbour distance between two view clouds.
+
+    The merge is a plain union, so this is the honest "are the two views fused"
+    number: near the subject's surface thickness (tens of cm) when both cameras
+    agree, well beyond it when one view's stage transform is biased and the
+    person renders twice.
+    """
+    def subsample(points: NDArray[np.float64]) -> NDArray[np.float64]:
+        if len(points) <= max_points:
+            return points
+        idx = np.linspace(0, len(points) - 1, max_points).astype(np.int64)
+        return points[idx]
+
+    pa, pb = subsample(a), subsample(b)
+    tree_a, tree_b = cKDTree(pa), cKDTree(pb)
+    d_ab = float(np.median(tree_b.query(pa, k=1)[0]))
+    d_ba = float(np.median(tree_a.query(pb, k=1)[0]))
+    return (d_ab + d_ba) / 2.0
 
 
 def _seed_from_pair(pair: PairedFrames) -> int:

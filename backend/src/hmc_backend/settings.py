@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     depth_max_m: float = 5.0
     max_range_m: float = Field(default=5.0, gt=0, le=5.0)
     confidence_min: int = 1  # ARKit confidence 0/1/2; accept >= this
+    # Warn on CharacterFrame quality when the two views' clouds sit this far
+    # apart (symmetric median NN). A healthy opposed rig sits near the body's
+    # surface thickness (~0.15-0.25m); a biased camera solve shows up above it.
+    view_alignment_warn_m: float = Field(default=0.3, gt=0, le=2.0)
     # Take pitch/roll from each frame's ARKit gravity-aligned pose instead of
     # trusting the nominal camera pose, and unproject with the lens intrinsics
     # the phone reports rather than the rig file's nominal K.

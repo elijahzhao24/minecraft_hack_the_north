@@ -169,6 +169,94 @@ class BoardObservation:
     R_camera_from_board: NDArray[np.float64]  # 3 x 3
     t_camera_from_board: NDArray[np.float64]  # 3
     reprojection_error_px: float
+    up_optical: NDArray[np.float64] | None = None  # gravity up, optical frame
+
+
+def _reprojection_rms(obj_pts: NDArray, img_pts: NDArray, rvec: NDArray, tvec: NDArray,
+                      k_rgb: NDArray, dist: NDArray) -> float:
+    projected, _ = cv2.projectPoints(obj_pts, rvec, tvec, k_rgb, dist)
+    residuals = np.linalg.norm(projected.reshape(-1, 2) - img_pts.reshape(-1, 2), axis=1)
+    return float(np.sqrt(np.mean(residuals**2)))
+
+
+def _gravity_error_rad(r_camera_from_board: NDArray[np.float64],
+                       up_optical: NDArray[np.float64]) -> float:
+    """Angle between the phone's measured up direction and stage +Y.
+
+    ``T_stage_from_optical``'s rotation is always
+    ``STAGE_FROM_BOARD_ROTATION @ R_camera_from_board.T`` (the board origin
+    offset is a pure translation), so this needs no board placement.
+    """
+    r_stage_from_optical = STAGE_FROM_BOARD_ROTATION @ r_camera_from_board.T
+    up_stage = r_stage_from_optical @ np.asarray(up_optical, dtype=np.float64)
+    return float(np.arccos(np.clip(up_stage[1] / np.linalg.norm(up_stage), -1.0, 1.0)))
+
+
+def _pnp_candidates(
+    obj_pts: NDArray,
+    img_pts: NDArray,
+    k_rgb: NDArray,
+    dist: NDArray,
+) -> list[tuple[NDArray[np.float64], NDArray[np.float64], float]]:
+    """All candidate poses for the planar board as ``(R, t, rms_px)``.
+
+    A planar target gives solvePnP two equally valid-looking solutions along
+    the view axis; ``SOLVEPNP_IPPE`` enumerates them so physics can choose,
+    instead of letting the iterative solver land on whichever is nearer its
+    initial guess. Falls back to ``SOLVEPNP_ITERATIVE`` when the generic
+    interface is unavailable.
+    """
+    candidates: list[tuple[NDArray[np.float64], NDArray[np.float64], float]] = []
+    try:
+        ok, rvecs, tvecs, _errs = cv2.solvePnPGeneric(
+            obj_pts, img_pts, k_rgb, dist, flags=cv2.SOLVEPNP_IPPE
+        )
+    except cv2.error:
+        ok, rvecs, tvecs = False, None, None
+    if ok and rvecs is not None:
+        for i, rvec in enumerate(rvecs):
+            t = np.asarray(tvecs[i], dtype=np.float64).reshape(3)
+            rms = _reprojection_rms(obj_pts, img_pts, rvec, tvecs[i], k_rgb, dist)
+            rotation, _ = cv2.Rodrigues(rvec)
+            candidates.append((rotation.astype(np.float64), t, rms))
+
+    if not candidates:
+        ok, rvec, tvec = cv2.solvePnP(
+            obj_pts, img_pts, k_rgb, dist, flags=cv2.SOLVEPNP_ITERATIVE
+        )
+        if not ok:
+            return []
+        t = np.asarray(tvec, dtype=np.float64).reshape(3)
+        rms = _reprojection_rms(obj_pts, img_pts, rvec, tvec, k_rgb, dist)
+        rotation, _ = cv2.Rodrigues(rvec)
+        candidates.append((rotation.astype(np.float64), t, rms))
+    return candidates
+
+
+def _pick_candidate(
+    candidates: list[tuple[NDArray[np.float64], NDArray[np.float64], float]],
+    up_optical: NDArray[np.float64] | None,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], float] | None:
+    """Choose the physically consistent candidate.
+
+    Filters to solutions with the board in front of the camera and, when any
+    qualify, the camera on the printed-face side of the board plane. Among the
+    near-best reprojection fits the phone's measured gravity decides; without
+    gravity the lowest residual wins.
+    """
+    front = [c for c in candidates if c[1][2] > 0.0]
+    if not front:
+        return None
+    # Camera must be on the printed (-Z board) side: camera position in board
+    # coords is -R.T @ t; a camera seeing the printed face has z < 0.
+    printed_side = [c for c in front if float((-c[0].T @ c[1])[2]) < 0.0]
+    pool = printed_side if printed_side else front
+
+    best_rms = min(c[2] for c in pool)
+    near_best = [c for c in pool if c[2] <= max(1.0, best_rms + 1.0)]
+    if up_optical is not None and len(near_best) > 1:
+        return min(near_best, key=lambda c: _gravity_error_rad(c[0], up_optical))
+    return min(near_best, key=lambda c: c[2])
 
 
 def estimate_pose(
@@ -177,6 +265,7 @@ def estimate_pose(
     board,
     k_rgb: NDArray[np.float64],
     dist: NDArray[np.float64] | None = None,
+    up_optical: NDArray[np.float64] | None = None,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], float] | None:
     """Estimate ``T_camera_from_board`` from detected corners.
 
@@ -184,7 +273,10 @@ def estimate_pose(
     solved or the board would sit behind the camera.
 
     ``dist`` defaults to zeros: ARKit supplies intrinsics for an effectively
-    rectilinear image, so no distortion model is applied.
+    rectilinear image, so no distortion model is applied. ``up_optical`` is the
+    phone's gravity-up direction in the optical frame (from ARKit); when
+    several planar candidates survive, it picks the one that puts the camera
+    upright over the board.
     """
     if dist is None:
         dist = np.zeros(5, dtype=np.float64)
@@ -193,25 +285,11 @@ def estimate_pose(
     if obj_pts is None or img_pts is None or len(obj_pts) < 4:
         return None
 
-    ok, rvec, tvec = cv2.solvePnP(
-        obj_pts, img_pts, k_rgb, dist, flags=cv2.SOLVEPNP_ITERATIVE
-    )
-    if not ok:
+    candidates = _pnp_candidates(obj_pts, img_pts, k_rgb, dist)
+    picked = _pick_candidate(candidates, up_optical)
+    if picked is None:
         return None
-
-    # solvePnP returns tvec as a (3, 1) column; flatten before scalar access.
-    translation = np.asarray(tvec, dtype=np.float64).reshape(3)
-
-    # The board must be in front of the camera (positive optical Z).
-    if translation[2] <= 0.0:
-        return None
-
-    projected, _ = cv2.projectPoints(obj_pts, rvec, tvec, k_rgb, dist)
-    residuals = np.linalg.norm(projected.reshape(-1, 2) - img_pts.reshape(-1, 2), axis=1)
-    reproj_px = float(np.sqrt(np.mean(residuals**2)))  # RMS
-
-    rotation, _ = cv2.Rodrigues(rvec)
-    return rotation.astype(np.float64), translation, reproj_px
+    return picked
 
 
 def observe_frame(
@@ -222,6 +300,7 @@ def observe_frame(
     *,
     device_id: str,
     sequence: int,
+    up_optical: NDArray[np.float64] | None = None,
     min_corners: int = 8,
     min_coverage: float = 0.02,
     max_reprojection_px: float = 3.0,
@@ -243,7 +322,7 @@ def observe_frame(
     if coverage < min_coverage:
         return None, "corners_clustered"
 
-    solved = estimate_pose(corners, ids, board, k_rgb)
+    solved = estimate_pose(corners, ids, board, k_rgb, up_optical=up_optical)
     if solved is None:
         return None, "pose_unsolvable"
     rotation, translation, reproj_px = solved
@@ -260,6 +339,7 @@ def observe_frame(
             R_camera_from_board=rotation,
             t_camera_from_board=translation,
             reprojection_error_px=reproj_px,
+            up_optical=up_optical,
         ),
         "accepted",
     )

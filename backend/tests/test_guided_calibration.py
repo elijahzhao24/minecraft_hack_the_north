@@ -24,6 +24,18 @@ from tests.test_reconstruction import _synthetic_view
 from tests.test_rig_registration import _pair
 
 
+# ARKit camera axes are x-right, y-up, z-back; the optical raster is x-right,
+# y-down, z-forward. A real phone reports its pose in the ARKit convention.
+_OPTICAL_FROM_ARKIT = np.diag([1., -1., -1.])
+
+
+def _optical_pose_from_arkit(pose):
+    """Convert an ARKit-convention camera pose into an optical-convention one."""
+    out = pose.copy()
+    out[:3, :3] = pose[:3, :3] @ _OPTICAL_FROM_ARKIT
+    return out
+
+
 @pytest.fixture(scope="module")
 def board_frames():
     board, detector = build_board(BoardSpec())
@@ -35,7 +47,8 @@ def board_frames():
         cam_board = np.linalg.inv(pose) @ stage_from_board()
         gray = _render_board_view(board, detector, k, cam_board[:3, :3], cam_board[:3, 3])
         rgb = np.repeat(gray[:, :, None], 3, axis=2)
-        frames.append(replace(base, device_id=dev, session_id=uuid4(), rgb=rgb, K_rgb=k, arkit_pose=pose))
+        frames.append(replace(base, device_id=dev, session_id=uuid4(), rgb=rgb, K_rgb=k,
+                              arkit_pose=_optical_pose_from_arkit(pose)))
     return frames
 
 
@@ -52,11 +65,52 @@ def test_opposing_board_views_solve_in_shared_frame(board_frames):
     assert job.state == "validating", job.status()
     rig = job.solve()
     for frame in board_frames:
+        expected = _optical_pose_from_arkit(frame.arkit_pose)
         np.testing.assert_allclose(rig.camera(frame.device_id).T_stage_from_optical,
-                                   frame.arkit_pose, atol=.008)
-        assert rig.validation[frame.device_id]["held_out_frames"] == 3
+                                   expected, atol=.008)
+        report = rig.validation[frame.device_id]
+        assert report["held_out_frames"] == 3
+        # The phone's own gravity measurement agrees with the solved pose.
+        assert report["gravity_error_deg"] < 2
+        assert report["camera_position_stage_m"][1] > 0
     assert rig.camera("front-phone").T_stage_from_optical[2, 3] > .9
     assert rig.camera("side-phone").T_stage_from_optical[2, 3] < -.5
+
+
+def test_solve_rejects_pose_contradicting_gravity(board_frames):
+    # A pose solve that silently picked the wrong planar candidate reads the
+    # camera's measured "up" as pointing sideways; the aggregate check must
+    # refuse to install it rather than emit a second displaced person.
+    roll90 = np.eye(4)
+    roll90[:3, :3] = np.array([[1., 0., 0.], [0., 0., -1.], [0., 1., 0.]])
+    frames = [replace(f, arkit_pose=f.arkit_pose @ roll90) for f in board_frames]
+    job = collect_job(frames)
+    with pytest.raises(CharucoError, match="gravity"):
+        job.solve()
+
+
+def test_misaligned_views_warn_and_report_gap():
+    rig = build_synthetic_rig(orientation="landscape_right")
+    pair = _pair(rig)  # rendered by the true rig
+    # The backend believes a side pose shifted a metre: the person's back
+    # shell renders displaced from the front shell — the classic "two ghosts".
+    cam = rig.camera("side-phone")
+    shifted = cam.T_stage_from_optical.copy()
+    shifted[0, 3] += 1.0
+    wrong = replace(rig, cameras={**rig.cameras, "side-phone": replace(cam, T_stage_from_optical=shifted)})
+    processor = build_processor(Settings(gravity_align=False), wrong)
+    result = processor.process(pair)
+    assert result.cloud.count > 0
+    assert any(w.startswith("views_misaligned") for w in result.quality.warnings)
+    assert processor.view_diagnostics["front-phone"]["cross_view_nn_m"] > 0.4
+
+
+def test_aligned_views_do_not_warn():
+    rig = build_synthetic_rig(orientation="landscape_right")
+    processor = build_processor(Settings(gravity_align=False), rig)
+    result = processor.process(_pair(rig))
+    assert result.cloud.count > 0
+    assert not any(w.startswith("views_misaligned") for w in result.quality.warnings)
 
 
 def test_missing_board_and_tracking_are_actionable(board_frames):
