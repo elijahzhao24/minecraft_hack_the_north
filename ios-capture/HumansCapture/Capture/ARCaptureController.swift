@@ -75,9 +75,6 @@ final class ARCaptureController: NSObject, @unchecked Sendable {
                     continuation.resume(returning: false)
                     return
                 }
-                if mode == .live {
-                    self.liveEnabled = true
-                }
                 self.pendingSnapshots.append(CaptureIntent(
                 captureID: captureID,
                 requestID: requestID,

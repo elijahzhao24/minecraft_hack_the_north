@@ -1,6 +1,8 @@
 package dev.humancraft.network;
 
 import dev.humancraft.HumanCraft;
+import dev.humancraft.avatar.AvatarService;
+import dev.humancraft.avatar.ControlIntent;
 import dev.humancraft.contract.BodyPart;
 import dev.humancraft.contract.ColliderDto;
 import dev.humancraft.contract.Mode;
@@ -56,16 +58,20 @@ public final class HumanCraftPayloads {
 			int landmarkCount,
 			int pointCount,
 			UUID fusionId,
-			String sourceFrameIds) implements CustomPacketPayload {
-		public InstallSnapshot(long frameId, UUID sessionId, UUID calibrationId, String mode, double anchorX,
-				double anchorY, double anchorZ, double blocksPerMeter, List<WireCollider> colliders,
-				int landmarkCount, int pointCount) {
-			this(frameId, sessionId, calibrationId, mode, anchorX, anchorY, anchorZ, blocksPerMeter, colliders,
-					landmarkCount, pointCount, null, "");
-		}
+			String sourceFrameIds,
+			UUID targetPlayerId,
+			long bindingGeneration,
+			long normalizationRevision) implements CustomPacketPayload {
 
 		public static final Type<InstallSnapshot> TYPE = new Type<>(id("install_snapshot"));
 		public static final StreamCodec<FriendlyByteBuf, InstallSnapshot> CODEC = StreamCodec.of(InstallSnapshot::write, InstallSnapshot::read);
+
+		public InstallSnapshot(long frameId, UUID sessionId, UUID calibrationId, String mode,
+				double anchorX, double anchorY, double anchorZ, double blocksPerMeter,
+				List<WireCollider> colliders, int landmarkCount, int pointCount) {
+			this(frameId, sessionId, calibrationId, mode, anchorX, anchorY, anchorZ, blocksPerMeter,
+					colliders, landmarkCount, pointCount, null, "", new UUID(0, 0), 0, 0);
+		}
 
 		public static InstallSnapshot of(InstallRequest request) {
 			List<WireCollider> wire = new ArrayList<>(request.stageColliders().size());
@@ -75,7 +81,8 @@ public final class HumanCraftPayloads {
 			Vector3 a = request.transform().anchor();
 			return new InstallSnapshot(request.frameId(), request.sessionId(), request.calibrationId(), request.mode().wireName(),
 					a.x(), a.y(), a.z(), request.transform().blocksPerMeter(), wire, request.landmarkCount(), request.pointCount(),
-					request.fusionId(), request.sourceFrameIds());
+					request.fusionId(), request.sourceFrameIds(), request.targetPlayerId(), request.bindingGeneration(),
+					request.normalizationRevision());
 		}
 
 		/** Validates and converts; throws {@link dev.humancraft.contract.ProtocolException} or {@link IllegalArgumentException}. */
@@ -86,7 +93,7 @@ public final class HumanCraftPayloads {
 			}
 			return new InstallRequest(frameId, sessionId, calibrationId, WireEnum.fromWire(Mode.class, mode),
 					new StageToWorld(new Vector3(anchorX, anchorY, anchorZ), blocksPerMeter), dtos, landmarkCount, pointCount,
-					fusionId, sourceFrameIds);
+					fusionId, sourceFrameIds, targetPlayerId, bindingGeneration, normalizationRevision);
 		}
 
 		private static void write(FriendlyByteBuf buf, InstallSnapshot p) {
@@ -107,6 +114,9 @@ public final class HumanCraftPayloads {
 			buf.writeBoolean(p.fusionId != null);
 			if (p.fusionId != null) buf.writeUUID(p.fusionId);
 			buf.writeUtf(p.sourceFrameIds, 512);
+			buf.writeUUID(p.targetPlayerId);
+			buf.writeVarLong(p.bindingGeneration);
+			buf.writeVarLong(p.normalizationRevision);
 		}
 
 		private static InstallSnapshot read(FriendlyByteBuf buf) {
@@ -131,13 +141,32 @@ public final class HumanCraftPayloads {
 			UUID fusionId = buf.readBoolean() ? buf.readUUID() : null;
 			String sourceFrameIds = buf.readUtf(512);
 			return new InstallSnapshot(frameId, session, calibration, mode, ax, ay, az, scale, colliders, landmarks, points,
-					fusionId, sourceFrameIds);
+					fusionId, sourceFrameIds, buf.readUUID(), buf.readVarLong(), buf.readVarLong());
 		}
 
 		@Override
 		public Type<? extends CustomPacketPayload> type() {
 			return TYPE;
 		}
+	}
+
+	public record ControlInput(float strafe, float forward, float yaw, float pitch, boolean jump, boolean sneak, boolean sprint)
+			implements CustomPacketPayload {
+		public static final Type<ControlInput> TYPE = new Type<>(id("control_input"));
+		public static final StreamCodec<FriendlyByteBuf, ControlInput> CODEC = StreamCodec.of(
+				(buf, p) -> { buf.writeFloat(p.strafe); buf.writeFloat(p.forward); buf.writeFloat(p.yaw); buf.writeFloat(p.pitch);
+					buf.writeBoolean(p.jump); buf.writeBoolean(p.sneak); buf.writeBoolean(p.sprint); },
+				buf -> new ControlInput(buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(),
+						buf.readBoolean(), buf.readBoolean(), buf.readBoolean()));
+		public ControlIntent toIntent(long now) { return new ControlIntent(strafe, forward, yaw, pitch, jump, sneak, sprint, now); }
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
+	public record AnatomyAttack(int requestId) implements CustomPacketPayload {
+		public static final Type<AnatomyAttack> TYPE = new Type<>(id("anatomy_attack"));
+		public static final StreamCodec<FriendlyByteBuf, AnatomyAttack> CODEC = StreamCodec.of(
+				(buf, p) -> buf.writeVarInt(p.requestId), buf -> new AnatomyAttack(buf.readVarInt()));
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
 	/** {@code hmc:clear_snapshot} — drop the caller's active snapshot. */
@@ -175,11 +204,11 @@ public final class HumanCraftPayloads {
 
 	/** {@code hmc:snapshot_ack} — accepted or rejected install; {@code activeFrameId} is -1 when nothing is active. */
 	public record SnapshotAck(long frameId, boolean accepted, String code, String detail, long activeFrameId, int validColliders,
-			UUID fusionId)
-			implements CustomPacketPayload {
+			UUID fusionId, long bindingGeneration, long normalizationRevision) implements CustomPacketPayload {
 		public SnapshotAck(long frameId, boolean accepted, String code, String detail, long activeFrameId, int validColliders) {
-			this(frameId, accepted, code, detail, activeFrameId, validColliders, null);
+			this(frameId, accepted, code, detail, activeFrameId, validColliders, null, 0, 0);
 		}
+
 		public static final Type<SnapshotAck> TYPE = new Type<>(id("snapshot_ack"));
 		public static final StreamCodec<FriendlyByteBuf, SnapshotAck> CODEC = StreamCodec.of(
 				(buf, p) -> {
@@ -191,18 +220,30 @@ public final class HumanCraftPayloads {
 					buf.writeVarInt(p.validColliders);
 					buf.writeBoolean(p.fusionId != null);
 					if (p.fusionId != null) buf.writeUUID(p.fusionId);
+					buf.writeVarLong(p.bindingGeneration);
+					buf.writeVarLong(p.normalizationRevision);
 				},
 				buf -> new SnapshotAck(buf.readLong(), buf.readBoolean(), buf.readUtf(64), buf.readUtf(MAX_STRING), buf.readLong(),
-						buf.readVarInt(), buf.readBoolean() ? buf.readUUID() : null));
+						buf.readVarInt(), buf.readBoolean() ? buf.readUUID() : null, buf.readVarLong(), buf.readVarLong()));
 
-		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders, UUID fusionId) {
+		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders,
+				UUID fusionId, long bindingGeneration, long normalizationRevision) {
 			String detail = outcome.detail().length() > MAX_STRING ? outcome.detail().substring(0, MAX_STRING) : outcome.detail();
 			return new SnapshotAck(frameId, outcome.accepted(), outcome.code(), detail, outcome.activeFrameId().orElse(-1),
-					validColliders, fusionId);
+					validColliders, fusionId, bindingGeneration, normalizationRevision);
+		}
+
+		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders,
+				long bindingGeneration, long normalizationRevision) {
+			return of(frameId, outcome, validColliders, null, bindingGeneration, normalizationRevision);
+		}
+
+		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders, UUID fusionId) {
+			return of(frameId, outcome, validColliders, fusionId, 0, 0);
 		}
 
 		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders) {
-			return of(frameId, outcome, validColliders, null);
+			return of(frameId, outcome, validColliders, null, 0, 0);
 		}
 
 		@Override
@@ -341,6 +382,26 @@ public final class HumanCraftPayloads {
 		}
 	}
 
+	public record AvatarState(UUID targetPlayerId, String mode, long bindingGeneration, long normalizationRevision, boolean controlling)
+			implements CustomPacketPayload {
+		public static final Type<AvatarState> TYPE = new Type<>(id("avatar_state"));
+		public static final StreamCodec<FriendlyByteBuf, AvatarState> CODEC = StreamCodec.of(
+				(buf, p) -> { buf.writeUUID(p.targetPlayerId); buf.writeUtf(p.mode, 16); buf.writeVarLong(p.bindingGeneration);
+					buf.writeVarLong(p.normalizationRevision); buf.writeBoolean(p.controlling); },
+				buf -> new AvatarState(buf.readUUID(), buf.readUtf(16), buf.readVarLong(), buf.readVarLong(), buf.readBoolean()));
+		public static AvatarState of(AvatarService.Binding b) {
+			return new AvatarState(b.targetId(), b.mode().name().toLowerCase(), b.generation(), b.normalizationRevision(), b.controlling());
+		}
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
+	public record DebugState(boolean enabled) implements CustomPacketPayload {
+		public static final Type<DebugState> TYPE = new Type<>(id("debug_state"));
+		public static final StreamCodec<FriendlyByteBuf, DebugState> CODEC = StreamCodec.of(
+				(buf, p) -> buf.writeBoolean(p.enabled), buf -> new DebugState(buf.readBoolean()));
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
 	// ---- registration ------------------------------------------------------------------------
 
 	private static boolean registered;
@@ -356,9 +417,13 @@ public final class HumanCraftPayloads {
 		c2s.register(InstallSnapshot.TYPE, InstallSnapshot.CODEC);
 		c2s.register(ClearSnapshot.TYPE, ClearSnapshot.CODEC);
 		c2s.register(ProbeRequest.TYPE, ProbeRequest.CODEC);
+		c2s.register(ControlInput.TYPE, ControlInput.CODEC);
+		c2s.register(AnatomyAttack.TYPE, AnatomyAttack.CODEC);
 		s2c.register(SnapshotAck.TYPE, SnapshotAck.CODEC);
 		s2c.register(ProbeResult.TYPE, ProbeResult.CODEC);
 		s2c.register(ContactState.TYPE, ContactState.CODEC);
-		HumanCraft.LOGGER.debug("Registered {} payload types", 6);
+		s2c.register(AvatarState.TYPE, AvatarState.CODEC);
+		s2c.register(DebugState.TYPE, DebugState.CODEC);
+		HumanCraft.LOGGER.debug("Registered {} payload types", 10);
 	}
 }

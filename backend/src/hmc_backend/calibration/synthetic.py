@@ -23,7 +23,7 @@ def look_at_optical(
     target: NDArray[np.float64],
     world_up: NDArray[np.float64],
     *,
-    orientation: str = "portrait",
+    orientation: str = "landscape_right",
 ) -> NDArray[np.float64]:
     """Return ``T_stage_from_optical`` for a camera at ``eye`` looking at ``target``.
 

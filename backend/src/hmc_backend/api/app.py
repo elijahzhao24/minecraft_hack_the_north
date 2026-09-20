@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -27,7 +28,7 @@ from hmc_backend.contracts.control import (
     Error,
     ServerHello,
 )
-from hmc_backend.observability import configure_sentry, flush_sentry
+from hmc_backend.observability import configure_sentry, flush_sentry, log_event
 from hmc_backend.protocol.envelope import EnvelopeError
 from hmc_backend.settings import Settings, load_settings
 
@@ -45,6 +46,9 @@ def build_runtime(settings: Settings) -> AppRuntime:
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
+    # hmc_backend loggers have no handler of their own; without this the
+    # structured log_event lines never reach the console.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     configure_sentry(
         settings.sentry_dsn,
         environment=settings.environment,
@@ -55,6 +59,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.runtime = build_runtime(settings)
     start_discovery(port=settings.port)
     yield
+    app.state.runtime.stop_live()
     stop_discovery()
     # Shutdown: flush any pending Sentry events with a short timeout.
     flush_sentry()
@@ -118,7 +123,7 @@ async def ws_capture(ws: WebSocket) -> None:
             if (text := message.get("text")) is not None:
                 await _handle_capture_text(runtime, ws, hello.device_id, text)
             elif (data := message.get("bytes")) is not None:
-                await _handle_capture_binary(runtime, ws, data)
+                await _handle_capture_binary(runtime, ws, hello.device_id, data)
     except WebSocketDisconnect:
         pass
     finally:
@@ -155,6 +160,13 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
         return
+    if _handle_live_control(runtime, obj):
+        return
+    if obj.get("type") == "ack" and not obj.get("accepted", True):
+        # The phone could not honour a capture_request (typically a full
+        # capture queue because its AR session is not running).
+        log_event("warning", "capture_declined", device_id=device_id, code=obj.get("code"), detail=obj.get("detail"))
+        return
     if obj.get("type") == "clock_pong":
         # Backend records its own receive time on arrival.
         import time
@@ -169,12 +181,14 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
         )
 
 
-async def _handle_capture_binary(runtime: AppRuntime, ws: WebSocket, data: bytes) -> None:
+async def _handle_capture_binary(runtime: AppRuntime, ws: WebSocket, device_id: str, data: bytes) -> None:
     try:
         await runtime.handle_rgbd(data)
     except EnvelopeError as exc:
+        log_event("warning", "rgbd_rejected", device_id=device_id, code=exc.code, message=exc.message)
         await _send_model(ws, Error(code=exc.code, message=exc.message))
     except Exception:  # noqa: BLE001 - never let one frame kill the socket
+        log_event("error", "rgbd_processing_failed", device_id=device_id, bytes=len(data))
         await _send_model(ws, Error(code="internal_error", message="frame processing failed"))
 
 
@@ -240,6 +254,16 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
         return
+    if _handle_live_control(runtime, obj):
+        from uuid import UUID, uuid4
+
+        request_id = UUID(obj["request_id"]) if "request_id" in obj else uuid4()
+        if obj.get("type") == "register_rig":
+            code = "registration_requested"
+        else:
+            code = "live_started" if runtime.live_active else "live_stopped"
+        await _send_model(ws, Ack(request_id=request_id, accepted=True, code=code))
+        return
     if obj.get("type") == "request_capture":
         from uuid import UUID, uuid4
 
@@ -250,6 +274,43 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
             ws,
             Ack(request_id=request_id, accepted=accepted, code=code),
         )
+
+
+@app.post("/rig/register")
+async def rig_register() -> JSONResponse:
+    """Align the side camera onto the front camera using the next paired frame."""
+    runtime: AppRuntime = app.state.runtime
+    ok = runtime.request_registration()
+    return JSONResponse({"requested": ok}, status_code=202 if ok else 503)
+
+
+@app.get("/rig/register")
+async def rig_register_status() -> JSONResponse:
+    runtime: AppRuntime = app.state.runtime
+    return JSONResponse(runtime.registration_status())
+
+
+@app.delete("/rig/register")
+async def rig_register_clear() -> JSONResponse:
+    runtime: AppRuntime = app.state.runtime
+    runtime.clear_registration()
+    return JSONResponse({"cleared": True})
+
+
+def _handle_live_control(runtime: AppRuntime, obj: dict) -> bool:
+    """Apply a live_start/live_stop control message; True if it was one."""
+    kind = obj.get("type")
+    if kind == "live_start":
+        rate = obj.get("rate_hz")
+        runtime.start_live(float(rate) if isinstance(rate, (int, float)) else None)
+        return True
+    if kind == "live_stop":
+        runtime.stop_live()
+        return True
+    if kind == "register_rig":
+        runtime.request_registration()
+        return True
+    return False
 
 
 async def _send_model(ws: WebSocket, model) -> None:

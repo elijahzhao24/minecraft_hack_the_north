@@ -61,6 +61,14 @@ def _sample_rgb(rgb: np.ndarray, u_depth: np.ndarray, v_depth: np.ndarray, depth
     return rgb[v_r, u_r]  # M x 3
 
 
+def _plausible_intrinsics(k: NDArray[np.float64] | None, rgb_wh: tuple[int, int]) -> bool:
+    if k is None or k.shape != (3, 3) or not np.all(np.isfinite(k)):
+        return False
+    w, h = rgb_wh
+    # Focal lengths positive and principal point inside the raster.
+    return bool(k[0, 0] > 0 and k[1, 1] > 0 and 0 < k[0, 2] < w and 0 < k[1, 2] < h)
+
+
 def reconstruct_view(
     frame: CapturedFrame,
     detection: ViewDetection,
@@ -69,8 +77,15 @@ def reconstruct_view(
     *,
     confidence_min: int,
     source_bit: int,
+    use_frame_intrinsics: bool = False,
 ) -> ColoredPointCloud:
-    """Reconstruct one view's masked person cloud in stage meters."""
+    """Reconstruct one view's masked person cloud in stage meters.
+
+    With ``use_frame_intrinsics`` the phone's own K (reported per frame for its
+    RGB raster) is used for unprojection; the rig file's nominal K is only a
+    fallback. A real lens rarely matches the synthetic 60 degree K, and the
+    mismatch scales the whole body.
+    """
     depth = frame.depth_m
     conf = frame.confidence
     h_d, w_d = depth.shape
@@ -93,7 +108,10 @@ def reconstruct_view(
     z = depth[vs, us].astype(np.float64)
     depth_wh = (w_d, h_d)
     rgb_wh = (frame.rgb.shape[1], frame.rgb.shape[0])
-    k_depth = scale_intrinsics(calibration.K_rgb, calibration.rgb_size, depth_wh)
+    k_src, k_wh = calibration.K_rgb, calibration.rgb_size
+    if use_frame_intrinsics and _plausible_intrinsics(frame.K_rgb, rgb_wh):
+        k_src, k_wh = frame.K_rgb, rgb_wh
+    k_depth = scale_intrinsics(k_src, k_wh, depth_wh)
     optical = unproject(us.astype(np.float64), vs.astype(np.float64), z, k_depth)
     stage = apply_transform(calibration.T_stage_from_optical, optical)
 

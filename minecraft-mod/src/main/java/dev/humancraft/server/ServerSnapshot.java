@@ -3,6 +3,8 @@ package dev.humancraft.server;
 import dev.humancraft.contract.ColliderDto;
 import dev.humancraft.contract.Mode;
 import dev.humancraft.model.StageToWorld;
+import dev.humancraft.model.PlayerSpace;
+import net.minecraft.world.entity.Entity;
 
 import java.util.List;
 import java.util.UUID;
@@ -22,10 +24,19 @@ public record ServerSnapshot(
 		Mode mode,
 		StageToWorld transform,
 		List<ColliderDto> worldColliders,
-		long installedAtMillis) {
+		long installedAtMillis,
+		UUID targetPlayerId,
+		long bindingGeneration,
+		long normalizationRevision) {
 
 	public ServerSnapshot {
 		worldColliders = List.copyOf(worldColliders);
+	}
+
+	public ServerSnapshot(UUID owner, String dimension, long frameId, UUID sessionId, UUID calibrationId,
+			Mode mode, StageToWorld transform, List<ColliderDto> worldColliders, long installedAtMillis) {
+		this(owner, dimension, frameId, sessionId, calibrationId, null, mode, transform, worldColliders, installedAtMillis,
+				owner, 0, 0);
 	}
 
 	/** Live frames expire after {@code ttlMillis}; snapshots persist until replaced or cleared. */
@@ -35,5 +46,14 @@ public record ServerSnapshot(
 
 	public long validColliderCount() {
 		return worldColliders.stream().filter(ColliderDto::valid).count();
+	}
+
+	public List<ColliderDto> resolvedColliders(Entity target) {
+		return PlayerSpace.worldColliders(worldColliders, target);
+	}
+
+	public ServerSnapshot resolved(Entity target) {
+		return new ServerSnapshot(owner, dimension, frameId, sessionId, calibrationId, fusionId, mode, transform,
+				resolvedColliders(target), installedAtMillis, targetPlayerId, bindingGeneration, normalizationRevision);
 	}
 }

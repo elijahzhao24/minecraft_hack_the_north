@@ -64,9 +64,12 @@ def segment_person_depth(depth_m: np.ndarray, confidence: np.ndarray | None = No
     threshold = max(30.0, float(np.max(smooth_hist)) * 0.08)
     peaks = []
     for i in range(1, len(smooth_hist) - 1):
-        if smooth_hist[i] > smooth_hist[i - 1] and smooth_hist[i] >= smooth_hist[i + 1]:
-            if smooth_hist[i] >= threshold:
-                peaks.append(i)
+        if (
+            smooth_hist[i] > smooth_hist[i - 1]
+            and smooth_hist[i] >= smooth_hist[i + 1]
+            and smooth_hist[i] >= threshold
+        ):
+            peaks.append(i)
 
     if not peaks:
         # Fallback: use 15th percentile as foreground
@@ -92,10 +95,13 @@ def segment_person_depth(depth_m: np.ndarray, confidence: np.ndarray | None = No
             if d_curr > d_peak + 0.7:
                 break
             # If we hit a local minimum and it's lower than 40% of peak
-            if smooth_hist[i] <= smooth_hist[i - 1] and smooth_hist[i] <= smooth_hist[i + 1]:
-                if smooth_hist[i] < smooth_hist[first_peak] * 0.4:
-                    d_max = float((edges[i] + edges[i + 1]) / 2.0)
-                    break
+            if (
+                smooth_hist[i] <= smooth_hist[i - 1]
+                and smooth_hist[i] <= smooth_hist[i + 1]
+                and smooth_hist[i] < smooth_hist[first_peak] * 0.4
+            ):
+                d_max = float((edges[i] + edges[i + 1]) / 2.0)
+                break
 
     candidate = valid & (depth_m >= d_min) & (depth_m <= d_max)
 

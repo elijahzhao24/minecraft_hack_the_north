@@ -31,6 +31,17 @@ uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 The backend must run as a **single Uvicorn worker** — device connections,
 calibration, queues, and subscribers are in-memory shared state.
 
+Fixture mode remains the default. For real Pose/Hand inference:
+
+```bash
+uv run python scripts/pin_models.py
+HMC_VISION_BACKEND=mediapipe \
+HMC_COLLIDER_BACKEND=anatomical \
+uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+Model files are downloaded only by the explicit pin command and are verified against `models/manifest.json` at startup. `/health` reports the selected fixture or production detector and fitter, so fixture geometry cannot be mistaken for real inference.
+
 ## Test
 
 ```bash
@@ -46,7 +57,7 @@ uv run pytest
 | `capture/` | clock sync, frame queues, pairing, recording/replay |
 | `calibration/` | ChArUco camera→stage calibration and calibration IO |
 | `reconstruction/` | mask resample, depth unprojection, cloud merge/downsample |
-| `vision/` | Workflow-3 protocol boundary + a deterministic fake for fixtures |
-| `colliders/` | collider DTO validation (fitting itself belongs to Workflow 3) |
+| `vision/` | MediaPipe Pose/Hand detection, depth sampling, multiview fusion, and fixture detectors |
+| `colliders/` | anatomical hand/foot/limb/torso fitting, validation, and subject dimensions |
 | `pipeline.py` | `CharacterProcessor` and `FrameAssembler` |
 | `api/` | FastAPI routes, socket registries, `/health` |

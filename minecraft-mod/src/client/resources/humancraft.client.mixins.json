@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "dev.humancraft.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "PlayerRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

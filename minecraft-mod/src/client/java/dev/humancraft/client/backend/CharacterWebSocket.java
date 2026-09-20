@@ -101,6 +101,14 @@ public final class CharacterWebSocket implements AutoCloseable {
 		return Optional.of(captureId);
 	}
 
+	public boolean registerRig() {
+		return send(new ControlMessage.RegisterRig(UUID.randomUUID()));
+	}
+
+	public boolean setLive(boolean enabled, double rateHz) {
+		return send(new ControlMessage.LiveControl(UUID.randomUUID(), enabled, rateHz));
+	}
+
 	private void scheduleConnect(long delayMs) {
 		if (closed || !reconnectScheduled.compareAndSet(false, true)) {
 			return;

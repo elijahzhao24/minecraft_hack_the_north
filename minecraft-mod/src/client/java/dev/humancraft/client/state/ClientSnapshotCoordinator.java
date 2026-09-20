@@ -45,6 +45,8 @@ public final class ClientSnapshotCoordinator {
 	private WorldSnapshot pending;
 	private WorldSnapshot active;
 	private long activeSinceMs;
+	private boolean liveRequested;
+	private Mode lastInstalledMode;
 	/** Client ticks to wait after JOIN before the player's position is trustworthy. */
 	private static final int ANCHOR_SETTLE_TICKS = 5;
 
@@ -55,6 +57,12 @@ public final class ClientSnapshotCoordinator {
 	private String lastProbe = "none";
 	private int contactCount;
 	private UUID pendingCapture;
+	private UUID targetPlayerId = new UUID(0, 0);
+	private String avatarMode = "self";
+	private long bindingGeneration;
+	private long normalizationRevision;
+	private boolean controllingSeparate;
+	private double lockedBlocksPerMeter = Double.NaN;
 
 	public ClientSnapshotCoordinator(HumanCraftConfig config, HumanRenderer renderer) {
 		this.config = config;
@@ -90,6 +98,11 @@ public final class ClientSnapshotCoordinator {
 	public void onJoin(Minecraft client) {
 		joined = true;
 		serverStatus = "ready";
+		if (client.player != null && targetPlayerId.equals(new UUID(0, 0))) {
+			targetPlayerId = client.player.getUUID();
+			bindingGeneration = 1;
+			normalizationRevision = 1;
+		}
 		if (config.anchorAuto) {
 			// The player entity exists at JOIN but its position has not been synced
 			// yet, so reading it here yields a placeholder well below the terrain
@@ -97,7 +110,7 @@ public final class ClientSnapshotCoordinator {
 			// until the player has ticked; tick() applies it and reinstalls.
 			anchorPendingTicks = ANCHOR_SETTLE_TICKS;
 		}
-		if (latestDecoded != null) {
+		if (latestDecoded != null && hasCriticalTracking(latestDecoded)) {
 			install(latestDecoded, "joined world");
 		} else if (config.fixtureOnStart) {
 			SyntheticHuman.Pose pose;
@@ -141,6 +154,17 @@ public final class ClientSnapshotCoordinator {
 			return;
 		}
 		latestDecoded = frame;
+		if (!hasCriticalTracking(frame)) {
+			if (joined) {
+				try {
+					ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
+				} catch (RuntimeException e) {
+					HumanCraft.LOGGER.debug("Could not clear invalid tracked frame", e);
+				}
+			}
+			clearLocal("tracking degraded: critical body unavailable");
+			return;
+		}
 		if (pendingCapture != null && frame.header().sourceFrames().stream()
 				.anyMatch(source -> pendingCapture.equals(source.captureId()))) {
 			serverStatus = "capture complete: " + shortId(pendingCapture);
@@ -151,8 +175,35 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
+	private static boolean hasCriticalTracking(CharacterFrame frame) {
+		if (!frame.header().quality().valid()) return false;
+		java.util.EnumSet<dev.humancraft.contract.BodyPart> found =
+				java.util.EnumSet.noneOf(dev.humancraft.contract.BodyPart.class);
+		for (var collider : frame.header().colliders()) {
+			if (collider.valid()) found.add(collider.bodyPart());
+		}
+		return found.contains(dev.humancraft.contract.BodyPart.HEAD)
+				&& found.contains(dev.humancraft.contract.BodyPart.TORSO)
+				&& found.contains(dev.humancraft.contract.BodyPart.PELVIS);
+	}
+
 	private void install(CharacterFrame frame, String reason) {
-		StageToWorld transform = transform();
+		// Each capture's cloud sits somewhere different relative to the stage
+		// origin (wherever the subject stood), so while the anchor is automatic
+		// re-place it for this frame's cloud: the figure lands in front of the
+		// player every time, not only on the capture B happened to see.
+		// In live mode only the first frame is placed; re-anchoring every frame
+		// would make the figure chase the player's crosshair.
+		boolean firstLive = frame.header().mode() == Mode.LIVE && lastInstalledMode != Mode.LIVE;
+		if (config.anchorAuto && "decoded".equals(reason)
+				&& (frame.header().mode() != Mode.LIVE || firstLive)) {
+			Minecraft client = Minecraft.getInstance();
+			if (setAutomaticAnchor(client)) {
+				config.save(FabricLoader.getInstance().getConfigDir());
+			}
+		}
+		lastInstalledMode = frame.header().mode();
+		StageToWorld transform = playerLocalTransform(frame);
 		serverStatus = "pending frame " + frame.frameId() + " (" + reason + ")";
 		try (Telemetry.Span span = Telemetry.continueTransaction("client.install_snapshot", "hmc.install", frame.header().trace())) {
 			span.data("frame_id", frame.frameId()).data("fusion_id", frame.header().fusionId())
@@ -164,7 +215,7 @@ public final class ClientSnapshotCoordinator {
 			if ("mismatch_ids".equals(config.observabilityFault)) sentFusionId = UUID.randomUUID();
 			InstallRequest request = new InstallRequest(frame.frameId(), frame.header().sessionId(), frame.header().calibrationId(),
 					frame.header().mode(), transform, frame.header().colliders(), frame.header().landmarks().size(), frame.cloud().count(),
-					sentFusionId, sourceFrameIds(frame));
+					sentFusionId, sourceFrameIds(frame), targetPlayerId, bindingGeneration, normalizationRevision);
 			pending = next;
 			ClientPlayNetworking.send(HumanCraftPayloads.InstallSnapshot.of(request));
 		} catch (RuntimeException e) {
@@ -189,6 +240,10 @@ public final class ClientSnapshotCoordinator {
 			serverStatus = "rejected mismatched fusion identity";
 			return;
 		}
+		if (ack.bindingGeneration() != bindingGeneration || ack.normalizationRevision() != normalizationRevision) {
+			serverStatus = "ignored stale binding ack " + ack.frameId();
+			return;
+		}
 		if (!ack.accepted()) {
 			pending = null;
 			serverStatus = "rejected: " + ack.code() + " — " + ack.detail();
@@ -201,41 +256,11 @@ public final class ClientSnapshotCoordinator {
 		activeSinceMs = System.currentTimeMillis();
 		serverStatus = "active frame " + active.frameId() + " (" + ack.validColliders() + " colliders)";
 		try {
-			renderer.activate(active);
+			renderer.activate(active, targetPlayerId);
 		} catch (RuntimeException e) {
 			clearLocal("renderer upload failed");
 			Telemetry.captureException(e, "client.renderer.upload");
-			return;
 		}
-		announceActive();
-	}
-
-	/** Tells the player where the figure is so a snapshot can never be "invisible" without a clue. */
-	private void announceActive() {
-		Minecraft client = Minecraft.getInstance();
-		if (active == null || client.player == null) {
-			return;
-		}
-		var cloud = active.stageCloud();
-		int n = cloud.count();
-		double sx = 0, sy = 0, sz = 0;
-		for (int i = 0; i < n; i++) {
-			sx += cloud.x(i);
-			sy += cloud.y(i);
-			sz += cloud.z(i);
-		}
-		// Cloud centroid in world blocks (falls back to the anchor for an empty cloud).
-		double cx = config.anchorX, cy = config.anchorY, cz = config.anchorZ;
-		if (n > 0) {
-			cx += sx / n * config.blocksPerMeter;
-			cy += sy / n * config.blocksPerMeter;
-			cz += sz / n * config.blocksPerMeter;
-		}
-		double dist = Math.hypot(cx - client.player.getX(), cz - client.player.getZ());
-		message(Component.literal(String.format(Locale.ROOT,
-				"HumanCraft: frame %d, %d points centred at (%.0f, %.0f, %.0f), %.0f blocks away%s",
-				active.frameId(), n, cx, cy, cz, dist,
-				dist > 12 ? " [press B to bring it in front of you]" : "")));
 	}
 
 	public void onProbeResult(HumanCraftPayloads.ProbeResult result) {
@@ -251,6 +276,38 @@ public final class ClientSnapshotCoordinator {
 			contactCount = state.contacts().size();
 		}
 	}
+
+	public void onAvatarState(HumanCraftPayloads.AvatarState state) {
+		boolean normalizationChanged = normalizationRevision != state.normalizationRevision();
+		pending = null;
+		active = null;
+		contactCount = 0;
+		renderer.clear();
+		targetPlayerId = state.targetPlayerId();
+		avatarMode = state.mode();
+		bindingGeneration = state.bindingGeneration();
+		normalizationRevision = state.normalizationRevision();
+		controllingSeparate = state.controlling();
+		if (normalizationChanged) lockedBlocksPerMeter = Double.NaN;
+		if (joined && latestDecoded != null && hasCriticalTracking(latestDecoded)) {
+			install(latestDecoded, "avatar binding changed");
+		}
+	}
+
+	public void setDebug(boolean enabled) {
+		config.showSkeleton = enabled;
+		config.showColliders = enabled;
+		config.showHud = enabled;
+		config.save(FabricLoader.getInstance().getConfigDir());
+		refreshRenderer();
+	}
+
+	public boolean controllingSeparate() {
+		return controllingSeparate;
+	}
+
+	public boolean hasActiveAvatar() { return active != null; }
+	public UUID targetPlayerId() { return targetPlayerId; }
 
 	public void tick(Minecraft client) {
 		if (anchorPendingTicks > 0) {
@@ -320,6 +377,35 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
+	/** Starts or stops the backend-driven live loop; frames then arrive continuously. */
+	public void toggleLive() {
+		if (backend == null) {
+			message(Component.literal("HumanCraft: backend client not ready"));
+			return;
+		}
+		boolean next = !liveRequested;
+		if (backend.setLive(next, config.liveRateHz)) {
+			liveRequested = next;
+			serverStatus = next ? "live requested" : "live stop requested";
+			message(Component.literal("HumanCraft live: " + (next ? "on" : "off")));
+		} else {
+			message(Component.literal("HumanCraft: backend is not connected"));
+		}
+	}
+
+	/** Asks the backend to snap the two cameras together using the person as the target. */
+	public void registerRig() {
+		if (backend == null || !backend.registerRig()) {
+			message(Component.literal("HumanCraft: backend is not connected"));
+			return;
+		}
+		message(Component.literal("HumanCraft: aligning cameras on the next capture — hold still"));
+	}
+
+	public boolean isLiveRequested() {
+		return liveRequested;
+	}
+
 	public void reconnect() {
 		if (backend != null) {
 			backend.reconnectNow();
@@ -345,26 +431,27 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	public void scaleBy(double multiplier) {
-		config.blocksPerMeter = Math.max(0.1, Math.min(8.0, config.blocksPerMeter * multiplier));
-		persistAndReinstall("scale changed");
+		lockedBlocksPerMeter = Math.max(0.1, Math.min(8.0,
+				(Double.isFinite(lockedBlocksPerMeter) ? lockedBlocksPerMeter : 1.0) * multiplier));
+		persistAndReinstall("calibration scale adjusted");
 	}
 
 	/** Rebuilds GPU buffers after a render-only debug option (for example source-color mode) changes. */
 	public void refreshRenderer() {
 		if (active != null) {
-			renderer.activate(active);
+			renderer.activate(active, targetPlayerId);
 		}
 	}
 
 	private void persistAndReinstall(String reason) {
 		config.save(FabricLoader.getInstance().getConfigDir());
-		if (joined && latestDecoded != null) {
+		if (joined && latestDecoded != null && hasCriticalTracking(latestDecoded)) {
 			install(latestDecoded, reason);
 		}
 	}
 
 	/**
-	 * Places the anchor three blocks in front of the player at their feet.
+	 * Places the figure three blocks in front of the player with its feet on the ground.
 	 *
 	 * <p>Returns {@code false} and leaves the anchor untouched when the player's
 	 * position is not trustworthy yet, so a snapshot is never anchored below the
@@ -396,14 +483,52 @@ public final class ClientSnapshotCoordinator {
 		double length = Math.hypot(look.x, look.z);
 		double dx = length > 1e-6 ? look.x / length : 0;
 		double dz = length > 1e-6 ? look.z / length : 1;
-		config.anchorX = Math.floor(client.player.getX() + dx * 3.0) + 0.5;
-		config.anchorY = Math.floor(y);
-		config.anchorZ = Math.floor(client.player.getZ() + dz * 3.0) + 0.5;
+		// Target: the figure itself (not the stage origin) stands three blocks
+		// ahead with its lowest point on the ground. The cloud is offset from the
+		// stage origin by however far the subject stood from the camera, so
+		// anchoring the origin alone can leave the figure beside or behind you.
+		double offX = 0, offY = 0, offZ = 0;
+		if (latestDecoded != null && latestDecoded.cloud().count() > 0) {
+			var cloud = latestDecoded.cloud();
+			int n = cloud.count();
+			double sx = 0, sz = 0, minY = Double.POSITIVE_INFINITY;
+			for (int i = 0; i < n; i++) {
+				sx += cloud.x(i);
+				sz += cloud.z(i);
+				minY = Math.min(minY, cloud.y(i));
+			}
+			offX = sx / n * config.blocksPerMeter;
+			offZ = sz / n * config.blocksPerMeter;
+			offY = minY * config.blocksPerMeter;
+		}
+		config.anchorX = Math.floor(client.player.getX() + dx * 3.0) + 0.5 - offX;
+		config.anchorY = Math.floor(y) - offY;
+		config.anchorZ = Math.floor(client.player.getZ() + dz * 3.0) + 0.5 - offZ;
 		return true;
 	}
 
 	private StageToWorld transform() {
 		return new StageToWorld(new Vector3(config.anchorX, config.anchorY, config.anchorZ), config.blocksPerMeter);
+	}
+
+	private StageToWorld playerLocalTransform(CharacterFrame frame) {
+		var cloud = frame.cloud();
+		if (cloud.count() == 0) return new StageToWorld(Vector3.ZERO, 1.0);
+		double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY, sumX = 0, sumZ = 0;
+		for (int i = 0; i < cloud.count(); i++) {
+			minY = Math.min(minY, cloud.y(i));
+			maxY = Math.max(maxY, cloud.y(i));
+			sumX += cloud.x(i);
+			sumZ += cloud.z(i);
+		}
+		double height = maxY - minY;
+		if (!Double.isFinite(lockedBlocksPerMeter)) {
+			lockedBlocksPerMeter = height > 0.5 ? Math.max(0.1, Math.min(8.0, 1.8 / height)) : 1.0;
+		}
+		double rootX = sumX / cloud.count();
+		double rootZ = sumZ / cloud.count();
+		return new StageToWorld(new Vector3(-rootX * lockedBlocksPerMeter, -minY * lockedBlocksPerMeter,
+				-rootZ * lockedBlocksPerMeter), lockedBlocksPerMeter);
 	}
 
 	private void clearLocal(String reason) {
@@ -418,6 +543,8 @@ public final class ClientSnapshotCoordinator {
 		List<String> lines = new ArrayList<>();
 		lines.add("HumanCraft — backend: " + backendStatus);
 		lines.add("server: " + serverStatus);
+		lines.add("avatar: " + avatarMode + "  target: " + shortId(targetPlayerId)
+				+ (controllingSeparate ? "  CONTROLLED" : ""));
 		lines.add("frames decoded/pending/active: " + lastDecodedFrameId() + "/"
 				+ (pending == null ? "-" : pending.frameId()) + "/" + (active == null ? "-" : active.frameId()));
 		if (active != null) {

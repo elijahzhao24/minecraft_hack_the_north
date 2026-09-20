@@ -9,7 +9,13 @@ here is touched on the event loop only, matching the single-worker model.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import time
+from pathlib import Path
+
+import numpy as np
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
@@ -71,10 +77,20 @@ class AppRuntime:
         self._last_aggregate_s = time.perf_counter()
 
         self._devices = {dev: DeviceState(dev) for dev in settings.expected_device_ids}
+        # capture_id -> mode for requests this backend dispatched, so a frame
+        # can be tagged live/snapshot when it comes back (the RGBD header has
+        # no mode field). Bounded: live mode issues several per second.
+        self._capture_modes: OrderedDict[UUID, str] = OrderedDict()
+        self._live_task: asyncio.Task[None] | None = None
+        self._live_rate_hz: float = settings.live_rate_hz
+        # Live requests dispatched but not yet paired: capture_id -> send time.
+        self._live_inflight: dict[UUID, float] = {}
+        self._live_paired = asyncio.Event()
 
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
             self._processor = processor or build_processor(settings, calibration)
+            self._load_registration()
         else:
             self._pairer = None
             self._processor = None
@@ -131,11 +147,128 @@ class AppRuntime:
         if not all(s.connected and s.send_text is not None for s in self._devices.values()):
             return False, "devices_unavailable"
         req = CaptureRequest(request_id=uuid4(), capture_id=capture_id, mode=Mode(mode))
+        self._capture_modes[capture_id] = mode
+        while len(self._capture_modes) > 256:
+            self._capture_modes.popitem(last=False)
         payload = req.model_dump_json()
         for state in self._devices.values():
             assert state.send_text is not None
             await state.send_text(payload)
         return True, "capture_dispatched"
+
+    # --- rig registration -------------------------------------------------
+
+    def request_registration(self) -> bool:
+        """Align the side camera onto the front one using the next paired frame."""
+        if self._processor is None:
+            return False
+        self._processor.request_registration()
+        self._registration_dirty = True
+        return True
+
+    def clear_registration(self) -> None:
+        if self._processor is not None:
+            self._processor.set_corrections({})
+            self._processor.last_registration = None
+        path = Path(self._settings.registration_path)
+        if path.exists():
+            path.unlink()
+        log_event("info", "rig_registration_cleared")
+
+    def registration_status(self) -> dict:
+        if self._processor is None:
+            return {"corrections": {}, "last": None}
+        return {
+            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
+            "last": self._processor.last_registration,
+        }
+
+    def _load_registration(self) -> None:
+        self._registration_dirty = False
+        path = Path(self._settings.registration_path)
+        if not path.exists() or self._processor is None:
+            return
+        try:
+            data = json.loads(path.read_text())
+            self._processor.set_corrections(
+                {k: np.array(v, np.float64).reshape(4, 4) for k, v in data.get("corrections", {}).items()}
+            )
+            log_event("info", "rig_registration_loaded", devices=list(data.get("corrections", {})))
+        except (ValueError, OSError) as exc:
+            log_event("warning", "rig_registration_load_failed", error=str(exc))
+
+    def _save_registration_if_dirty(self) -> None:
+        if not getattr(self, "_registration_dirty", False) or self._processor is None:
+            return
+        last = self._processor.last_registration
+        if last is None or not last.get("ok"):
+            return
+        self._registration_dirty = False
+        path = Path(self._settings.registration_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "calibration_id": str(self._calibration.calibration_id) if self._calibration else None,
+            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
+            "last": last,
+        }, indent=2))
+
+    # --- live mode --------------------------------------------------------
+
+    @property
+    def live_active(self) -> bool:
+        return self._live_task is not None and not self._live_task.done()
+
+    def start_live(self, rate_hz: float | None = None) -> None:
+        """Drive both phones with live capture_requests at ``rate_hz``.
+
+        Both devices answer with the same capture_id, so pairing is unchanged
+        from snapshot mode; the phones never need to invent their own ids.
+        """
+        if rate_hz is not None and rate_hz > 0:
+            self._live_rate_hz = min(rate_hz, 30.0)
+        if self.live_active:
+            return
+        self._live_task = asyncio.create_task(self._live_loop())
+        log_event("info", "live_started", rate_hz=self._live_rate_hz)
+
+    def stop_live(self) -> None:
+        task = self._live_task
+        self._live_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            log_event("info", "live_stopped")
+
+    async def _live_loop(self) -> None:
+        """Self-pacing request loop.
+
+        ``live_rate_hz`` is a ceiling. At most two requests are in flight; the
+        next goes out when one pairs (or is written off after a second), so a
+        slow phone is never asked for more than it can deliver and its queue
+        never overflows. That overflow is what stalled the first live attempt.
+        """
+        max_inflight = 2
+        self._live_inflight.clear()
+        try:
+            while True:
+                interval = 1.0 / self._live_rate_hz
+                now = time.monotonic()
+                for cid, sent in list(self._live_inflight.items()):
+                    if now - sent > 1.0:
+                        del self._live_inflight[cid]
+                if len(self._live_inflight) >= max_inflight:
+                    self._live_paired.clear()
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(self._live_paired.wait(), timeout=0.25)
+                    continue
+                capture_id = uuid4()
+                accepted, _ = await self.dispatch_capture(capture_id, "live")
+                if accepted:
+                    self._live_inflight[capture_id] = time.monotonic()
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._live_inflight.clear()
 
     def is_expected_device(self, device_id: str) -> bool:
         return device_id in self._devices
@@ -155,6 +288,7 @@ class AppRuntime:
         env = decode_envelope(raw)
         decoded = decode_rgbd_frame(env)
         device_id = decoded.header.device_id
+        mode = self._capture_modes.get(decoded.header.capture_id, mode)
         state = self._devices.get(device_id)
         if state is None:
             return None
@@ -179,6 +313,15 @@ class AppRuntime:
             queue_depth = self._pairer.pending_depth(device_id)
             with span("hmc.pair", "offer frame to bounded pairing queue", queue_depth=queue_depth):
                 outcome = self._pairer.offer(frame, self._calibration.calibration_id)
+            log_event(
+                "info",
+                "rgbd_received",
+                device_id=device_id,
+                capture_id=str(decoded.header.capture_id)[:8],
+                mode=mode,
+                paired=outcome.paired is not None,
+                reason=outcome.rejected_reason,
+            )
             if outcome.paired is None:
                 if outcome.rejected_reason is not None:
                     log_event(
@@ -191,6 +334,9 @@ class AppRuntime:
                 return None
 
             pair = outcome.paired
+            if self._live_inflight.pop(pair.first.capture_id, None) is not None:
+                self._live_paired.set()
+            started = time.perf_counter()
             now = time.perf_counter()
             waits = [
                 max(0.0, now - source.received_monotonic_s) * 1000
@@ -209,9 +355,16 @@ class AppRuntime:
                 baggage=propagated.get("baggage"),
             )
             # Run the CPU-heavy stages off the event loop.
-            character = await asyncio.to_thread(
-                self._processor.process, pair, mode=mode, trace=output_trace
-            )
+            with span("collider.fit_and_reconstruct", "detect+reconstruct+fit"):
+                character = await asyncio.to_thread(
+                    self._processor.process, pair, mode=mode, trace=output_trace
+                )
+            self._save_registration_if_dirty()
+            if mode == "live" and character.quality.point_count == 0:
+                # Nobody in frame; publishing an empty live frame only makes
+                # the client log a decode error and blank the figure.
+                log_event("info", "live_frame_empty", capture_id=str(pair.first.capture_id))
+                return None
             txn.set_data("frame_id", character.frame_id)
             txn.set_data("point_count", character.quality.point_count)
             with span("hmc.character_serialize", "encode CHARACTER_FRAME") as serialize_span:
@@ -223,6 +376,17 @@ class AppRuntime:
                 self._hub.broadcast(encoded)
 
         self._log_publication(character, len(encoded))
+        log_event(
+            "info",
+            "character_published",
+            frame_id=character.frame_id,
+            calibration_id=str(character.calibration_id),
+            point_count=character.quality.point_count,
+            valid_collider_count=character.quality.valid_collider_count,
+            pair_skew_ms=round(pair.pair_skew_ms, 2),
+            mode=mode,
+            processing_ms=round((time.perf_counter() - started) * 1000.0, 1),
+        )
         return character
 
     def _log_publication(self, character: CharacterFrame, payload_size: int) -> None:
@@ -259,7 +423,14 @@ class AppRuntime:
             )
             for dev, state in self._devices.items()
         }
-        models = {"pose": "ready", "hands": "ready"} if self.is_ready() else {"pose": "not_loaded", "hands": "not_loaded"}
+        if self.is_ready():
+            models = {
+                "pose": f"ready:{self._settings.vision_backend}",
+                "hands": f"ready:{self._settings.vision_backend}",
+                "colliders": f"ready:{self._settings.collider_backend}",
+            }
+        else:
+            models = {"pose": "not_loaded", "hands": "not_loaded", "colliders": "not_loaded"}
 
         if self.is_ready():
             status = HealthStatus.READY
