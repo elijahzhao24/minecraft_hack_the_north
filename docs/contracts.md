@@ -595,6 +595,31 @@ record ContactStatePayload(long frameId, BlockPos target, Set<BodyPart> touching
 
 The server emits only on state change or at a low heartbeat rate, not every tick.
 
+### LAN visual scan relay
+
+These additive Fabric payloads share render data after the server accepts the
+matching `install_snapshot`; they do not change the phone/backend `HMC1`
+contract or authorize interaction:
+
+- `hmc:scan_chunk` — publisher to server.
+- `hmc:shared_scan_chunk` — server-authenticated relay to viewers.
+- `hmc:shared_scan_removed` — invalidates an older publication for an owner.
+
+Each chunk carries a transfer UUID, full frame/session/calibration/fusion and
+avatar-binding identity, the accepted player-local transform, chunk index and
+count, declared total bytes, and at most 24 KiB of data. The content is a valid
+`HMC1 CHARACTER_FRAME`, deterministically sampled to at most 12,000 points and
+512 KiB. The host accepts at most 10 completed visual publications per second
+per owner and only when the metadata matches an install accepted in the prior
+two seconds. Ownership always comes from the authenticated connection.
+
+The host caches the latest valid publication and replays it to compatible late
+joiners in the same dimension. Publication sequence numbers order replacement
+and removal, so a delayed chunk cannot revive cleared state. Viewers decode the
+frame with the normal strict decoder, apply the server-validated transform, and
+render it against the target entity UUID. Remote frames never install hitboxes
+or generate swing messages.
+
 ## 8. Type mapping across languages
 
 | Concept | Swift | Python boundary | Java |

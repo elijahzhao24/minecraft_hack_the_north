@@ -24,7 +24,7 @@ In scope:
 - Minecraft point rendering, collider debug rendering, server-authoritative ray hits, and hand/foot contact with one full cube.
 - Local, rate-limited diagnostics at service boundaries.
 
-Out of scope for the MVP: tracked gestures as movement inputs, finger physics, physical limb push-out, general multiplayer distribution, mesh reconstruction, and fabricated geometry for occluded surfaces.
+Out of scope for the MVP: tracked gestures as movement inputs, finger physics, physical limb push-out, dedicated-server certification, simultaneous multi-subject capture, mesh reconstruction, and fabricated geometry for occluded surfaces. An Open to LAN integrated server may relay one accepted scan to compatible viewer clients.
 
 ## 3. Runtime topology and ownership
 

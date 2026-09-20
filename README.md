@@ -35,7 +35,7 @@ These are implementation decisions, not evidence of existing code:
 
 - iOS: Xcode 16.4, Swift 6, iOS 17+, SwiftUI, ARKit scene depth, `URLSessionWebSocketTask`, and physical LiDAR-capable iPhones.
 - Backend: Python 3.12, FastAPI, Uvicorn, Pydantic v2, NumPy, OpenCV, and MediaPipe Tasks.
-- Game: Minecraft Java 1.21.1, Fabric Loader 0.19.5, Fabric API `0.116.17+1.21.1`, Fabric Loom 1.17.21, Gradle 9.5.1 wrapper, and JDK 21. Keep these pins together and upgrade them as one tested set.
+- Game: Minecraft Java 1.21.1, Fabric Loader 0.19.5, Fabric API `0.116.17+1.21.1`, Fabric Loom 1.17.21, Gradle 9.5.1 wrapper, and JDK 21. Keep these pins together and upgrade them as one tested set. Open to LAN worlds can relay one accepted live scan to compatible viewer clients; see the [Minecraft mod README](minecraft-mod/README.md#share-a-live-scan-over-lan).
 - Transport: versioned `HMC1` binary messages over WebSockets. Bulk images, depth, and points remain binary; small commands and results are JSON text messages.
 - Units/frame: meters in a calibrated stage frame until the Minecraft boundary; one shared transform converts every point, landmark, and collider to blocks.
 
