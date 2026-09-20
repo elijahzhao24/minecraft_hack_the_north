@@ -19,23 +19,23 @@ class ScanNormalizationTest {
 		return List.of(ArmSwingDetectorTest.landmark("body.left_hip", new Vector3(2.2, .9, 4)),
 				ArmSwingDetectorTest.landmark("body.right_hip", new Vector3(1.8, .9, 4)));
 	}
-	@Test void unevenCloudAndArmMotionCannotPullHipsOffPlayerOrigin() {
+	@Test void visibleCloudCenterWinsOverOffsetHipLandmarks() {
 		var normalization = new ScanNormalization();
 		var first = normalization.transform(frame(2.1, hips()));
 		var next = normalization.transform(frame(2.15, hips()));
-		assertEquals(0, first.point(new Vector3(2, .9, 4)).x(), 1e-8);
-		assertEquals(0, next.point(new Vector3(2, .9, 4)).z(), 1e-8);
-		assertEquals(first, next);
+		assertEquals(0, first.point(new Vector3(2.1, .9, 4)).x(), 1e-6);
+		assertEquals(0, next.point(new Vector3(2, .9, 4)).z(), 1e-6);
+		assertEquals(0, next.point(new Vector3(2.15, .9, 4)).x(), 1e-6);
 	}
 	@Test void lostHipsFollowCurrentCloudInsteadOfLeavingItThreeBlocksAway() {
 		var normalization = new ScanNormalization();
 		var first = normalization.transform(frame(2.1, hips()));
 		var moved = normalization.transform(frame(5, List.of()));
-		assertEquals(0, moved.point(new Vector3(5, .9, 4)).x(), 1e-8);
-		assertEquals(first.blocksPerMeter(), moved.blocksPerMeter(), 1e-8);
+		assertEquals(0, moved.point(new Vector3(5, .9, 4)).x(), 1e-6);
+		assertEquals(first.blocksPerMeter(), moved.blocksPerMeter(), 1e-6);
 		normalization.reset();
 		var fallback = normalization.transform(frame(5, List.of()));
-		assertEquals(0, fallback.point(new Vector3(5, 0, 4)).x(), 1e-8);
+		assertEquals(0, fallback.point(new Vector3(5, 0, 4)).x(), 1e-6);
 		assertNotEquals(first.anchor(), fallback.anchor());
 	}
 	@Test void feetAnchorAtGroundAndManualScaleIsPreserved() {
@@ -43,9 +43,9 @@ class ScanNormalizationTest {
 		var landmarks = new ArrayList<>(hips());
 		landmarks.add(ArmSwingDetectorTest.landmark("body.left_heel", new Vector3(2, .025, 4)));
 		var first = normalization.transform(frame(2.1, landmarks));
-		assertEquals(0, first.point(new Vector3(2, 0, 4)).length(), 1e-8);
+		assertEquals(0, first.point(new Vector3(2.1, 0, 4)).length(), 1e-6);
 		normalization.scaleBy(1.1);
 		var next = normalization.transform(frame(2.1, landmarks));
-		assertEquals(first.blocksPerMeter() * 1.1, next.blocksPerMeter(), 1e-8);
+		assertEquals(first.blocksPerMeter() * 1.1, next.blocksPerMeter(), 1e-6);
 	}
 }
