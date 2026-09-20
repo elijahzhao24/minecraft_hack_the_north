@@ -34,14 +34,28 @@ public final class ScanNormalization {
 				.filter(l -> l.name().endsWith("_heel") || l.name().endsWith("_foot_index"))
 				.mapToDouble(l -> l.position().orElseThrow().y()).min();
 		if (feet.isPresent()) floor = feet.getAsDouble() - 0.025;
-		else if (root != null) floor = root.y();
+		else if (root != null && top - floor < 0.6) floor = root.y();
 		if (!Double.isFinite(scale)) {
 			double height = top - floor;
 			scale = height > 0.5 ? Math.max(0.1, Math.min(8, 1.8 / height)) : 1;
 		}
 		Optional<Vector3> l = position(frame, "body.left_hip"), r = position(frame, "body.right_hip");
-		Vector3 center = l.isPresent() && r.isPresent() ? l.get().lerp(r.get(), 0.5)
-				: root != null ? root : new Vector3(xs[n / 2], floor, zs[n / 2]);
+		// Re-estimate the visible body center every frame. Freezing the old root
+		// when hips disappear leaves the scan meters away after the person moves.
+		float[] coreX = new float[n], coreZ = new float[n];
+		int coreCount = 0;
+		double low = floor + (top - floor) * 0.30, high = floor + (top - floor) * 0.65;
+		for (int i = 0; i < n; i++) {
+			if (frame.cloud().y(i) >= low && frame.cloud().y(i) <= high) {
+				coreX[coreCount] = frame.cloud().x(i); coreZ[coreCount++] = frame.cloud().z(i);
+			}
+		}
+		Arrays.sort(coreX, 0, coreCount); Arrays.sort(coreZ, 0, coreCount);
+		Vector3 visibleCenter = coreCount > 10 ? new Vector3(coreX[coreCount / 2], floor, coreZ[coreCount / 2])
+				: new Vector3(xs[n / 2], floor, zs[n / 2]);
+		Vector3 center = l.isPresent() && r.isPresent() ? l.get().lerp(r.get(), 0.5) : visibleCenter;
+		// Reject a stale or misregistered pelvis that does not belong to the visible torso.
+		if (Math.hypot(center.x() - visibleCenter.x(), center.z() - visibleCenter.z()) > 0.35) center = visibleCenter;
 		root = new Vector3(center.x(), floor, center.z());
 		return new StageToWorld(root.scale(-scale), scale);
 	}

@@ -20,11 +20,10 @@ import dev.humancraft.geometry.Vector3;
 import dev.humancraft.model.PointCloud;
 import dev.humancraft.model.WorldSnapshot;
 import dev.humancraft.telemetry.Telemetry;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.util.Mth;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.client.player.AbstractClientPlayer;
 
 import java.util.HashMap;
 import java.util.List;
@@ -59,7 +58,6 @@ public final class HumanRenderer implements AutoCloseable {
 	private long uploadedFrame = -1;
 	private boolean renderFailed;
 	private UUID targetPlayerId;
-	private long lastRenderLogMs;
 
 	public HumanRenderer(HumanCraftConfig config) {
 		this.config = config;
@@ -67,7 +65,7 @@ public final class HumanRenderer implements AutoCloseable {
 
 	public void register() {
 		WorldRenderEvents.START.register(context -> refreshSkinReplacement());
-		WorldRenderEvents.LAST.register(this::render);
+		ScanRenderState.renderer = this;
 	}
 
 	private void refreshSkinReplacement() {
@@ -196,62 +194,38 @@ public final class HumanRenderer implements AutoCloseable {
 		}
 	}
 
-	private void render(WorldRenderContext context) {
-		if (uploadedFrame < 0 || context.matrixStack() == null) {
-			return;
-		}
+	/** Uses the entity renderer's already-positioned stack: exactly the player/shadow origin. */
+	public boolean renderPlayer(AbstractClientPlayer target, float partialTick, PoseStack matrices) {
+		if (uploadedFrame < 0 || !target.getUUID().equals(targetPlayerId) || renderFailed) return false;
+		if (target.isSwimming() || target.isFallFlying()) return false;
 		var client = net.minecraft.client.Minecraft.getInstance();
-		if (client.level == null || targetPlayerId == null) return;
-		var target = client.level.getPlayerByUUID(targetPlayerId);
-		if (target == null || target.isSwimming() || target.isFallFlying()) return;
-		if (target == client.player && client.options.getCameraType().isFirstPerson()) return;
-		if (System.currentTimeMillis() - lastRenderLogMs > 1000) {
-			lastRenderLogMs = System.currentTimeMillis();
-			dev.humancraft.HumanCraft.LOGGER.debug("HMC-RENDER target={} pos=({}, {}, {}) yaw={} isLocal={} cam=({}, {}, {})",
-					target.getName().getString(), String.format("%.2f", target.getX()), String.format("%.2f", target.getY()),
-					String.format("%.2f", target.getZ()), String.format("%.1f", target.getYRot()), target == client.player,
-					String.format("%.2f", context.camera().getPosition().x), String.format("%.2f", context.camera().getPosition().y),
-					String.format("%.2f", context.camera().getPosition().z));
-		}
+		if (target == client.player && client.options.getCameraType().isFirstPerson()) return false;
+		matrices.pushPose();
 		try {
-			PoseStack matrices = context.matrixStack();
-			Vec3 camera = context.camera().getPosition();
-			matrices.pushPose();
-			try {
-				matrices.translate(-camera.x, -camera.y, -camera.z);
-				float partialTick = context.tickCounter().getGameTimeDeltaPartialTick(true);
-				matrices.translate(Mth.lerp(partialTick, target.xOld, target.getX()),
-						Mth.lerp(partialTick, target.yOld, target.getY()), Mth.lerp(partialTick, target.zOld, target.getZ()));
-				matrices.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-Mth.rotLerp(partialTick, target.yRotO, target.getYRot())));
-				RenderSystem.enableDepthTest();
-				RenderSystem.disableCull();
-				if (config.showCloud) {
-					draw(cloudBuffer, matrices, context);
-				}
-				if (config.showSkeleton) {
-					draw(skeletonBuffer, matrices, context);
-				}
-				if (config.showColliders) {
-					draw(colliderBuffer, matrices, context);
-				}
-			} finally {
-				VertexBuffer.unbind();
-				RenderSystem.enableCull();
-				matrices.popPose();
-			}
+			// EntityRenderDispatcher has already applied the interpolated entity position.
+			matrices.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-Mth.rotLerp(partialTick, target.yRotO, target.getYRot())));
+			RenderSystem.enableDepthTest();
+			RenderSystem.disableCull();
+			if (config.showCloud) draw(cloudBuffer, matrices);
+			if (config.showSkeleton) draw(skeletonBuffer, matrices);
+			if (config.showColliders) draw(colliderBuffer, matrices);
+			return config.showCloud && cloudBuffer != null;
 		} catch (RuntimeException e) {
 			ScanRenderState.clear();
-			if (!renderFailed) {
-				renderFailed = true;
-				Telemetry.captureException(e, "client.renderer.draw");
-			}
+			renderFailed = true;
+			Telemetry.captureException(e, "client.renderer.draw");
+			return false;
+		} finally {
+			VertexBuffer.unbind();
+			RenderSystem.enableCull();
+			matrices.popPose();
 		}
 	}
 
-	private static void draw(VertexBuffer buffer, PoseStack matrices, WorldRenderContext context) {
+	private static void draw(VertexBuffer buffer, PoseStack matrices) {
 		if (buffer != null && !buffer.isInvalid()) {
 			buffer.bind();
-			buffer.drawWithShader(matrices.last().pose(), context.projectionMatrix(), GameRenderer.getPositionColorShader());
+			buffer.drawWithShader(matrices.last().pose(), RenderSystem.getProjectionMatrix(), GameRenderer.getPositionColorShader());
 		}
 	}
 

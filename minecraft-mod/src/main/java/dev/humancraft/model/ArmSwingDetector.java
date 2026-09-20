@@ -7,6 +7,9 @@ import dev.humancraft.contract.Mode;
 import dev.humancraft.geometry.Vector3;
 
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -14,13 +17,13 @@ import java.util.stream.Collectors;
 /** Detects a fast wrist excursion in stage meters, independently of avatar normalization. */
 public final class ArmSwingDetector {
 	public record Swing(boolean left, double speedMetersPerSecond) {}
-	private record Sample(Vector3 relative, String provenance) {}
+	private record Sample(Vector3 relative, String anchor, Set<String> cameras) {}
 	private static final class Arm {
-		Sample previous;
+		Map<String, Sample> previous = Map.of();
 		double speed = Double.NaN;
-		boolean armed;
-		void reset() { previous = null; speed = Double.NaN; armed = false; }
+		void reset() { previous = Map.of(); speed = Double.NaN; }
 	}
+
 	private final Arm left = new Arm(), right = new Arm();
 	private final double threshold;
 	private final long cooldownMs;
@@ -55,10 +58,8 @@ public final class ArmSwingDetector {
 				|| !phones.equals(phoneSessions);
 		if (!changed && frame.frameId() <= lastFrame) return Optional.empty();
 		double dt = frame.normalizedCaptureTimeS() - lastCapture;
-		// Two phones over event Wi-Fi deliver 3-5 fps; the original 350 ms gap
-		// reset the arms on almost every frame.
-		boolean gap = changed || lastArrival < 0 || arrivalMs < lastArrival || arrivalMs - lastArrival > 700
-				|| dt < 0.02 || dt > 0.7;
+		boolean gap = changed || lastArrival < 0 || arrivalMs < lastArrival || arrivalMs - lastArrival > 500
+				|| dt < 0.02 || dt > 0.5;
 		if (gap) { left.reset(); right.reset(); }
 		session = frame.sessionId(); calibration = frame.calibrationId(); phoneSessions = phones;
 		lastFrame = frame.frameId(); lastCapture = frame.normalizedCaptureTimeS(); lastArrival = arrivalMs;
@@ -70,44 +71,25 @@ public final class ArmSwingDetector {
 		return Optional.of(new Swing(useLeft, useLeft ? left.speed : right.speed));
 	}
 
-	private boolean updateArm(Arm arm, Sample current, double dt) {
-		if (current == null) { arm.reset(); return false; }
-		Sample previous = arm.previous;
+	private boolean updateArm(Arm arm, Map<String, Sample> current, double dt) {
+		double fastest = Double.NaN;
+		for (var entry : current.entrySet()) {
+			Sample sample = entry.getValue(), previous = arm.previous.get(entry.getKey());
+			if (previous == null || !previous.anchor.equals(sample.anchor)) continue;
+			double distance = sample.relative.distanceTo(previous.relative);
+			// Ignore a large discontinuity when a completely different camera takes over.
+			// Adding/removing a contributing camera or depth->triangulated changes are normal.
+			boolean sharedCamera = sample.cameras.stream().anyMatch(previous.cameras::contains);
+			if (!sharedCamera && distance > 0.12) continue;
+			double speed = distance / dt;
+			if (!Double.isFinite(speed) || speed > 12) continue;
+			if (Double.isNaN(fastest) || speed > fastest) fastest = speed;
+		}
 		arm.previous = current;
-		// Provenance (which phone / method observed the joint) flips between
-		// frames on a real rig; only the landmark identity must match. A jump
-		// from a genuinely different observation is caught by the 12 m/s guard.
-		if (previous == null || !sameLandmarks(previous.provenance, current.provenance)) {
-			arm.speed = Double.NaN;
-			arm.armed = false;
-			return false;
-		}
-		double distance = current.relative.distanceTo(previous.relative);
-		arm.speed = distance / dt;
-		if (!Double.isFinite(arm.speed) || arm.speed > 12) {
-			// A tracking jump must settle before it can arm again.
-			arm.speed = Double.NaN; arm.armed = false;
-			return false;
-		}
-		if (arm.speed < threshold * 0.4) arm.armed = true;
-		if (arm.armed && arm.speed >= threshold && distance >= 0.08) {
-			arm.armed = false;
-			return true;
-		}
-		return false;
-	}
-
-	private static boolean sameLandmarks(String a, String b) {
-		return names(a).equals(names(b));
-	}
-
-	private static String names(String provenance) {
-		StringBuilder out = new StringBuilder();
-		for (String part : provenance.split("/")) {
-			int colon = part.indexOf(':');
-			out.append(colon < 0 ? part : part.substring(0, colon)).append('/');
-		}
-		return out.toString();
+		arm.speed = fastest;
+		// Either arm can trigger as soon as its speed crosses the threshold.
+		// No slow pose or 8 cm/frame requirement; the shared cooldown limits repeats.
+		return Double.isFinite(fastest) && fastest >= threshold;
 	}
 
 	/** Model-prior fills cannot cause damage when the wrist is actually occluded. */
@@ -117,18 +99,19 @@ public final class ArmSwingDetector {
 				&& l.confidence().orElse(1.0) >= 0.35 && l.visibility().orElse(1.0) >= 0.5;
 	}
 
-	private static Sample sample(List<LandmarkDto> landmarks, String side) {
-		LandmarkDto shoulder = find(landmarks, "body." + side + "_shoulder");
-		LandmarkDto wrist = find(landmarks, "body." + side + "_wrist");
-		if (wrist == null) wrist = find(landmarks, "hand." + side + ".wrist");
-		if (shoulder == null || wrist == null) return null;
-		Vector3 relative = wrist.position().orElseThrow().sub(shoulder.position().orElseThrow());
-		if (relative.length() < 0.1 || relative.length() > 1.2) return null;
-		return new Sample(relative, provenance(shoulder) + "/" + provenance(wrist));
-	}
-
-	private static String provenance(LandmarkDto l) {
-		return l.name() + ":" + l.source() + ":" + l.observedBy().stream().sorted().collect(Collectors.joining(","));
+	private static Map<String, Sample> sample(List<LandmarkDto> landmarks, String side) {
+		LandmarkDto anchor = find(landmarks, "body." + side + "_shoulder");
+		if (anchor == null) anchor = find(landmarks, "body." + side + "_hip");
+		if (anchor == null) return Map.of();
+		Map<String, Sample> samples = new HashMap<>();
+		for (String name : List.of("body." + side + "_wrist", "hand." + side + ".wrist", "body." + side + "_elbow")) {
+			LandmarkDto joint = find(landmarks, name);
+			if (joint == null) continue;
+			Vector3 relative = joint.position().orElseThrow().sub(anchor.position().orElseThrow());
+			if (relative.length() < 0.05 || relative.length() > 1.4) continue;
+			samples.put(name, new Sample(relative, anchor.name(), Set.copyOf(joint.observedBy())));
+		}
+		return samples;
 	}
 
 	private static LandmarkDto find(List<LandmarkDto> landmarks, String name) {

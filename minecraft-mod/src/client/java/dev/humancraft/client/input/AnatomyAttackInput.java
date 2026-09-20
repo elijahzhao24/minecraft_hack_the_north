@@ -12,7 +12,7 @@ public final class AnatomyAttackInput {
 	private AnatomyAttackInput() {}
 
 	public static void tick(Minecraft client, ClientSnapshotCoordinator coordinator) {
-		boolean now = client.options.keyAttack.isDown();
+		boolean now = client.screen == null && client.options.keyAttack.isDown();
 		if (now && !down && coordinator.hasActiveAvatar()) {
 			boolean vanillaTargetsScan = client.hitResult instanceof EntityHitResult hit
 					&& hit.getEntity().getUUID().equals(coordinator.targetPlayerId());

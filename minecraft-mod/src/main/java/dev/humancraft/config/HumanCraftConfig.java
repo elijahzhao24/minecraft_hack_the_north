@@ -32,13 +32,17 @@ public final class HumanCraftConfig {
 	public int maxBinaryBytes = 16 + 65_536 + 8 * 1024 * 1024;
 	/** Live frames older than this stop being interactive and are hidden. */
 	public int liveFrameTtlMs = 500;
-	public double liveRateHz = 8.0;
+	public double liveRateHz = 15.0;
 	/** Server reach used for probes when positive; otherwise the vanilla block interaction range. */
 	public double probeReachBlocks = 0;
 	/** Wrist speed relative to shoulder, in physical meters/second, before avatar scaling. */
 	public boolean armSwingEnabled = true;
 	public double armSwingSpeedMps = 1.5;
 	public int armSwingCooldownMs = 500;
+	public boolean mouseMovementEnabled = true;
+	public double mouseTurnDegreesPerSecond = 30.0;
+	/** Migrates the old 8 Hz default once, leaving other explicit rates unchanged. */
+	public int inputProfileVersion = 0;
 
 	/** Stage→world placement. When {@code anchorAuto} is true the anchor is placed in front of the player. */
 	public boolean anchorAuto = true;
@@ -90,6 +94,11 @@ public final class HumanCraftConfig {
 		} else {
 			config.save(configDir);
 		}
+		if (config.inputProfileVersion < 1) {
+			if (config.liveRateHz == 8.0) config.liveRateHz = 15.0;
+			config.inputProfileVersion = 1;
+			config.save(configDir);
+		}
 		config.applyEnvironment(System.getenv());
 		config.clamp();
 		return config;
@@ -110,6 +119,9 @@ public final class HumanCraftConfig {
 	void applyEnvironment(Map<String, String> env) {
 		override(env, "HUMANCRAFT_BACKEND_URL", v -> backendUrl = v);
 		override(env, "HUMANCRAFT_CLIENT_ID", v -> clientId = v);
+		override(env, "HUMANCRAFT_LIVE_RATE_HZ", v -> liveRateHz = Double.parseDouble(v));
+		override(env, "HUMANCRAFT_MOUSE_MOVEMENT_ENABLED", v -> mouseMovementEnabled = Boolean.parseBoolean(v));
+		override(env, "HUMANCRAFT_MOUSE_TURN_DEGREES_PER_SECOND", v -> mouseTurnDegreesPerSecond = Double.parseDouble(v));
 		override(env, "HUMANCRAFT_LIVE_TTL_MS", v -> liveFrameTtlMs = Integer.parseInt(v));
 		override(env, "HUMANCRAFT_ARM_SWING_ENABLED", v -> armSwingEnabled = Boolean.parseBoolean(v));
 		override(env, "HUMANCRAFT_ARM_SWING_SPEED_MPS", v -> armSwingSpeedMps = Double.parseDouble(v));
@@ -143,11 +155,13 @@ public final class HumanCraftConfig {
 		reconnectMaxMs = Math.max(reconnectMinMs, reconnectMaxMs);
 		maxBinaryBytes = Math.min(Math.max(1024, maxBinaryBytes), dev.humancraft.contract.ProtocolLimits.MAX_MESSAGE_BYTES);
 		liveFrameTtlMs = Math.max(50, liveFrameTtlMs);
+		if (!Double.isFinite(mouseTurnDegreesPerSecond)) mouseTurnDegreesPerSecond = 30;
+		mouseTurnDegreesPerSecond = Math.max(5, Math.min(90, mouseTurnDegreesPerSecond));
 		if (!Double.isFinite(armSwingSpeedMps)) armSwingSpeedMps = 1.5;
 		armSwingSpeedMps = Math.max(0.3, Math.min(10, armSwingSpeedMps));
 		armSwingCooldownMs = Math.max(500, Math.min(5000, armSwingCooldownMs));
 		if (!Double.isFinite(liveRateHz) || liveRateHz <= 0) {
-			liveRateHz = 8.0;
+			liveRateHz = 15.0;
 		}
 		liveRateHz = Math.min(30.0, liveRateHz);
 		if (!(blocksPerMeter > 0) || !Double.isFinite(blocksPerMeter)) {

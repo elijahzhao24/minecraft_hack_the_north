@@ -27,8 +27,8 @@ the damage. Solid walls block hits.
 3. Use `/humancraft mode self` to attach the scan to your own player. Press **F5**
    for third-person inspection and `/humancraft normalize` while standing upright
    with your whole body visible to reset its scale.
-4. Briefly hold your arms still, then swing either hand. Default trigger speed is
-   **1.5 meters/second relative to its shoulder**. Slow down before swinging again.
+4. Swing either hand; detection starts after a baseline frame. Default trigger speed is
+   **1.5 meters/second relative to its shoulder**. Fast movement can trigger again after the cooldown.
    At most one attack is allowed every **500 ms**, shared across both arms.
 5. Press **H** to show the HUD. It reports left/right speeds, the trigger threshold,
    and the last detected swing (this records detection, not a guaranteed hit).
@@ -62,20 +62,21 @@ between entity positions in 3D; facing uses Minecraft yaw, so looking down does
 not rotate the horizontal arc.
 
 Speed uses physical meters before avatar scaling. Walking translates both the
-shoulder and wrist and does not itself trigger a hit. The wrist must move at
-least 8 cm between samples; implausible arm lengths/speeds, low confidence,
-occluded model-prior landmarks, and gaps over 350 ms are rejected. Detection
-rearms below 40% of the trigger speed. Camera-source changes and reacquisition
-need a fresh baseline followed by a slow sample. Very brief gestures between
+shoulder and wrist and does not itself trigger a hit. Observed body wrists, hand wrists, and elbows are checked independently for each arm.
+Implausible arm lengths/speeds, low confidence, occluded model-prior landmarks,
+and gaps over 500 ms are rejected. Adding another contributing camera does not
+disarm detection; a large jump to a completely different camera is ignored for
+one sample. There is no slow-down reset or fixed per-frame displacement minimum. Very brief gestures between
 capture frames can be missed; use a deliberate visible swing.
 
 ## Alignment and physical checks
 
 Scan points, landmarks, and colliders share the same hip-centered transform.
-Scale stays fixed until normalization or a new session/calibration; missing hips
-retain the last root instead of centering on whichever surface remains visible.
+Scale stays fixed until normalization or a new session/calibration; missing or implausible hips
+use the current visible lower-body center so walking in the capture space cannot
+leave the rendered scan displaced from the entity.
 Feet provide the floor when tracked; otherwise the previous floor is retained.
-The renderer uses Minecraft's interpolated player position. The vanilla skin is
+The cloud draws inside Minecraft's player renderer using the entity's own position stack. The vanilla skin is
 hidden only while its replacement cloud is available and enabled.
 
 Automated tests cover velocity, frame/session guards, cooldown, arc boundaries,
@@ -90,3 +91,22 @@ and normalization. Verify these remaining checks on the real rig:
 - In self mode, use F5 and inspect the hips over the player/shadow while walking,
   turning, and extending each arm. Use O to compare the scan with the vanilla skin.
   In separate mode, verify the scan follows HumanScan, not the observing player.
+
+
+## Mouse movement and capture rate
+
+With a scan active and the game focused, hold **mouse button 4** to turn left
+or **button 5** to turn right at 30°/second. Normal mouse looking still works.
+Left/right clicks are handled by Minecraft's normal bindings. In Options →
+Controls, bind **Walk Forwards** to left click and **Walk Backwards** to right
+click, and move **Attack/Destroy** and **Use Item/Place Block** to other bindings
+to avoid conflicts. In controlled separate mode, those movement bindings and
+side-button turns steer HumanScan. Menus retain their normal clicks.
+
+Defaults in `config/humancraft.json` are `mouseMovementEnabled: true`,
+`mouseTurnDegreesPerSecond: 30`, and `liveRateHz: 15`. Set
+`HUMANCRAFT_MOUSE_MOVEMENT_ENABLED=false` to disable side-button turning.
+The previous 8 FPS config default is migrated once to 15 FPS. The backend also
+defaults to 15 capture requests/second; actual delivered FPS depends on phone,
+network, and inference throughput. Restart both backend and Minecraft after
+installing the updated mod.

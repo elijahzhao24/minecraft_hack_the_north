@@ -2,7 +2,6 @@ package dev.humancraft.client.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.humancraft.client.render.ScanRenderState;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
@@ -17,10 +16,6 @@ public abstract class PlayerRendererMixin {
 			at = @At("HEAD"), cancellable = true)
 	private void humancraft$replaceSkin(AbstractClientPlayer player, float yaw, float tickDelta, PoseStack matrices,
 			MultiBufferSource vertices, int light, CallbackInfo ci) {
-		if (!ScanRenderState.replaces(player.getUUID())) return;
-		if (player.isSwimming() || player.isFallFlying()) return;
-		Minecraft client = Minecraft.getInstance();
-		if (player == client.player && client.options.getCameraType().isFirstPerson()) return;
-		ci.cancel();
+		if (ScanRenderState.renderer != null && ScanRenderState.renderer.renderPlayer(player, tickDelta, matrices)) ci.cancel();
 	}
 }
