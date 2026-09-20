@@ -30,17 +30,17 @@ def look_at_optical(
     Optical axes: +Z forward (toward target).
     For landscape_right: +X image-right, +Y image-down.
     For portrait (phone placed vertically, charging port down):
-        +X sensor down, +Y sensor right.
+        +X sensor down, +Y sensor left (a proper rotation, not a reflection).
     """
     z = target - eye
     z = z / np.linalg.norm(z)
     world_right = np.cross(z, world_up)
     world_right = world_right / np.linalg.norm(world_right)
-    world_down = -world_up
+    world_down = np.cross(z, world_right)
 
     if orientation == "portrait":
         x = world_down
-        y = world_right
+        y = -world_right
     else:
         x = world_right
         y = world_down

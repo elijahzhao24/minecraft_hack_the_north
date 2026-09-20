@@ -37,6 +37,8 @@ class CapturedFrame:
     source_frame_id: UUID | None = None
     trace: TraceContext = field(default_factory=lambda: TraceContext())
     received_monotonic_s: float | None = None
+    tracking_state: str = "normal"
+    image_orientation: str = "landscape_right"
 
 
 @dataclass(frozen=True, slots=True)

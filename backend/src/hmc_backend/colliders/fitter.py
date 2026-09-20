@@ -104,6 +104,9 @@ class AnatomicalCharacterFitter:
 
     # --- protocol ----------------------------------------------------------------
 
+    def set_view_calibrations(self, calibrations):
+        self._view_calibrations = calibrations
+
     def fit_character(
         self,
         pair: PairedFrames,
@@ -114,7 +117,7 @@ class AnatomicalCharacterFitter:
         del calibration  # per-view calibrations come from the rig; the front camera is the stage reference
         report = FitReport(point_count=cloud.count)
         views = [
-            ViewInput(frame, detections[frame.device_id], self._rig.camera(frame.device_id))
+            ViewInput(frame, detections[frame.device_id], getattr(self, "_view_calibrations", self._rig.cameras)[frame.device_id])
             for frame in (pair.first, pair.second)
             if frame.device_id in detections
         ]

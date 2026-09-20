@@ -3,7 +3,7 @@ import CoreVideo
 import Foundation
 
 enum DepthPreviewRenderer {
-    static func render(_ pixelBuffer: CVPixelBuffer, near: Float = 0.2, far: Float = 5.0) -> CGImage? {
+    static func render(_ pixelBuffer: CVPixelBuffer, rangeGate: DepthRangeGate, near: Float = 0.2, far: Float = 5.0) -> CGImage? {
         guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_DepthFloat32 else { return nil }
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -21,7 +21,7 @@ enum DepthPreviewRenderer {
                 for x in 0..<width {
                     let depth = source[x]
                     let output = destination.advanced(by: (y * width + x) * 4)
-                    guard depth.isFinite, depth > 0 else {
+                    guard depth >= near, rangeGate.contains(depth, u: x, v: y, maxRange: Double(far)) else {
                         output[0] = 0; output[1] = 0; output[2] = 0; output[3] = 255
                         continue
                     }

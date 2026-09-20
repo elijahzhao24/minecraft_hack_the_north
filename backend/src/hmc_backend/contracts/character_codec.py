@@ -147,4 +147,8 @@ def encode_character_frame(frame: CharacterFrame) -> bytes:
     check_cloud(cloud.xyz_stage_m, cloud.rgba, cloud.source_mask)
     payload = pack_points(cloud.xyz_stage_m, cloud.rgba)
     header = build_character_header(frame, len(payload))
+    if cloud.count:
+        header["buffers"].append({"name": "point_sources", "encoding": "uint8",
+                                  "offset": len(payload), "length": cloud.count, "shape": [cloud.count]})
+        payload += cloud.source_mask.astype(np.uint8, copy=False).tobytes()
     return encode_envelope(MessageType.CHARACTER_FRAME, header, payload)

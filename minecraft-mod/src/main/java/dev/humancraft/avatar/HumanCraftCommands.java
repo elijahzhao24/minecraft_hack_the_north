@@ -23,7 +23,18 @@ public final class HumanCraftCommands {
 				.then(Commands.literal("despawn").executes(ctx -> run(ctx.getSource(), p -> avatars.despawn(p))))
 				.then(Commands.literal("control").executes(ctx -> run(ctx.getSource(), p -> avatars.control(p, true))))
 				.then(Commands.literal("release").executes(ctx -> run(ctx.getSource(), p -> avatars.control(p, false))))
-				.then(Commands.literal("calibrate").executes(ctx -> run(ctx.getSource(), p -> avatars.recalibrate(p))))
+				.then(Commands.literal("calibrate").executes(ctx -> run(ctx.getSource(), p -> {
+					avatars.recalibrate(p);
+					p.sendSystemMessage(Component.literal("Avatar scale reset. For phone alignment use /humancraft cameras calibrate."));
+				})))
+				.then(Commands.literal("normalize").executes(ctx -> run(ctx.getSource(), p -> avatars.recalibrate(p))))
+				.then(Commands.literal("cameras").then(Commands.literal("calibrate").executes(ctx -> run(ctx.getSource(), p -> {
+					var type = dev.humancraft.network.HumanCraftPayloads.CameraCalibrationRequest.TYPE;
+					if (net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.canSend(p, type)) {
+						net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(p,
+							new dev.humancraft.network.HumanCraftPayloads.CameraCalibrationRequest());
+					} else p.sendSystemMessage(Component.literal("Update the HumanCraft client to calibrate cameras."));
+				}))))
 				.then(Commands.literal("debug")
 						.then(Commands.literal("on").executes(ctx -> debug(ctx.getSource(), true)))
 						.then(Commands.literal("off").executes(ctx -> debug(ctx.getSource(), false)))));

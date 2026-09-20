@@ -46,6 +46,9 @@ public final class HumanCraftClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.DebugState.TYPE,
 				(payload, context) -> snapshots.setDebug(payload.enabled()));
 
+		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.CameraCalibrationRequest.TYPE,
+				(payload, context) -> snapshots.registerRig());
+
 		HumanCraftKeybindings keys = new HumanCraftKeybindings(config, snapshots);
 		HumanCraftHud hud = new HumanCraftHud(config, snapshots);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {

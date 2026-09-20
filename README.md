@@ -1,3 +1,5 @@
+> **Two-phone setup:** see [guided camera calibration and 5 m filtering](docs/camera-calibration.md). Press N or use `/humancraft cameras calibrate`; `/humancraft calibrate` only resets avatar scale.
+
 # Humans in Minecraft
 
 Capture a real person with two LiDAR iPhones and use the RGB point cloud as the body of a real Minecraft player. Minecraft keeps player health, inventory, movement, gravity, collision, damage, and respawn while HumanCraft supplies appearance and anatomical hit volumes.

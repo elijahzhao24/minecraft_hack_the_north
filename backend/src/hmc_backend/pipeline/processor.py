@@ -9,9 +9,10 @@ fake substitutes for hardware.
 
 from __future__ import annotations
 
-import time
 import threading
+import time
 from collections.abc import Callable
+from dataclasses import replace
 from uuid import UUID
 
 import numpy as np
@@ -81,8 +82,13 @@ class CharacterProcessor:
         self._corrections: dict[str, NDArray[np.float64]] = {}
         self._register_requested = threading.Event()
         self.last_registration: dict | None = None
+        self.view_diagnostics: dict[str, dict] = {}
 
     # --- rig registration -------------------------------------------------
+
+    @property
+    def assembler(self) -> FrameAssembler:
+        return self._assembler
 
     @property
     def corrections(self) -> dict[str, NDArray[np.float64]]:
@@ -97,9 +103,11 @@ class CharacterProcessor:
 
     def _effective_calibration(self, device_id: str, frame):
         calib = self._calibration.camera(device_id)
-        if self._gravity_align:
+        if self._use_frame_intrinsics:
+            calib = replace(calib, K_rgb=frame.K_rgb, rgb_size=(frame.rgb.shape[1], frame.rgb.shape[0]))
+        if self._gravity_align and self._calibration.board is None:
             calib = gravity_aligned(calib, frame)
-        return with_stage_correction(calib, self._corrections.get(device_id))
+        return calib if self._calibration.board is not None else with_stage_correction(calib, self._corrections.get(device_id))
 
     def _register(self, clouds_by_device: dict) -> None:
         devices = list(clouds_by_device)
@@ -127,6 +135,11 @@ class CharacterProcessor:
                 continue
             yaw_deg = float(np.degrees(np.arctan2(t_inc[0, 2], t_inc[0, 0])))
             shift_m = float(np.linalg.norm(t_inc[:3, 3]))
+            if not np.isfinite(rms) or inliers < 30 or rms > 0.05:
+                self.last_registration = {"ok": False, "device_id": dev, "error": "poor registration quality",
+                                          "rms_m": round(float(rms), 4) if np.isfinite(rms) else None, "inliers": inliers}
+                log_event("warning", "rig_registration_rejected", **self.last_registration)
+                continue
             if refine and (abs(yaw_deg) > 10.0 or shift_m > 0.3):
                 # A refinement that wants to move this far has locked onto a
                 # wrong match (typically the subject moved between the two
@@ -168,6 +181,7 @@ class CharacterProcessor:
         """Run all stages and return one validated CharacterFrame."""
         frames = {pair.first.device_id: pair.first, pair.second.device_id: pair.second}
 
+        self.view_diagnostics = {}
         detections = {}
         clouds = []
         clouds_by_device = {}
@@ -197,6 +211,7 @@ class CharacterProcessor:
                         frame, detection, confidence_min=self._confidence_min
                     )
                 )
+                diagnostics = self.view_diagnostics.setdefault(device_id, {})
                 with span("hmc.reconstruct", "masked depth -> calibrated points", camera_id=device_id) as reconstruct_span:
                     cloud = reconstruct_view(
                         frame,
@@ -205,6 +220,7 @@ class CharacterProcessor:
                         self._crop,
                         confidence_min=self._confidence_min,
                         source_bit=source_bit,
+                        diagnostics=diagnostics,
                         use_frame_intrinsics=self._use_frame_intrinsics,
                     )
                     reconstruct_span.set_data("point_count", cloud.count)
@@ -212,7 +228,7 @@ class CharacterProcessor:
                 clouds_by_device[device_id] = cloud
                 source_bit <<= 1
 
-            if self._register_requested.is_set():
+            if self._register_requested.is_set() and self._calibration.board is None:
                 self._register_requested.clear()
                 self._register(clouds_by_device)
                 # Rebuild corrected views so this frame already uses the new registration.
@@ -238,7 +254,10 @@ class CharacterProcessor:
                 merge_span.set_data("point_count", merged.count)
 
             # Fit against the front camera's calibration (registration reference).
-            front_calib = self._calibration.camera(pair.first.device_id)
+            effective = {dev: self._effective_calibration(dev, frame) for dev, frame in frames.items()}
+            if hasattr(self._fitter, "set_view_calibrations"):
+                self._fitter.set_view_calibrations(effective)
+            front_calib = effective[pair.first.device_id]
             with span("hmc.fit", "landmarks and colliders"):
                 fitted = self._fitter.fit_character(pair, detections, merged, front_calib)
 
@@ -253,7 +272,13 @@ class CharacterProcessor:
                         error=type(exc).__name__,
                     )
 
-            warnings = ("empty_cloud",) if merged.count == 0 else ()
+            warnings = ["empty_cloud"] if merged.count == 0 else []
+            for i, (dev, diag) in enumerate(self.view_diagnostics.items()):
+                diag["contribution_count"] = int(np.count_nonzero(merged.source_mask & (1 << i)))
+                if diag["contribution_count"] == 0:
+                    reason = next((key for key in ("valid_depth", "after_range", "after_confidence", "after_mask", "after_stage")
+                                   if diag.get(key) == 0), "after_merge")
+                    warnings.append(f"missing_view:{dev}:{reason}")
             with span("hmc.assemble", "immutable CharacterFrame"):
                 result = self._assembler.assemble(
                     pair,
@@ -262,7 +287,7 @@ class CharacterProcessor:
                     mode=mode,
                     calibration_id=self._calibration.calibration_id,
                     trace=trace or TraceContext(),
-                    extra_warnings=warnings,
+                    extra_warnings=tuple(warnings),
                 )
             fusion_span.set_data("frame_id", result.frame_id)
             fusion_span.set_data("point_count", result.quality.point_count)

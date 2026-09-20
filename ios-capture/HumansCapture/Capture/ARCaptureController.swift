@@ -110,7 +110,13 @@ extension ARCaptureController: ARSessionDelegate {
         )))
         if frame.timestamp - lastPreviewTime >= 0.5 {
             lastPreviewTime = frame.timestamp
-            eventHandler?(.depthPreview(DepthPreviewSource(pixelBuffer: sceneDepth.depthMap)))
+            eventHandler?(.depthPreview(DepthPreviewSource(pixelBuffer: sceneDepth.depthMap, rangeGate: DepthRangeGate(
+                rgbIntrinsics: frame.camera.intrinsics,
+                rgbWidth: CVPixelBufferGetWidth(frame.capturedImage),
+                rgbHeight: CVPixelBufferGetHeight(frame.capturedImage),
+                depthWidth: CVPixelBufferGetWidth(sceneDepth.depthMap),
+                depthHeight: CVPixelBufferGetHeight(sceneDepth.depthMap)
+            ))))
         }
 
         let intent: CaptureIntent

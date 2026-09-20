@@ -7,6 +7,7 @@ capture loop build the pipeline the same way.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -38,6 +39,7 @@ def crop_from_settings(settings: Settings) -> CropBounds:
         max_z=settings.stage_max_z_m,
         depth_min=settings.depth_min_m,
         depth_max=settings.depth_max_m,
+        max_range_m=settings.max_range_m,
     )
 
 
@@ -73,8 +75,10 @@ def build_fitter(settings: Settings, calibration: RigCalibration) -> CharacterFi
         return FakeCharacterFitter()
     if settings.collider_backend == "anatomical":
         from hmc_backend.colliders.fitter import AnatomicalCharacterFitter
-
-        return AnatomicalCharacterFitter(calibration, learn_subject=settings.learn_subject_dimensions)
+        from hmc_backend.vision.depth_sampling import DepthSamplingConfig
+        from hmc_backend.vision.landmarks import FusionConfig
+        return AnatomicalCharacterFitter(calibration, learn_subject=settings.learn_subject_dimensions,
+            fusion=FusionConfig(depth=DepthSamplingConfig(max_range_m=settings.max_range_m)))
     raise ValueError(f"unknown collider_backend {settings.collider_backend!r}")
 
 
@@ -89,7 +93,10 @@ def build_debug_hook(settings: Settings, calibration: RigCalibration, fitter: Ch
         frames = {pair.first.device_id: pair.first, pair.second.device_id: pair.second}
         write_debug_artifacts(
             root / str(pair.pair_id), frames=frames, detections=detections,
-            calibrations={d: calibration.camera(d) for d in frames}, cloud=cloud,
+            calibrations={d: replace(calibration.camera(d), K_rgb=f.K_rgb,
+                                    rgb_size=(f.rgb.shape[1], f.rgb.shape[0]))
+                          if settings.use_frame_intrinsics else calibration.camera(d)
+                          for d, f in frames.items()}, cloud=cloud,
             landmarks=fitted.landmarks, colliders=getattr(fitter, "last_typed_colliders", ()),
             fit_report=getattr(fitter, "last_report", None),
             extra={"pair_id": str(pair.pair_id), "calibration_id": str(calibration.calibration_id)},
@@ -104,6 +111,7 @@ def build_processor(
     detector: ViewDetector | None = None,
     fitter: CharacterFitter | None = None,
     session_id: UUID | None = None,
+    assembler: FrameAssembler | None = None,
 ) -> CharacterProcessor:
     """Build a processor using the configured production or fixture stages."""
     detector = detector or build_detector(settings)
@@ -112,7 +120,7 @@ def build_processor(
         detector,
         fitter,
         calibration,
-        FrameAssembler(session_id or uuid4()),
+        assembler or FrameAssembler(session_id or uuid4()),
         crop_from_settings(settings),
         voxel_size_m=settings.voxel_size_m,
         max_points=settings.max_points,

@@ -15,7 +15,7 @@ from hmc_backend.settings import Settings
 
 
 def _install_runtime(*, with_calibration: bool = True) -> tuple[AppRuntime, object]:
-    settings = Settings()
+    settings = Settings(simulation_mode=True)
     rig = build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120)) if with_calibration else None
     runtime = AppRuntime(settings, rig)
     app.state.runtime = runtime

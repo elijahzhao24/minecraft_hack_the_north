@@ -33,8 +33,6 @@ public final class HumanCraftConfig {
 	/** Live frames older than this stop being interactive and are hidden. */
 	public int liveFrameTtlMs = 500;
 	public double liveRateHz = 8.0;
-	/** Drop frames whose head/torso/pelvis colliders are invalid instead of rendering the bare cloud. */
-	public boolean requireCriticalTracking = false;
 	/** Server reach used for probes when positive; otherwise the vanilla block interaction range. */
 	public double probeReachBlocks = 0;
 

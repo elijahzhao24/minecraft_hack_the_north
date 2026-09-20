@@ -202,7 +202,7 @@ final class CaptureStore: ObservableObject {
         case .depthPreview(let source):
             Task { @MainActor [weak self] in
                 let rendered = await Task.detached(priority: .utility) {
-                    RenderedDepthPreview(image: DepthPreviewRenderer.render(source.pixelBuffer))
+                    RenderedDepthPreview(image: DepthPreviewRenderer.render(source.pixelBuffer, rangeGate: source.rangeGate))
                 }.value
                 self?.depthPreview = rendered.image
             }

@@ -49,4 +49,5 @@ enum CaptureLifecycleEvent: Sendable {
 
 struct DepthPreviewSource: @unchecked Sendable {
     let pixelBuffer: CVPixelBuffer
+    let rangeGate: DepthRangeGate
 }
