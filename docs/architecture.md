@@ -2,10 +2,10 @@
 
 ## 1. What is being built
 
-The MVP turns a held pose from one real person into two aligned representations:
+The system turns one real person into two aligned representations bound to a Minecraft player:
 
 - **Appearance:** a colored point cloud reconstructed from measured RGB and depth.
-- **Interaction:** named anatomical landmarks and analytic colliders for body parts, especially hands and feet.
+- **Interaction:** named anatomical landmarks and analytic colliders for body parts, especially hands and feet. Minecraft's normal player entity continues to own locomotion, health, inventory, gravity, collision, damage, and respawn.
 
 Minecraft displays the appearance while its logical server evaluates the interaction geometry. Both must come from the exact same immutable `CharacterFrame`; mixing a cloud from one capture with colliders from another is a correctness failure.
 
@@ -24,7 +24,7 @@ In scope:
 - Minecraft point rendering, collider debug rendering, server-authoritative ray hits, and hand/foot contact with one full cube.
 - Local, rate-limited diagnostics at service boundaries.
 
-Out of scope for the MVP: locomotion, gestures as controls, finger physics, physical push-out, standing on the human, arbitrary voxel collision, multiplayer distribution, weapon/projectile compatibility, mesh reconstruction, and fabricated geometry for occluded surfaces.
+Out of scope for the MVP: tracked gestures as movement inputs, finger physics, physical limb push-out, general multiplayer distribution, mesh reconstruction, and fabricated geometry for occluded surfaces.
 
 ## 3. Runtime topology and ownership
 
@@ -52,8 +52,8 @@ flowchart LR
 | FastAPI I/O layer | WebSockets, framing validation, device connections, clock probes, bounded queues, health, subscriber publication | CPU-heavy vision on the event loop |
 | Processing worker | Pair selection, calibration, detection calls, reconstruction, fitting, immutable frame assembly | Socket lifetime, Minecraft state |
 | Vision/collider module | Person mask, body/hands observations, 3D registration, provenance, validity, collider fitting | Frame pairing or publishing a partial character |
-| Minecraft physical client | Backend socket, decoding, stage-to-world transform, GPU buffers, debug UI, forwarding collider snapshots | Deciding authoritative hits |
-| Minecraft logical server | Accepted collider snapshot, player-derived ray/reach, wall occlusion, hit/contact result | Receiving RGB/depth or rendering the cloud |
+| Minecraft physical client | Backend socket, decoding, player-local normalization, GPU buffers, input intent, debug UI | Authoritative movement or damage |
+| Minecraft logical server | Player binding, internal player lifecycle, normal movement physics, anatomical combat/contact state | Receiving RGB/depth or rendering the cloud |
 
 ## 4. End-to-end data flow
 
@@ -66,9 +66,9 @@ flowchart LR
 7. Vision detects one person, body landmarks, and up to two hands per view. Reconstruction masks/unprojects each view using its calibration, then merges and downsamples the points.
 8. Landmark registration and collider fitting return validity-aware geometry. The assembler creates the next monotonically increasing `CharacterFrame.frame_id` only when cloud and interaction data refer to the same source pair and calibration.
 9. The publisher serializes one `HMC1/CHARACTER_FRAME` message and sends it to each `/ws/character` subscriber. A slow subscriber retains only the latest unsent snapshot.
-10. The Minecraft client validates and decodes the snapshot off the render thread. It converts stage meters to world blocks once, then sends the small collider state to the integrated server.
+10. The Minecraft client validates and decodes the snapshot off the render thread. A clean upright capture locks a uniform `1.8 / measured_height_m` scale and a player-local root shared by points, landmarks, and colliders.
 11. The server validates and accepts the collider state, then returns a snapshot acknowledgement. Only that acknowledged ID becomes active for both rendered geometry and interaction.
-12. A probe request contains intent only. The logical server derives eye origin, view direction, allowed reach, and block obstruction; it returns a typed hit or miss result.
+12. Movement and attack payloads contain intent only. The logical server derives player motion, eye ray, reach, block obstruction, and nearest anatomical/ordinary hit.
 
 ## 5. Coordinate systems
 

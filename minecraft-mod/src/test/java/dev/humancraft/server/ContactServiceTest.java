@@ -5,6 +5,10 @@ import dev.humancraft.contract.ColliderDto;
 import dev.humancraft.contract.Mode;
 import dev.humancraft.fixture.SyntheticHuman;
 import dev.humancraft.geometry.Vector3;
+import dev.humancraft.geometry.Aabb;
+import dev.humancraft.geometry.Sphere;
+import dev.humancraft.contract.ColliderType;
+import dev.humancraft.contract.FitSource;
 import dev.humancraft.model.CharacterFrame;
 import dev.humancraft.model.StageToWorld;
 import org.junit.jupiter.api.Test;
@@ -88,6 +92,19 @@ class ContactServiceTest {
 		assertFalse(emitter.shouldEmit(b, 1300));
 		emitter.reset();
 		assertTrue(emitter.shouldEmit(b, 1301), "reset forces a fresh emission");
+	}
+
+	@Test
+	void actualBlockShapeDoesNotTreatAHalfSlabAsAFullCube() {
+		ColliderDto hand = new ColliderDto("hand.left", BodyPart.LEFT_HAND, ColliderType.SPHERE, true,
+				FitSource.OBSERVED, java.util.Optional.empty(), java.util.Optional.of(new Sphere(new Vector3(0.5, 0.75, 0.5), 0.1)));
+		ServerSnapshot snapshot = new ServerSnapshot(OWNER, "minecraft:overworld", 1, SyntheticHuman.SESSION_ID,
+				SyntheticHuman.CALIBRATION_ID, Mode.SNAPSHOT, new StageToWorld(Vector3.ZERO, 1),
+				java.util.List.of(hand), 0);
+		assertFalse(ContactService.compute(snapshot, (x, y, z) -> true).contacts().isEmpty());
+		ContactService.ContactState exact = ContactService.computeWithShapes(snapshot, (x, y, z) ->
+				java.util.List.of(new Aabb(new Vector3(x, y, z), new Vector3(x + 1, y + 0.5, z + 1))));
+		assertTrue(exact.contacts().isEmpty());
 	}
 
 	private static long cells(double min, double max) {

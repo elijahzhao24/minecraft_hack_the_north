@@ -69,7 +69,7 @@ public final class SnapshotStore {
 			world.add(transform.collider(c));
 		}
 		ServerSnapshot snapshot = new ServerSnapshot(owner, dimension, request.frameId(), request.sessionId(), request.calibrationId(),
-				request.mode(), transform, world, nowMillis);
+				request.mode(), transform, world, nowMillis, request.targetPlayerId(), request.bindingGeneration(), request.normalizationRevision());
 		active.put(owner, snapshot);
 		cursors.put(owner, new Cursor(request.sessionId(), request.frameId()));
 		return InstallOutcome.accepted(request.frameId());
@@ -112,6 +112,10 @@ public final class SnapshotStore {
 		return active.size();
 	}
 
+	public List<ServerSnapshot> activeSnapshots(long nowMillis) {
+		return new ArrayList<>(active.keySet()).stream().map(id -> active(id, nowMillis)).flatMap(Optional::stream).toList();
+	}
+
 	static void validate(InstallRequest request) {
 		if (request.frameId() < 0) {
 			throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "frame_id must be non-negative");
@@ -124,6 +128,9 @@ public final class SnapshotStore {
 		}
 		if (request.pointCount() < 0 || request.pointCount() > ProtocolLimits.MAX_POINTS) {
 			throw new ProtocolException(ProtocolException.LIMIT_EXCEEDED, "point count out of range");
+		}
+		if (request.bindingGeneration() < 0 || request.normalizationRevision() < 0) {
+			throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "binding revisions must be non-negative");
 		}
 		StageToWorld t = request.transform();
 		if (!t.anchor().isFinite() || !Double.isFinite(t.blocksPerMeter())) {
