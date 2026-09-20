@@ -8,6 +8,8 @@ import dev.humancraft.contract.Mode;
 import dev.humancraft.fixture.SyntheticHuman;
 import dev.humancraft.geometry.Vector3;
 import dev.humancraft.model.CharacterFrame;
+import dev.humancraft.model.ArmSwingDetector;
+import dev.humancraft.model.ScanNormalization;
 import dev.humancraft.model.StageToWorld;
 import dev.humancraft.model.WorldSnapshot;
 import dev.humancraft.network.HumanCraftPayloads;
@@ -63,12 +65,14 @@ public final class ClientSnapshotCoordinator {
 	private long bindingGeneration;
 	private long normalizationRevision;
 	private boolean controllingSeparate;
-	private double lockedBlocksPerMeter = Double.NaN;
-	private long lastTransformLogMs;
+	private final ScanNormalization normalization = new ScanNormalization();
+	private final ArmSwingDetector swings;
+	private String lastSwing = "none";
 
 	public ClientSnapshotCoordinator(HumanCraftConfig config, HumanRenderer renderer) {
 		this.config = config;
 		this.renderer = renderer;
+		this.swings = new ArmSwingDetector(config.armSwingSpeedMps, config.armSwingCooldownMs);
 		this.consistency = new FrameConsistencyMonitor("mismatch_ids".equals(config.observabilityFault) ? 1 : 2);
 	}
 
@@ -141,6 +145,8 @@ public final class ClientSnapshotCoordinator {
 
 	public void onDisconnect() {
 		joined = false;
+		swings.reset();
+		normalization.reset();
 		pending = null;
 		active = null;
 		contactCount = 0;
@@ -213,6 +219,15 @@ public final class ClientSnapshotCoordinator {
 					sentFusionId, sourceFrameIds(frame), targetPlayerId, bindingGeneration, normalizationRevision);
 			pending = next;
 			ClientPlayNetworking.send(HumanCraftPayloads.InstallSnapshot.of(request));
+			// Ordered immediately after install: server validates the exact live frame before causing damage.
+			// Reinstalls caused by display toggles or binding changes must never replay physical gestures.
+			if (config.armSwingEnabled && "decoded".equals(reason)) {
+				swings.update(frame.header(), System.currentTimeMillis()).ifPresent(swing -> {
+					ClientPlayNetworking.send(new HumanCraftPayloads.ArmSwing(frame.frameId(), frame.header().sessionId(),
+							frame.header().calibrationId(), targetPlayerId, bindingGeneration, normalizationRevision, swing.left()));
+					lastSwing = String.format(Locale.ROOT, "%s %.2f m/s", swing.left() ? "left" : "right", swing.speedMetersPerSecond());
+				});
+			}
 		} catch (RuntimeException e) {
 			pending = null;
 			serverStatus = "install send failed";
@@ -292,7 +307,8 @@ public final class ClientSnapshotCoordinator {
 		bindingGeneration = state.bindingGeneration();
 		normalizationRevision = state.normalizationRevision();
 		controllingSeparate = state.controlling();
-		if (normalizationChanged) lockedBlocksPerMeter = Double.NaN;
+		swings.reset();
+		if (normalizationChanged) normalization.reset();
 		if (joined && latestDecoded != null && hasRenderableCloud(latestDecoded)) {
 			install(latestDecoded, "avatar binding changed");
 		}
@@ -435,8 +451,7 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	public void scaleBy(double multiplier) {
-		lockedBlocksPerMeter = Math.max(0.1, Math.min(8.0,
-				(Double.isFinite(lockedBlocksPerMeter) ? lockedBlocksPerMeter : 1.0) * multiplier));
+		normalization.scaleBy(multiplier);
 		persistAndReinstall("calibration scale adjusted");
 	}
 
@@ -516,40 +531,11 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	private StageToWorld playerLocalTransform(CharacterFrame frame) {
-		var cloud = frame.cloud();
-		if (cloud.count() == 0) return new StageToWorld(Vector3.ZERO, 1.0);
-		// Robust statistics: a handful of stray points (floor or wall leakage, a
-		// second person, LiDAR noise) drag the mean sideways and pull the minimum
-		// below the body, which displaced and sank the whole figure.
-		int n = cloud.count();
-		float[] xs = new float[n], ys = new float[n], zs = new float[n];
-		for (int i = 0; i < n; i++) {
-			xs[i] = cloud.x(i);
-			ys[i] = cloud.y(i);
-			zs[i] = cloud.z(i);
-		}
-		java.util.Arrays.sort(xs);
-		java.util.Arrays.sort(ys);
-		java.util.Arrays.sort(zs);
-		int lo = (int) (n * 0.02), mid = n / 2, hi = Math.min(n - 1, (int) (n * 0.98));
-		double minY = ys[lo];
-		double height = ys[hi] - ys[lo];
-		if (!Double.isFinite(lockedBlocksPerMeter)) {
-			lockedBlocksPerMeter = height > 0.5 ? Math.max(0.1, Math.min(8.0, 1.8 / height)) : 1.0;
-		}
-		double rootX = xs[mid];
-		double rootZ = zs[mid];
-		if (System.currentTimeMillis() - lastTransformLogMs > 1000) {
-			lastTransformLogMs = System.currentTimeMillis();
-			HumanCraft.LOGGER.debug("HMC-XFORM n={} medianX={} medianZ={} minY={} height={} bpm={} mode={}",
-					n, String.format("%.3f", rootX), String.format("%.3f", rootZ), String.format("%.3f", minY),
-					String.format("%.3f", height), String.format("%.2f", lockedBlocksPerMeter), avatarMode);
-		}
-		return new StageToWorld(new Vector3(-rootX * lockedBlocksPerMeter, -minY * lockedBlocksPerMeter,
-				-rootZ * lockedBlocksPerMeter), lockedBlocksPerMeter);
+		return normalization.transform(frame);
 	}
 
 	private void clearLocal(String reason) {
+		swings.reset();
 		pending = null;
 		active = null;
 		contactCount = 0;
@@ -577,8 +563,16 @@ public final class ClientSnapshotCoordinator {
 			lines.add("points/landmarks/colliders: " + active.stageCloud().count() + "/" + active.landmarks().size()
 					+ "/" + active.validColliderCount() + "  contacts: " + contactCount);
 		}
+		lines.add("arm swings: " + (config.armSwingEnabled ? String.format(Locale.ROOT, "L %s  R %s  trigger %.2f m/s",
+				speedLabel(swings.leftSpeed()), speedLabel(swings.rightSpeed()), config.armSwingSpeedMps) : "disabled"));
+		lines.add("last swing: " + lastSwing);
 		lines.add("last probe: " + lastProbe);
 		return lines;
+	}
+
+	private String speedLabel(double speed) {
+		return System.currentTimeMillis() - lastReceivedMs > 350 || !Double.isFinite(speed)
+				? "untracked / warming up" : String.format(Locale.ROOT, "%.2f m/s", speed);
 	}
 
 	private static String shortId(UUID id) {

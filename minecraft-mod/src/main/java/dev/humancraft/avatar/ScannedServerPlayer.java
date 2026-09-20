@@ -28,7 +28,7 @@ public final class ScannedServerPlayer extends ServerPlayer {
 		ControlIntent current = intent;
 		long now = System.currentTimeMillis();
 		if (now - current.receivedAtMillis() > AvatarService.CONTROL_TIMEOUT_MS || !isAlive()) {
-			current = ControlIntent.idle(now);
+			current = new ControlIntent(0, 0, getYRot(), getXRot(), false, false, false, now);
 			intent = current;
 		}
 		setYRot(current.yaw());

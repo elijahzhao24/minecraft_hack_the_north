@@ -23,6 +23,7 @@ import dev.humancraft.telemetry.Telemetry;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
@@ -65,7 +66,14 @@ public final class HumanRenderer implements AutoCloseable {
 	}
 
 	public void register() {
+		WorldRenderEvents.START.register(context -> refreshSkinReplacement());
 		WorldRenderEvents.LAST.register(this::render);
+	}
+
+	private void refreshSkinReplacement() {
+		if (config.showCloud && cloudBuffer != null && !cloudBuffer.isInvalid() && !renderFailed && targetPlayerId != null)
+			ScanRenderState.activate(targetPlayerId);
+		else ScanRenderState.clear();
 	}
 
 	public long uploadedFrame() {
@@ -76,7 +84,6 @@ public final class HumanRenderer implements AutoCloseable {
 	public void activate(WorldSnapshot snapshot, UUID targetPlayerId) {
 		RenderSystem.assertOnRenderThread();
 		this.targetPlayerId = targetPlayerId;
-		ScanRenderState.activate(targetPlayerId);
 		try (Telemetry.Span span = Telemetry.continueTransaction("client.gpu_upload", "hmc.render.upload", snapshot.trace())) {
 			long start = System.nanoTime();
 			VertexBuffer nextCloud = null;
@@ -100,6 +107,7 @@ public final class HumanRenderer implements AutoCloseable {
 			colliderBuffer = nextColliders;
 			uploadedFrame = snapshot.frameId();
 			renderFailed = false;
+			refreshSkinReplacement();
 			span.data("frame_id", snapshot.frameId()).data("points", snapshot.stageCloud().count())
 					.measurement("cpu_upload_ms", (System.nanoTime() - start) / 1_000_000.0);
 		}
@@ -211,8 +219,10 @@ public final class HumanRenderer implements AutoCloseable {
 			matrices.pushPose();
 			try {
 				matrices.translate(-camera.x, -camera.y, -camera.z);
-				matrices.translate(target.getX(), target.getY(), target.getZ());
-				matrices.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-target.getYRot()));
+				float partialTick = context.tickCounter().getGameTimeDeltaPartialTick(true);
+				matrices.translate(Mth.lerp(partialTick, target.xOld, target.getX()),
+						Mth.lerp(partialTick, target.yOld, target.getY()), Mth.lerp(partialTick, target.zOld, target.getZ()));
+				matrices.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-Mth.rotLerp(partialTick, target.yRotO, target.getYRot())));
 				RenderSystem.enableDepthTest();
 				RenderSystem.disableCull();
 				if (config.showCloud) {
@@ -230,6 +240,7 @@ public final class HumanRenderer implements AutoCloseable {
 				matrices.popPose();
 			}
 		} catch (RuntimeException e) {
+			ScanRenderState.clear();
 			if (!renderFailed) {
 				renderFailed = true;
 				Telemetry.captureException(e, "client.renderer.draw");

@@ -29,6 +29,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HumanCraftPayloadsTest {
+	@Test void armSwingRoundTripPreservesFrameBindingAndHand() {
+		var swing = new HumanCraftPayloads.ArmSwing(45, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 3, 7, true);
+		assertEquals(swing, roundTrip(HumanCraftPayloads.ArmSwing.CODEC, swing));
+	}
+
 	static <T> T roundTrip(StreamCodec<FriendlyByteBuf, T> codec, T value) {
 		FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
 		codec.encode(buf, value);

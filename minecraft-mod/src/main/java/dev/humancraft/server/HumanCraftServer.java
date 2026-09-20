@@ -8,6 +8,7 @@ import dev.humancraft.config.HumanCraftConfig;
 import dev.humancraft.contract.ProtocolException;
 import dev.humancraft.geometry.Ray;
 import dev.humancraft.geometry.Vector3;
+import dev.humancraft.model.SwingArc;
 import dev.humancraft.network.HumanCraftPayloads;
 import dev.humancraft.telemetry.Telemetry;
 import io.sentry.SentryLevel;
@@ -27,6 +28,8 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.InteractionHand;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -50,6 +53,7 @@ public final class HumanCraftServer {
 	private final SnapshotStore store;
 	private final AvatarService avatars = new AvatarService();
 	private final Map<UUID, ContactService.Emitter> emitters = new HashMap<>();
+	private final Map<UUID, ArmSwingGate> swingGates = new HashMap<>();
 	private int tick;
 
 	private HumanCraftServer(HumanCraftConfig config) {
@@ -80,6 +84,8 @@ public final class HumanCraftServer {
 				(payload, ctx) -> avatars.acceptIntent(ctx.player(), payload.toIntent(System.currentTimeMillis())));
 		ServerPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.AnatomyAttack.TYPE,
 				(payload, ctx) -> onAnatomyAttack(payload, ctx.player()));
+		ServerPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.ArmSwing.TYPE,
+				(payload, ctx) -> onArmSwing(payload, ctx.player()));
 
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			if (!(handler.getPlayer() instanceof ScannedServerPlayer)) {
@@ -102,12 +108,14 @@ public final class HumanCraftServer {
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			store.forgetAll();
 			emitters.clear();
+			swingGates.clear();
 		});
 		ServerTickEvents.END_SERVER_TICK.register(this::onTick);
 	}
 
 	private void forget(UUID player, String reason) {
 		store.forget(player);
+		swingGates.remove(player);
 		emitters.remove(player);
 		HumanCraft.LOGGER.debug("Forgot snapshot state for {} ({})", player, reason);
 	}
@@ -159,6 +167,39 @@ public final class HumanCraftServer {
 		emitters.remove(player.getUUID());
 		Telemetry.breadcrumb("hmc.server", "clear snapshot had=" + had);
 		ServerPlayNetworking.send(player, new HumanCraftPayloads.SnapshotAck(-1, true, "cleared", had ? "cleared active snapshot" : "nothing active", -1, 0));
+	}
+
+	private void onArmSwing(HumanCraftPayloads.ArmSwing payload, ServerPlayer observer) {
+		if (!config.armSwingEnabled || !observer.isAlive() || observer.isSpectator()) return;
+		var binding = avatars.binding(observer);
+		if (!payload.targetPlayerId().equals(binding.targetId()) || payload.bindingGeneration() != binding.generation()
+				|| payload.normalizationRevision() != binding.normalizationRevision()) return;
+		ServerPlayer actor = observer.server.getPlayerList().getPlayer(binding.targetId());
+		if (actor == null || !actor.isAlive() || actor.isSpectator() || actor.serverLevel() != observer.serverLevel()) return;
+		long now = System.currentTimeMillis();
+		ServerSnapshot active = store.active(observer.getUUID(), now).orElse(null);
+		if (active == null || !active.dimension().equals(actor.serverLevel().dimension().location().toString())) return;
+		if (!swingGates.computeIfAbsent(observer.getUUID(), ignored -> new ArmSwingGate())
+				.accept(payload, active, now, config.liveFrameTtlMs, config.armSwingCooldownMs)) return;
+		actor.swing(payload.left() ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND);
+		Vector3 origin = new Vector3(actor.getX(), actor.getY(), actor.getZ());
+		int hits = 0;
+		for (LivingEntity target : actor.serverLevel().getEntitiesOfClass(LivingEntity.class,
+				actor.getBoundingBox().inflate(SwingArc.REACH))) {
+			if (target == actor || target == observer || !target.isAlive() || target.isSpectator()
+					|| !target.isAttackable() || actor.isAlliedTo(target)) continue;
+			if (target instanceof ServerPlayer player && !actor.canHarmPlayer(player)) continue;
+			if (!SwingArc.contains(origin, actor.getYRot(), new Vector3(target.getX(), target.getY(), target.getZ()))
+					|| !actor.hasLineOfSight(target)) continue;
+			// A plain fist hit for every target; weapon damage and sweeping enchantments are deliberately not applied.
+			if (target.hurt(actor.damageSources().playerAttack(actor), 1.0f)) {
+				double yaw = Math.toRadians(actor.getYRot());
+				target.knockback(0.4, Math.sin(yaw), -Math.cos(yaw));
+				hits++;
+			}
+		}
+		HumanCraft.LOGGER.debug("Arm swing frame={} actor={} hand={} hits={}", payload.frameId(), actor.getUUID(),
+				payload.left() ? "left" : "right", hits);
 	}
 
 	// ---- probe -------------------------------------------------------------------------------

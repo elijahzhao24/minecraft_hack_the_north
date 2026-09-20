@@ -1,3 +1,5 @@
+> **Physical punches:** see [arm swings, controls, and scan alignment](docs/arm-swings.md). Enable live capture with V, then swing either tracked wrist.
+
 > **Two-phone setup:** see [guided camera calibration and 5 m filtering](docs/camera-calibration.md). Press N or use `/humancraft cameras calibrate`; `/humancraft calibrate` only resets avatar scale.
 
 # Humans in Minecraft
@@ -62,7 +64,7 @@ java -version
 
 The remapped distributable is `minecraft-mod/build/libs/humancraft-0.1.0.jar`. `runClient` supplies Fabric API on the development classpath. For a normal launcher profile, use Minecraft 1.21.1 with Fabric Loader 0.19.5 and install both that HumanCraft JAR and Fabric API `0.116.17+1.21.1`.
 
-HumanCraft creates `run/config/humancraft.json` under `runClient` (or `.minecraft/config/humancraft.json` in a launcher profile). The backend defaults to `ws://127.0.0.1:8000/ws/character`; change `backendUrl` or set `HUMANCRAFT_BACKEND_URL`. Live-mode frames are hidden and made non-interactive after 500 ms; snapshot-mode frames persist.
+HumanCraft creates `run/config/humancraft.json` under `runClient` (or `.minecraft/config/humancraft.json` in a launcher profile). The backend defaults to `ws://127.0.0.1:8000/ws/character`; change `backendUrl` or set `HUMANCRAFT_BACKEND_URL`. Live-mode frames become non-interactive after 500 ms; the last scan remains visible with a stale warning. Snapshot-mode frames persist.
 
 The scan starts bound to your own player. These commands manage the two supported modes:
 
@@ -73,7 +75,8 @@ The scan starts bound to your own player. These commands manage the two supporte
 /humancraft despawn
 /humancraft control
 /humancraft release
-/humancraft calibrate
+/humancraft normalize
+/humancraft cameras calibrate
 /humancraft debug on|off
 ```
 
@@ -96,11 +99,11 @@ Cloud CI can load the client and validate entrypoints, but final rendering and i
 1. Run `cd minecraft-mod && ./gradlew runClient`. No Microsoft login is required for the development client.
 2. Create a single-player Creative flat world. With `fixtureOnStart: true`, the neutral fixture replaces your player model even if no backend is running. Use third-person view to inspect it.
 3. Confirm the HUD reaches `active frame 0`, reports 6,000 points, 77 landmarks, and 15 colliders. Verify the colored surface is depth-tested; skeleton lines and collider wireframes stay aligned while walking around it. Hands are magenta and feet orange in the collider overlay.
-4. Aim directly at torso, each hand, and each foot and press `P`. Confirm the chat/HUD reports the nearest exact body part. Aim through the arm/torso gap and confirm `MISS`.
-5. Place a solid wall between the player and human, aim through it, and press `P`; confirm `BLOCK_OCCLUDED`. Remove the wall and confirm the same aim can hit again.
+4. Aim directly at torso, each hand, and each foot and press `R`. Confirm the chat/HUD reports the nearest exact body part. Aim through the arm/torso gap and confirm `MISS`.
+5. Place a solid wall between the player and human, aim through it, and press `R`; confirm `BLOCK_OCCLUDED`. Remove the wall and confirm the same aim can hit again.
 6. In the neutral fixture, check the HUD contact count while both foot OBBs meet the flat floor. Place a cube against a hand and verify contact updates. This is a query indicator, not physical collision response.
 7. Walk, turn, jump, collide with walls and stairs, and take knockback. The cloud and colliders must follow the player together. Run `/humancraft mode separate`, then `/humancraft control`, and repeat with the internal player.
-8. Toggle cloud/skeleton/colliders with `O`/`I`/`U`, the registration-color diagnostic with `Y`, and the HUD with `H`. Use F6 to reconnect, F7 to request capture, and F8 to clear. All bindings are remappable under Options → Controls → HumanCraft.
+8. Toggle cloud/skeleton/colliders with `O`/`I`/`U`, the camera-contribution diagnostic with `Y`, and the HUD with `H`. Use J to reconnect, G to request capture, V for live capture, N for board calibration, and C to clear. All bindings are remappable under Options → Controls → HumanCraft.
 9. Leave the world running for ten minutes while toggling overlays and reconnecting. Confirm frame age/status remains sane and `run/logs/latest.log` has no renderer, buffer, or stale-interaction error.
 
 For real backend integration, start the backend first, set its character WebSocket URL, run the same client command, and follow [the end-to-end runbook](docs/workflows/05-end-to-end-runbook.md). The backend must emit the versioned schema in [the contracts document](docs/contracts.md); the client rejects unknown versions and malformed/oversized frames while retaining the last accepted snapshot.

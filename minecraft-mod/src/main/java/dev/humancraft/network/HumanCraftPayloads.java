@@ -162,6 +162,19 @@ public final class HumanCraftPayloads {
 		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
+	/** Sent directly after its InstallSnapshot on the same ordered connection. No client-supplied targets or damage. */
+	public record ArmSwing(long frameId, UUID sessionId, UUID calibrationId, UUID targetPlayerId,
+			long bindingGeneration, long normalizationRevision, boolean left) implements CustomPacketPayload {
+		public static final Type<ArmSwing> TYPE = new Type<>(id("arm_swing"));
+		public static final StreamCodec<FriendlyByteBuf, ArmSwing> CODEC = StreamCodec.of((buf, p) -> {
+			buf.writeLong(p.frameId); buf.writeUUID(p.sessionId); buf.writeUUID(p.calibrationId);
+			buf.writeUUID(p.targetPlayerId); buf.writeVarLong(p.bindingGeneration);
+			buf.writeVarLong(p.normalizationRevision); buf.writeBoolean(p.left);
+		}, buf -> new ArmSwing(buf.readLong(), buf.readUUID(), buf.readUUID(), buf.readUUID(),
+				buf.readVarLong(), buf.readVarLong(), buf.readBoolean()));
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
 	public record AnatomyAttack(int requestId) implements CustomPacketPayload {
 		public static final Type<AnatomyAttack> TYPE = new Type<>(id("anatomy_attack"));
 		public static final StreamCodec<FriendlyByteBuf, AnatomyAttack> CODEC = StreamCodec.of(
@@ -426,6 +439,7 @@ public final class HumanCraftPayloads {
 		c2s.register(ProbeRequest.TYPE, ProbeRequest.CODEC);
 		c2s.register(ControlInput.TYPE, ControlInput.CODEC);
 		c2s.register(AnatomyAttack.TYPE, AnatomyAttack.CODEC);
+		c2s.register(ArmSwing.TYPE, ArmSwing.CODEC);
 		s2c.register(SnapshotAck.TYPE, SnapshotAck.CODEC);
 		s2c.register(ProbeResult.TYPE, ProbeResult.CODEC);
 		s2c.register(ContactState.TYPE, ContactState.CODEC);

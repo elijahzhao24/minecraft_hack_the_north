@@ -520,6 +520,25 @@ Axes are three unit axis vectors stored as rows, mutually orthogonal within `1e-
 
 These are Fabric `CustomPacketPayload` records, not `HMC1` messages. Register their `StreamCodec`s on both sides before play. Names use the `hmc` namespace.
 
+### `hmc:arm_swing` — client to server
+
+Additive Fabric payload; the phone/character `HMC1` schema is unchanged. Fields
+in wire order: `frame_id` (long), `session_id` (UUID), `calibration_id` (UUID),
+`target_player_id` (UUID), `binding_generation` (VarLong),
+`normalization_revision` (VarLong), `left` (boolean).
+
+The client detects shoulder-relative wrist velocity in observed MediaPipe 3D
+landmarks and sends this intent immediately after the corresponding
+`install_snapshot` on the ordered connection. Reinstalling a frame for display
+or binding changes does not replay gestures. The server requires an accepted,
+unexpired live snapshot with exactly these identities, the current avatar
+binding in the same dimension, a new frame, and a shared per-observer cooldown
+of at least 500 ms. It derives all targets and damage from server state: one
+fist hit per eligible living target in the forward 180-degree half-sphere of
+radius 5 blocks, with line of sight and ordinary PvP/damage rules. The payload
+contains no target list, damage value, or client-supplied facing. See
+[arm swings](arm-swings.md) for detector thresholds and physical acceptance.
+
 ### `hmc:install_snapshot` — client to server
 
 ```java

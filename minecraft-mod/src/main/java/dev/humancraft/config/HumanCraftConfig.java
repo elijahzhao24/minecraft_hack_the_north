@@ -35,6 +35,10 @@ public final class HumanCraftConfig {
 	public double liveRateHz = 8.0;
 	/** Server reach used for probes when positive; otherwise the vanilla block interaction range. */
 	public double probeReachBlocks = 0;
+	/** Wrist speed relative to shoulder, in physical meters/second, before avatar scaling. */
+	public boolean armSwingEnabled = true;
+	public double armSwingSpeedMps = 1.5;
+	public int armSwingCooldownMs = 500;
 
 	/** Stage→world placement. When {@code anchorAuto} is true the anchor is placed in front of the player. */
 	public boolean anchorAuto = true;
@@ -107,6 +111,9 @@ public final class HumanCraftConfig {
 		override(env, "HUMANCRAFT_BACKEND_URL", v -> backendUrl = v);
 		override(env, "HUMANCRAFT_CLIENT_ID", v -> clientId = v);
 		override(env, "HUMANCRAFT_LIVE_TTL_MS", v -> liveFrameTtlMs = Integer.parseInt(v));
+		override(env, "HUMANCRAFT_ARM_SWING_ENABLED", v -> armSwingEnabled = Boolean.parseBoolean(v));
+		override(env, "HUMANCRAFT_ARM_SWING_SPEED_MPS", v -> armSwingSpeedMps = Double.parseDouble(v));
+		override(env, "HUMANCRAFT_ARM_SWING_COOLDOWN_MS", v -> armSwingCooldownMs = Integer.parseInt(v));
 		override(env, "HUMANCRAFT_BLOCKS_PER_METER", v -> blocksPerMeter = Double.parseDouble(v));
 		override(env, "HUMANCRAFT_FIXTURE_ON_START", v -> fixtureOnStart = Boolean.parseBoolean(v));
 		override(env, "HUMANCRAFT_OBSERVABILITY_FAULT", v -> observabilityFault = v);
@@ -136,6 +143,9 @@ public final class HumanCraftConfig {
 		reconnectMaxMs = Math.max(reconnectMinMs, reconnectMaxMs);
 		maxBinaryBytes = Math.min(Math.max(1024, maxBinaryBytes), dev.humancraft.contract.ProtocolLimits.MAX_MESSAGE_BYTES);
 		liveFrameTtlMs = Math.max(50, liveFrameTtlMs);
+		if (!Double.isFinite(armSwingSpeedMps)) armSwingSpeedMps = 1.5;
+		armSwingSpeedMps = Math.max(0.3, Math.min(10, armSwingSpeedMps));
+		armSwingCooldownMs = Math.max(500, Math.min(5000, armSwingCooldownMs));
 		if (!Double.isFinite(liveRateHz) || liveRateHz <= 0) {
 			liveRateHz = 8.0;
 		}

@@ -13,6 +13,21 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HumanCraftConfigTest {
+	@Test void swingSettingsAreConfigurableAndBounded() {
+		var config = new HumanCraftConfig();
+		config.applyEnvironment(Map.of("HUMANCRAFT_ARM_SWING_ENABLED", "false", "HUMANCRAFT_ARM_SWING_SPEED_MPS", "2.25",
+				"HUMANCRAFT_ARM_SWING_COOLDOWN_MS", "750"));
+		config.clamp();
+		assertFalse(config.armSwingEnabled);
+		assertEquals(2.25, config.armSwingSpeedMps);
+		assertEquals(750, config.armSwingCooldownMs);
+		config.armSwingSpeedMps = Double.NaN;
+		config.armSwingCooldownMs = -1;
+		config.clamp();
+		assertEquals(1.5, config.armSwingSpeedMps);
+		assertEquals(500, config.armSwingCooldownMs);
+	}
+
 	@TempDir
 	Path temp;
 
