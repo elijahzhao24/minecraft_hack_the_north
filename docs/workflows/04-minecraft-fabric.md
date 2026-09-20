@@ -2,7 +2,7 @@
 
 ## Outcome and boundary
 
-The Fabric mod receives a processed `CharacterFrame`, renders its point cloud and debug geometry on the physical client, and sends the small collider snapshot to Minecraft's logical server. The logical server owns active hit/contact state and makes every authoritative result.
+The Fabric mod receives a processed `CharacterFrame`, binds it to either the logged-in player or an internal `ServerPlayer`, and renders the point cloud in player-local space. The logical server owns binding, movement, hit/contact state, and damage decisions.
 
 This is true in singleplayer: Fabric's networking documentation notes that an integrated singleplayer game still has separate logical client/server sides. See [Fabric networking](https://docs.fabricmc.net/develop/networking).
 
@@ -141,7 +141,7 @@ On world unload, logout, config ownership change, or explicit clear, remove acti
 
 ### Point cloud
 
-Do not create a block/entity per point. `PointCloudRenderer` owns one GPU vertex buffer for the active frame:
+Do not create a block/entity per point. `PointCloudRenderer` owns one GPU vertex buffer for the active frame. Geometry stays player-local; entity position and yaw are applied at draw/query time:
 
 - Vertex: world position float32 plus RGBA8 (16 bytes if packed similarly).
 - Upload only when active frame changes, on the render thread.
