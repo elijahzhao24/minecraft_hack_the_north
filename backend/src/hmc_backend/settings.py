@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     depth_min_m: float = 0.2
     depth_max_m: float = 5.0
     confidence_min: int = 1  # ARKit confidence 0/1/2; accept >= this
+    # Take pitch/roll from each frame's ARKit gravity-aligned pose instead of
+    # trusting the nominal camera pose, and unproject with the lens intrinsics
+    # the phone reports rather than the rig file's nominal K.
+    gravity_align: bool = True
+    use_frame_intrinsics: bool = True
+    # Persisted stage->stage corrections from person-target registration.
+    registration_path: str = "data/registration.json"
 
     # --- Paths ------------------------------------------------------------
     calibration_path: str = "data/calibration.json"

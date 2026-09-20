@@ -257,7 +257,10 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
         from uuid import UUID, uuid4
 
         request_id = UUID(obj["request_id"]) if "request_id" in obj else uuid4()
-        code = "live_started" if runtime.live_active else "live_stopped"
+        if obj.get("type") == "register_rig":
+            code = "registration_requested"
+        else:
+            code = "live_started" if runtime.live_active else "live_stopped"
         await _send_model(ws, Ack(request_id=request_id, accepted=True, code=code))
         return
     if obj.get("type") == "request_capture":
@@ -272,6 +275,27 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
         )
 
 
+@app.post("/rig/register")
+async def rig_register() -> JSONResponse:
+    """Align the side camera onto the front camera using the next paired frame."""
+    runtime: AppRuntime = app.state.runtime
+    ok = runtime.request_registration()
+    return JSONResponse({"requested": ok}, status_code=202 if ok else 503)
+
+
+@app.get("/rig/register")
+async def rig_register_status() -> JSONResponse:
+    runtime: AppRuntime = app.state.runtime
+    return JSONResponse(runtime.registration_status())
+
+
+@app.delete("/rig/register")
+async def rig_register_clear() -> JSONResponse:
+    runtime: AppRuntime = app.state.runtime
+    runtime.clear_registration()
+    return JSONResponse({"cleared": True})
+
+
 def _handle_live_control(runtime: AppRuntime, obj: dict) -> bool:
     """Apply a live_start/live_stop control message; True if it was one."""
     kind = obj.get("type")
@@ -281,6 +305,9 @@ def _handle_live_control(runtime: AppRuntime, obj: dict) -> bool:
         return True
     if kind == "live_stop":
         runtime.stop_live()
+        return True
+    if kind == "register_rig":
+        runtime.request_registration()
         return True
     return False
 

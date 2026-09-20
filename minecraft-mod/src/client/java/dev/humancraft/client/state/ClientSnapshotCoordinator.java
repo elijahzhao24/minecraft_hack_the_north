@@ -292,6 +292,15 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
+	/** Asks the backend to snap the two cameras together using the person as the target. */
+	public void registerRig() {
+		if (backend == null || !backend.registerRig()) {
+			message(Component.literal("HumanCraft: backend is not connected"));
+			return;
+		}
+		message(Component.literal("HumanCraft: aligning cameras on the next capture — hold still"));
+	}
+
 	public boolean isLiveRequested() {
 		return liveRequested;
 	}

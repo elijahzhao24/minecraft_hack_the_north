@@ -60,6 +60,9 @@ def build_processor(
         voxel_size_m=settings.voxel_size_m,
         max_points=settings.max_points,
         confidence_min=settings.confidence_min,
+        reference_device=settings.expected_device_ids[0],
+        gravity_align=settings.gravity_align,
+        use_frame_intrinsics=settings.use_frame_intrinsics,
     )
 
 

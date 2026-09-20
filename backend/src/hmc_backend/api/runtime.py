@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import time
+from pathlib import Path
+
+import numpy as np
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -83,6 +87,7 @@ class AppRuntime:
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
             self._processor = processor or build_processor(settings, calibration)
+            self._load_registration()
         else:
             self._pairer = None
             self._processor = None
@@ -147,6 +152,62 @@ class AppRuntime:
             assert state.send_text is not None
             await state.send_text(payload)
         return True, "capture_dispatched"
+
+    # --- rig registration -------------------------------------------------
+
+    def request_registration(self) -> bool:
+        """Align the side camera onto the front one using the next paired frame."""
+        if self._processor is None:
+            return False
+        self._processor.request_registration()
+        self._registration_dirty = True
+        return True
+
+    def clear_registration(self) -> None:
+        if self._processor is not None:
+            self._processor.set_corrections({})
+            self._processor.last_registration = None
+        path = Path(self._settings.registration_path)
+        if path.exists():
+            path.unlink()
+        log_event("info", "rig_registration_cleared")
+
+    def registration_status(self) -> dict:
+        if self._processor is None:
+            return {"corrections": {}, "last": None}
+        return {
+            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
+            "last": self._processor.last_registration,
+        }
+
+    def _load_registration(self) -> None:
+        self._registration_dirty = False
+        path = Path(self._settings.registration_path)
+        if not path.exists() or self._processor is None:
+            return
+        try:
+            data = json.loads(path.read_text())
+            self._processor.set_corrections(
+                {k: np.array(v, np.float64).reshape(4, 4) for k, v in data.get("corrections", {}).items()}
+            )
+            log_event("info", "rig_registration_loaded", devices=list(data.get("corrections", {})))
+        except (ValueError, OSError) as exc:
+            log_event("warning", "rig_registration_load_failed", error=str(exc))
+
+    def _save_registration_if_dirty(self) -> None:
+        if not getattr(self, "_registration_dirty", False) or self._processor is None:
+            return
+        last = self._processor.last_registration
+        if last is None or not last.get("ok"):
+            return
+        self._registration_dirty = False
+        path = Path(self._settings.registration_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "calibration_id": str(self._calibration.calibration_id) if self._calibration else None,
+            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
+            "last": last,
+        }, indent=2))
 
     # --- live mode --------------------------------------------------------
 
@@ -272,6 +333,7 @@ class AppRuntime:
             # Run the CPU-heavy stages off the event loop.
             with span("collider.fit_and_reconstruct", "detect+reconstruct+fit"):
                 character = await asyncio.to_thread(self._processor.process, pair, mode=mode)
+            self._save_registration_if_dirty()
             if mode == "live" and character.quality.point_count == 0:
                 # Nobody in frame; publishing an empty live frame only makes
                 # the client log a decode error and blank the figure.

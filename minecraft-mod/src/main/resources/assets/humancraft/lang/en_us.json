@@ -4,6 +4,7 @@
   "key.humancraft.reconnect": "Reconnect backend",
   "key.humancraft.recapture": "Request snapshot capture",
   "key.humancraft.toggle_live": "Toggle live capture",
+  "key.humancraft.register_rig": "Align cameras on next capture",
   "key.humancraft.clear": "Clear active human",
   "key.humancraft.probe": "Probe body part",
   "key.humancraft.toggle_cloud": "Toggle point cloud",
