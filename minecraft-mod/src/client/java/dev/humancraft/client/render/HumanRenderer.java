@@ -58,6 +58,7 @@ public final class HumanRenderer implements AutoCloseable {
 	private long uploadedFrame = -1;
 	private boolean renderFailed;
 	private UUID targetPlayerId;
+	private long lastRenderLogMs;
 
 	public HumanRenderer(HumanCraftConfig config) {
 		this.config = config;
@@ -197,6 +198,14 @@ public final class HumanRenderer implements AutoCloseable {
 		var target = client.level.getPlayerByUUID(targetPlayerId);
 		if (target == null || target.isSwimming() || target.isFallFlying()) return;
 		if (target == client.player && client.options.getCameraType().isFirstPerson()) return;
+		if (System.currentTimeMillis() - lastRenderLogMs > 1000) {
+			lastRenderLogMs = System.currentTimeMillis();
+			dev.humancraft.HumanCraft.LOGGER.debug("HMC-RENDER target={} pos=({}, {}, {}) yaw={} isLocal={} cam=({}, {}, {})",
+					target.getName().getString(), String.format("%.2f", target.getX()), String.format("%.2f", target.getY()),
+					String.format("%.2f", target.getZ()), String.format("%.1f", target.getYRot()), target == client.player,
+					String.format("%.2f", context.camera().getPosition().x), String.format("%.2f", context.camera().getPosition().y),
+					String.format("%.2f", context.camera().getPosition().z));
+		}
 		try {
 			PoseStack matrices = context.matrixStack();
 			Vec3 camera = context.camera().getPosition();

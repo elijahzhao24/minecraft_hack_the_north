@@ -63,6 +63,7 @@ public final class ClientSnapshotCoordinator {
 	private long normalizationRevision;
 	private boolean controllingSeparate;
 	private double lockedBlocksPerMeter = Double.NaN;
+	private long lastTransformLogMs;
 
 	public ClientSnapshotCoordinator(HumanCraftConfig config, HumanRenderer renderer) {
 		this.config = config;
@@ -549,6 +550,12 @@ public final class ClientSnapshotCoordinator {
 		}
 		double rootX = xs[mid];
 		double rootZ = zs[mid];
+		if (System.currentTimeMillis() - lastTransformLogMs > 1000) {
+			lastTransformLogMs = System.currentTimeMillis();
+			HumanCraft.LOGGER.debug("HMC-XFORM n={} medianX={} medianZ={} minY={} height={} bpm={} mode={}",
+					n, String.format("%.3f", rootX), String.format("%.3f", rootZ), String.format("%.3f", minY),
+					String.format("%.3f", height), String.format("%.2f", lockedBlocksPerMeter), avatarMode);
+		}
 		return new StageToWorld(new Vector3(-rootX * lockedBlocksPerMeter, -minY * lockedBlocksPerMeter,
 				-rootZ * lockedBlocksPerMeter), lockedBlocksPerMeter);
 	}

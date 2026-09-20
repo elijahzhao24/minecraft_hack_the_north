@@ -125,9 +125,20 @@ class CharacterProcessor:
                 self.last_registration = {"ok": False, "device_id": dev, "error": str(exc)}
                 log_event("warning", "rig_registration_failed", device_id=dev, error=str(exc))
                 continue
+            yaw_deg = float(np.degrees(np.arctan2(t_inc[0, 2], t_inc[0, 0])))
+            shift_m = float(np.linalg.norm(t_inc[:3, 3]))
+            if refine and (abs(yaw_deg) > 10.0 or shift_m > 0.3):
+                # A refinement that wants to move this far has locked onto a
+                # wrong match (typically the subject moved between the two
+                # shutters or during the request). Keep the previous correction.
+                self.last_registration = {
+                    "ok": False, "device_id": dev, "error": "implausible_refine",
+                    "yaw_deg": round(yaw_deg, 2), "shift_m": round(shift_m, 3), "rms_m": round(rms, 4),
+                }
+                log_event("warning", "rig_registration_rejected", **self.last_registration)
+                continue
             prev = self._corrections.get(dev, np.eye(4))
             self._corrections[dev] = t_inc @ prev
-            yaw_deg = float(np.degrees(np.arctan2(t_inc[0, 2], t_inc[0, 0])))
             self.last_registration = {
                 "ok": True,
                 "device_id": dev,
