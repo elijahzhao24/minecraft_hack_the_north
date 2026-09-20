@@ -43,6 +43,33 @@ def test_health_503_without_calibration():
     assert resp.json()["status"] in {"starting", "degraded"}
 
 
+def test_calibration_capture_routes_work_without_calibration(tmp_path):
+    with TestClient(app) as client:
+        settings = Settings(_env_file=None, recording_root=str(tmp_path / "recordings"))
+        runtime = AppRuntime(settings, None)
+        sent: dict[str, list[str]] = {"front-phone": [], "side-phone": []}
+
+        for device_id in sent:
+            async def send(payload: str, *, target=device_id) -> None:
+                sent[target].append(payload)
+
+            runtime.register_capture(device_id, send)
+        app.state.runtime = runtime
+
+        response = client.post("/calibration/captures")
+        assert response.status_code == 202
+        requested = response.json()
+        assert requested["state"] == "pending"
+        assert all(json.loads(messages[-1])["capture_id"] == requested["capture_id"] for messages in sent.values())
+
+        status = client.get(f"/calibration/captures/{requested['capture_id']}")
+        assert status.status_code == 200
+        assert status.json()["state"] == "pending"
+
+        missing = client.get(f"/calibration/captures/{uuid4()}")
+        assert missing.status_code == 404
+
+
 def test_capture_hello_rejects_unknown_device():
     with TestClient(app) as client:
         _install_runtime(with_calibration=True)

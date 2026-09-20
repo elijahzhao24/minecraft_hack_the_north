@@ -11,6 +11,7 @@ synthetic board frames before the tripods are set up.
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from calibrate import collect, split_held_out
+from calibrate import main as calibrate_main
 
 from hmc_backend.calibration.charuco import (
     BoardSpec,
@@ -243,3 +245,36 @@ def test_held_out_disabled(fraction):
     train, held = split_held_out(obs, fraction)
     assert held == []
     assert len(train) == 8
+
+
+def test_cli_writes_only_calibration_that_passes_quality_gates(tmp_path, monkeypatch):
+    recordings = tmp_path / "recordings"
+    _write_board_recordings(recordings, frames=8)
+    output = tmp_path / "calibration.json"
+    monkeypatch.setattr(sys, "argv", [
+        "calibrate.py",
+        "--recordings", str(recordings),
+        "--out", str(output),
+        "--square-length-m", str(SPEC.square_length_m),
+        "--marker-length-m", str(SPEC.marker_length_m),
+    ])
+    assert calibrate_main() == 0
+    saved = json.loads(output.read_text())
+    assert {camera["device_id"] for camera in saved["cameras"]} == set(EYES)
+
+
+def test_cli_preserves_previous_file_when_quality_gate_fails(tmp_path, monkeypatch):
+    recordings = tmp_path / "recordings"
+    _write_board_recordings(recordings, frames=8)
+    output = tmp_path / "calibration.json"
+    output.write_text("previous calibration")
+    monkeypatch.setattr(sys, "argv", [
+        "calibrate.py",
+        "--recordings", str(recordings),
+        "--out", str(output),
+        "--square-length-m", str(SPEC.square_length_m),
+        "--marker-length-m", str(SPEC.marker_length_m),
+        "--max-reprojection-error-px", "0",
+    ])
+    assert calibrate_main() == 1
+    assert output.read_text() == "previous calibration"

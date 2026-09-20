@@ -12,18 +12,19 @@ import asyncio
 import contextlib
 import json
 import time
-from pathlib import Path
-
-import numpy as np
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from uuid import UUID, uuid4
+
+import numpy as np
 
 from hmc_backend.api.hub import CharacterHub
 from hmc_backend.calibration.model import RigCalibration
 from hmc_backend.capture.clock import ClockEstimator
 from hmc_backend.capture.pairing import Pairer
+from hmc_backend.capture.recording import save_recording
 from hmc_backend.capture.replay import captured_frame_from_decoded
 from hmc_backend.capture.rgbd_ingest import decode_rgbd_frame
 from hmc_backend.contracts.character_codec import encode_character_frame
@@ -39,7 +40,7 @@ from hmc_backend.observability import log_event, span, transaction
 from hmc_backend.pipeline.factory import build_pairer, build_processor
 from hmc_backend.pipeline.processor import CharacterProcessor
 from hmc_backend.pipeline.snapshot_store import SnapshotStore
-from hmc_backend.protocol.envelope import decode_envelope
+from hmc_backend.protocol.envelope import EnvelopeError, decode_envelope
 from hmc_backend.settings import Settings
 
 
@@ -52,6 +53,19 @@ class DeviceState:
     token: object | None = None
     clock: ClockEstimator = field(default_factory=ClockEstimator)
     send_text: Callable[[str], Awaitable[None]] | None = None
+
+
+@dataclass
+class CalibrationCaptureState:
+    """Raw synchronized packets collected before a rig calibration exists."""
+
+    capture_id: UUID
+    created_monotonic_s: float
+    deadline_monotonic_s: float
+    packets: dict[str, bytes] = field(default_factory=dict)
+    state: str = "pending"
+    saved_recording_path: str | None = None
+    failure_code: str | None = None
 
 
 class AppRuntime:
@@ -86,7 +100,10 @@ class AppRuntime:
         # Live requests dispatched but not yet paired: capture_id -> send time.
         self._live_inflight: dict[UUID, float] = {}
         self._live_paired = asyncio.Event()
+        self._calibration_captures: OrderedDict[UUID, CalibrationCaptureState] = OrderedDict()
 
+        self._pairer: Pairer | None
+        self._processor: CharacterProcessor | None
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
             self._processor = processor or build_processor(settings, calibration)
@@ -156,11 +173,75 @@ class AppRuntime:
             await state.send_text(payload)
         return True, "capture_dispatched"
 
+    async def request_calibration_capture(self) -> tuple[bool, dict]:
+        """Request one raw synchronized pair, even when no calibration is loaded."""
+        if not all(s.connected and s.send_text is not None for s in self._devices.values()):
+            return False, {"code": "devices_unavailable"}
+        capture_id = uuid4()
+        now = time.monotonic()
+        state = CalibrationCaptureState(
+            capture_id=capture_id,
+            created_monotonic_s=now,
+            deadline_monotonic_s=now + self._settings.calibration_capture_timeout_s,
+        )
+        self._calibration_captures[capture_id] = state
+        while len(self._calibration_captures) > 64:
+            self._calibration_captures.popitem(last=False)
+        request = CaptureRequest(request_id=uuid4(), capture_id=capture_id, mode=Mode.SNAPSHOT)
+        payload = request.model_dump_json()
+        for device in self._devices.values():
+            assert device.send_text is not None
+            await device.send_text(payload)
+        return True, self.calibration_capture_status(capture_id) or {}
+
+    def calibration_capture_status(self, capture_id: UUID) -> dict | None:
+        state = self._calibration_captures.get(capture_id)
+        if state is None:
+            return None
+        if state.state == "pending" and time.monotonic() > state.deadline_monotonic_s:
+            state.state = "failed"
+            state.failure_code = "capture_timeout"
+        return {
+            "capture_id": str(state.capture_id),
+            "device_ids": sorted(state.packets),
+            "state": state.state,
+            "saved_recording_path": state.saved_recording_path,
+            "failure_code": state.failure_code,
+        }
+
+    async def _record_calibration_packet(self, device_id: str, capture_id: UUID, raw: bytes) -> None:
+        state = self._calibration_captures[capture_id]
+        self.calibration_capture_status(capture_id)
+        if state.state != "pending":
+            return
+        if device_id in state.packets:
+            state.state = "failed"
+            state.failure_code = "duplicate_device_packet"
+            return
+        state.packets[device_id] = bytes(raw)
+        if set(state.packets) != set(self._devices):
+            return
+        try:
+            path = await asyncio.to_thread(
+                save_recording,
+                self._settings.recording_root,
+                capture_id,
+                state.packets,
+                backend_release=self._settings.release,
+                consent_note="calibration board capture; may contain surrounding RGB/depth data",
+            )
+        except OSError:
+            state.state = "failed"
+            state.failure_code = "recording_write_failed"
+            return
+        state.state = "complete"
+        state.saved_recording_path = str(path.resolve())
+
     # --- rig registration -------------------------------------------------
 
     def request_registration(self) -> bool:
         """Align the side camera onto the front one using the next paired frame."""
-        if self._processor is None:
+        if not self._settings.enable_person_registration or self._processor is None:
             return False
         self._processor.request_registration()
         self._registration_dirty = True
@@ -185,11 +266,16 @@ class AppRuntime:
 
     def _load_registration(self) -> None:
         self._registration_dirty = False
+        if not self._settings.enable_person_registration:
+            return
         path = Path(self._settings.registration_path)
         if not path.exists() or self._processor is None:
             return
         try:
             data = json.loads(path.read_text())
+            if self._calibration is None or data.get("calibration_id") != str(self._calibration.calibration_id):
+                log_event("warning", "rig_registration_ignored", reason="calibration_id_mismatch")
+                return
             self._processor.set_corrections(
                 {k: np.array(v, np.float64).reshape(4, 4) for k, v in data.get("corrections", {}).items()}
             )
@@ -280,14 +366,33 @@ class AppRuntime:
 
     # --- capture ingest ---------------------------------------------------
 
-    async def handle_rgbd(self, raw: bytes, *, mode: str = "snapshot") -> CharacterFrame | None:
+    async def handle_rgbd(
+        self,
+        raw: bytes,
+        *,
+        mode: str = "snapshot",
+        connected_device_id: str | None = None,
+    ) -> CharacterFrame | None:
         """Decode a packet, pair it, and (on a completed pair) publish a frame."""
-        if self._pairer is None or self._processor is None or self._calibration is None:
-            return None
-
         env = decode_envelope(raw)
         decoded = decode_rgbd_frame(env)
         device_id = decoded.header.device_id
+        if connected_device_id is not None and connected_device_id != device_id:
+            raise EnvelopeError("unauthorized_device", "packet device_id does not match connection")
+        calibration_capture = self._calibration_captures.get(decoded.header.capture_id)
+        if calibration_capture is not None:
+            await self._record_calibration_packet(device_id, decoded.header.capture_id, raw)
+            return None
+        if self._pairer is None or self._processor is None or self._calibration is None:
+            return None
+        camera = self._calibration.camera(device_id)
+        header = decoded.header
+        if header.image_orientation.value != camera.image_orientation:
+            raise EnvelopeError("calibration_mismatch", "image orientation differs from calibration")
+        if (header.rgb.width, header.rgb.height) != camera.rgb_size:
+            raise EnvelopeError("calibration_mismatch", "RGB dimensions differ from calibration")
+        if (header.depth.width, header.depth.height) != camera.depth_size:
+            raise EnvelopeError("calibration_mismatch", "depth dimensions differ from calibration")
         mode = self._capture_modes.get(decoded.header.capture_id, mode)
         state = self._devices.get(device_id)
         if state is None:

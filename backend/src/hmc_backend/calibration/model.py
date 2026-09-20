@@ -77,6 +77,27 @@ def _parse_camera(entry: dict, calibration_id: UUID, created_at: datetime) -> Ca
     depth = entry["depth"]
     k = _matrix(entry["K_rgb_row_major"], 9, "K_rgb")
     t = _matrix(entry["T_stage_from_optical_row_major"], 16, "T_stage_from_optical")
+    orientation = str(entry["image_orientation"])
+    if orientation not in {
+        "landscape_right", "landscape_left", "portrait", "portrait_upside_down"
+    }:
+        raise CalibrationError(f"unsupported image_orientation {orientation!r}")
+    if int(rgb["width"]) <= 0 or int(rgb["height"]) <= 0:
+        raise CalibrationError("RGB dimensions must be positive")
+    if int(depth["width"]) <= 0 or int(depth["height"]) <= 0:
+        raise CalibrationError("depth dimensions must be positive")
+    if k[0, 0] <= 0 or k[1, 1] <= 0 or abs(k[2, 2] - 1.0) > 1e-6:
+        raise CalibrationError("K_rgb is not a plausible pinhole intrinsic matrix")
+    r = t[:3, :3]
+    if not np.allclose(r @ r.T, np.eye(3), atol=1e-4) or not np.isclose(
+        np.linalg.det(r), 1.0, atol=1e-4
+    ):
+        raise CalibrationError("T_stage_from_optical rotation must be right-handed and orthonormal")
+    if not np.allclose(t[3], [0.0, 0.0, 0.0, 1.0], atol=1e-8):
+        raise CalibrationError("T_stage_from_optical must have homogeneous final row [0,0,0,1]")
+    reprojection_error = float(entry["reprojection_error_px"])
+    if not np.isfinite(reprojection_error) or reprojection_error < 0:
+        raise CalibrationError("reprojection_error_px must be finite and non-negative")
 
     return CameraCalibration(
         calibration_id=calibration_id,
@@ -85,8 +106,9 @@ def _parse_camera(entry: dict, calibration_id: UUID, created_at: datetime) -> Ca
         depth_size=(int(depth["width"]), int(depth["height"])),
         K_rgb=k,
         T_stage_from_optical=t,
-        reprojection_error_px=float(entry["reprojection_error_px"]),
+        reprojection_error_px=reprojection_error,
         created_at_utc=created_at,
+        image_orientation=orientation,
     )
 
 
@@ -143,7 +165,7 @@ def rig_to_json(rig: RigCalibration) -> dict:
         cameras.append(
             {
                 "device_id": cam.device_id,
-                "image_orientation": "landscape_right",
+                "image_orientation": cam.image_orientation,
                 "rgb": {"width": cam.rgb_size[0], "height": cam.rgb_size[1]},
                 "depth": {"width": cam.depth_size[0], "height": cam.depth_size[1]},
                 "K_rgb_row_major": cam.K_rgb.reshape(-1).tolist(),

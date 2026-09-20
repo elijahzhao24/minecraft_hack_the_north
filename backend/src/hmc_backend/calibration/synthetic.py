@@ -30,7 +30,8 @@ def look_at_optical(
     Optical axes: +Z forward (toward target).
     For landscape_right: +X image-right, +Y image-down.
     For portrait (phone placed vertically, charging port down):
-        +X sensor down, +Y sensor right.
+        +X sensor down, +Y sensor left. This keeps the optical basis
+        right-handed; image rotation is handled at the raster boundary.
     """
     z = target - eye
     z = z / np.linalg.norm(z)
@@ -40,7 +41,7 @@ def look_at_optical(
 
     if orientation == "portrait":
         x = world_down
-        y = world_right
+        y = -world_right
     else:
         x = world_right
         y = world_down
@@ -96,6 +97,9 @@ def build_synthetic_rig(
             T_stage_from_optical=look_at_optical(eye, target, up, orientation=orientation),
             reprojection_error_px=1.0,
             created_at_utc=created,
+            # Synthetic packets and frozen fixtures use this wire orientation;
+            # ``orientation`` above only chooses the generated optical basis.
+            image_orientation="landscape_right",
         )
 
     return RigCalibration(

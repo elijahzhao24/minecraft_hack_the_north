@@ -31,6 +31,31 @@ uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 The backend must run as a **single Uvicorn worker** — device connections,
 calibration, queues, and subscribers are in-memory shared state.
 
+## Calibrate and merge two fixed iPhones
+
+Place the measured ChArUco board flat on the stage mark in the orientation
+documented in `calibration/charuco.py`, connect both phones as `front-phone` and
+`side-phone`, and leave both tripods fixed. The backend accepts calibration
+captures even when `/health` is 503 because no calibration exists yet.
+
+```bash
+uv run python scripts/calibrate.py \
+  --url http://127.0.0.1:8000 \
+  --capture-count 8 \
+  --out data/calibration.json
+```
+
+The command requests synchronized raw pairs, solves both
+`T_stage_from_optical` transforms, and writes the file only when every camera
+has at least two held-out frames, at most 3 cm held-out position error, and at
+most 3 px reprojection error. Restart the backend afterward. Moving either
+phone, or changing its raster size or orientation, requires recalibration.
+
+`POST /calibration/captures` requests one raw pair and
+`GET /calibration/captures/{capture_id}` reports its status. Production frames
+whose device, raster, or orientation differs from the loaded calibration are
+rejected instead of being merged in the wrong frame.
+
 Fixture mode remains the default. For real Pose/Hand inference:
 
 ```bash

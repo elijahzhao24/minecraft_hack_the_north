@@ -17,8 +17,12 @@ Then restart the backend; it loads the calibration at startup.
 from __future__ import annotations
 
 import argparse
+import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 import numpy as np
@@ -50,6 +54,7 @@ class DeviceFrames:
         self.k_rgb: np.ndarray | None = None
         self.rgb_size: tuple[int, int] | None = None
         self.depth_size: tuple[int, int] | None = None
+        self.image_orientation: str | None = None
 
     def note_rejection(self, reason: str) -> None:
         self.rejections[reason] = self.rejections.get(reason, 0) + 1
@@ -77,9 +82,22 @@ def collect(recording_dirs: list[Path], spec: BoardSpec) -> dict[str, DeviceFram
                 continue
 
             header = decoded.header
+            rgb_size = (header.rgb.width, header.rgb.height)
+            depth_size = (header.depth.width, header.depth.height)
+            orientation = header.image_orientation.value
+            if state.rgb_size is not None and state.rgb_size != rgb_size:
+                state.note_rejection("rgb_size_changed")
+                continue
+            if state.depth_size is not None and state.depth_size != depth_size:
+                state.note_rejection("depth_size_changed")
+                continue
+            if state.image_orientation is not None and state.image_orientation != orientation:
+                state.note_rejection("image_orientation_changed")
+                continue
             state.k_rgb = decoded.k_rgb
-            state.rgb_size = (header.rgb.width, header.rgb.height)
-            state.depth_size = (header.depth.width, header.depth.height)
+            state.rgb_size = rgb_size
+            state.depth_size = depth_size
+            state.image_orientation = orientation
 
             obs, reason = observe_frame(
                 decoded.rgb,
@@ -95,6 +113,36 @@ def collect(recording_dirs: list[Path], spec: BoardSpec) -> dict[str, DeviceFram
                 state.observations.append(obs)
 
     return devices
+
+
+def capture_from_backend(base_url: str, count: int, timeout_s: float) -> list[Path]:
+    """Request ``count`` synchronized raw pairs and return their saved paths."""
+    base = base_url.rstrip("/")
+    paths: list[Path] = []
+    for index in range(count):
+        try:
+            with urlopen(Request(f"{base}/calibration/captures", method="POST"), timeout=5) as response:
+                requested = json.load(response)
+        except (HTTPError, URLError, TimeoutError) as exc:
+            raise RuntimeError(f"could not request calibration capture: {exc}") from exc
+        capture_id = requested["capture_id"]
+        deadline = time.monotonic() + timeout_s
+        while True:
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"capture {capture_id} did not complete within {timeout_s:g}s")
+            try:
+                with urlopen(f"{base}/calibration/captures/{capture_id}", timeout=5) as response:
+                    status = json.load(response)
+            except (HTTPError, URLError, TimeoutError) as exc:
+                raise RuntimeError(f"could not query calibration capture {capture_id}: {exc}") from exc
+            if status["state"] == "complete":
+                paths.append(Path(status["saved_recording_path"]))
+                print(f"captured {index + 1}/{count}: {capture_id}")
+                break
+            if status["state"] == "failed":
+                raise RuntimeError(f"capture {capture_id} failed: {status['failure_code']}")
+            time.sleep(0.1)
+    return paths
 
 
 def split_held_out(
@@ -116,6 +164,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--recordings", default="data/recordings", help="root of capture dirs")
     parser.add_argument("--out", default="data/calibration.json")
+    parser.add_argument("--url", help="running backend base URL; collect synchronized pairs before solving")
+    parser.add_argument("--capture-count", type=int, default=8)
+    parser.add_argument("--capture-timeout-s", type=float, default=10.0)
+    parser.add_argument("--devices", default="front-phone,side-phone")
     parser.add_argument("--dictionary", default="DICT_5X5_100")
     parser.add_argument("--squares-x", type=int, default=7)
     parser.add_argument("--squares-y", type=int, default=10)
@@ -132,6 +184,9 @@ def main() -> int:
     parser.add_argument("--held-out-fraction", type=float, default=0.25)
     parser.add_argument("--min-frames", type=int, default=4)
     parser.add_argument("--max-angle-deg", type=float, default=5.0)
+    parser.add_argument("--max-position-error-m", type=float, default=0.03)
+    parser.add_argument("--max-reprojection-error-px", type=float, default=3.0)
+    parser.add_argument("--min-held-out", type=int, default=2)
     args = parser.parse_args()
 
     spec = BoardSpec(
@@ -143,14 +198,27 @@ def main() -> int:
     )
 
     root = Path(args.recordings)
-    capture_dirs = sorted(d for d in root.iterdir() if (d / "manifest.json").exists())
+    try:
+        capture_dirs = (
+            capture_from_backend(args.url, args.capture_count, args.capture_timeout_s)
+            if args.url
+            else sorted(d for d in root.iterdir() if (d / "manifest.json").exists())
+        )
+    except (OSError, RuntimeError) as exc:
+        print(f"calibration capture failed: {exc}")
+        return 1
     if not capture_dirs:
         print(f"no recordings with a manifest under {root}")
         return 1
     print(f"scanning {len(capture_dirs)} recording(s) under {root}")
 
     devices = collect(capture_dirs, spec)
-    if not devices:
+    expected_devices = tuple(part.strip() for part in args.devices.split(",") if part.strip())
+    if len(expected_devices) != 2 or len(set(expected_devices)) != 2:
+        print("--devices must contain exactly two unique IDs")
+        return 1
+    if set(devices) != set(expected_devices):
+        print(f"device mismatch: expected {sorted(expected_devices)}, found {sorted(devices)}")
         print("no device packets found")
         return 1
 
@@ -207,6 +275,22 @@ def main() -> int:
         else:
             print("    held-out         none (too few frames) - capture more poses")
 
+        if solution.max_reprojection_error_px > args.max_reprojection_error_px:
+            print(
+                f"    !! reprojection error {solution.max_reprojection_error_px:.2f}px exceeds "
+                f"{args.max_reprojection_error_px:.2f}px"
+            )
+            failed = True
+        if report.get("held_out_frames", 0) < args.min_held_out:
+            print(f"    !! need at least {args.min_held_out} held-out frames")
+            failed = True
+        if report.get("max_position_error_m", float("inf")) > args.max_position_error_m:
+            print(
+                f"    !! held-out position error {report.get('max_position_error_m', float('inf')):.3f}m "
+                f"exceeds {args.max_position_error_m:.3f}m"
+            )
+            failed = True
+
         if pos[1] <= 0:
             print("    !! camera solved to at/below floor level - check board placement")
             failed = True
@@ -220,6 +304,7 @@ def main() -> int:
             T_stage_from_optical=solution.T_stage_from_optical,
             reprojection_error_px=solution.median_reprojection_error_px,
             created_at_utc=created,
+            image_orientation=state.image_orientation or "landscape_right",
         )
         validation[device_id] = {
             "accepted_frames": solution.accepted_count,
@@ -246,7 +331,10 @@ def main() -> int:
         cameras=cameras,
         validation=validation,
     )
-    save_rig_calibration(rig, args.out)
+    output = Path(args.out)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    save_rig_calibration(rig, temporary)
+    temporary.replace(output)
 
     print(f"\nwrote {args.out}")
     print(f"  calibration_id = {calibration_id}")

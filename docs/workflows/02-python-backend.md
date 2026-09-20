@@ -150,12 +150,13 @@ Held-pose capture reduces motion artifacts but does not waive the skew validatio
 
 Use a printed ChArUco board with measured square/marker sizes and a defined board-to-stage transform.
 
-1. Capture multiple board views per fixed phone with the exact production raster configuration.
-2. Detect ChArUco corners using `opencv-contrib-python` and the RGB intrinsics supplied by ARKit.
-3. Estimate board-to-optical pose with `solvePnP`; compose/invert it into `T_stage_from_optical` according to the named frame convention.
-4. Reject frames with negative target depth, excessive reprojection error, too few/spatially clustered corners, or inconsistent metric scale.
-5. Robustly aggregate accepted transforms. Do not element-wise average rotation matrices; average rotations on SO(3) or choose/refine a robust joint pose.
-6. Validate against held-out board views and a separate measured target, then write one immutable calibration JSON.
+1. Start the backend and connect both configured phones. Calibration capture remains available when no active calibration is loaded.
+2. Keep the board fixed at the documented stage mark and run `scripts/calibrate.py --url http://127.0.0.1:8000 --capture-count 8`; the backend stores each synchronized raw pair under `data/recordings/<capture_id>/`.
+3. Detect ChArUco corners using `opencv-contrib-python` and the RGB intrinsics supplied by ARKit.
+4. Estimate board-to-optical pose with `solvePnP`; compose/invert it into `T_stage_from_optical` according to the named frame convention.
+5. Reject frames with negative target depth, excessive reprojection error, too few/spatially clustered corners, inconsistent raster/orientation, or inconsistent metric scale.
+6. Robustly aggregate accepted transforms. Do not element-wise average rotation matrices; average rotations on SO(3) or choose/refine a robust joint pose.
+7. Require both configured devices, at least two held-out frames per camera, maximum held-out position error of 3 cm, and maximum reprojection error of 3 px. Write the new calibration atomically only after all gates pass, then restart the backend.
 
 Calibration file contains:
 
@@ -188,7 +189,7 @@ For each view:
 7. Merge views, voxel-downsample at 1–2 cm, and reject isolated spatial outliers. Preserve source-camera bitsets for diagnostics.
 8. If more than `max_points` remain, use deterministic spatial/reservoir selection seeded by source frame IDs; never truncate by raster order.
 
-Do not run unconstrained ICP between the two human clouds. Calibration determines their relative frame; a moving/partially observed body is a poor unrestricted ICP target.
+Do not run unconstrained ICP between the two human clouds. Calibration determines their relative frame; a moving/partially observed body is a poor unrestricted ICP target. Person-target registration is disabled by default and, if explicitly enabled for diagnostics, a persisted correction is accepted only for the exact active `calibration_id`.
 
 ## Assembly and publication
 

@@ -202,7 +202,7 @@ The backend records its own receive time. It computes phone-minus-backend offset
 }
 ```
 
-Error `code` is a stable machine value. `message` is for people and may change. Expected codes include `unsupported_version`, `unauthorized_device`, `invalid_message`, `invalid_buffer_range`, `frame_too_large`, `sequence_replayed`, `calibration_missing`, `pair_skew_exceeded`, `processor_busy`, and `internal_error`.
+Error `code` is a stable machine value. `message` is for people and may change. Expected codes include `unsupported_version`, `unauthorized_device`, `invalid_message`, `invalid_buffer_range`, `frame_too_large`, `sequence_replayed`, `calibration_missing`, `calibration_mismatch`, `pair_skew_exceeded`, `processor_busy`, and `internal_error`.
 
 ### Minecraft subscriber messages
 

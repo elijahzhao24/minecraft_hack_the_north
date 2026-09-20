@@ -55,6 +55,7 @@ def captured_frame_from_decoded(
             baggage=h.trace.baggage if h.trace else None,
         ),
         received_monotonic_s=time.perf_counter(),
+        image_orientation=h.image_orientation.value,
     )
 
 

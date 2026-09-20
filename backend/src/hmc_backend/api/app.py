@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator
+from uuid import UUID
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -38,6 +39,8 @@ def build_runtime(settings: Settings) -> AppRuntime:
     calibration = None
     try:
         calibration = load_rig_calibration(settings.calibration_path)
+        if set(calibration.device_ids()) != set(settings.expected_device_ids):
+            raise CalibrationError("calibration devices do not match expected_device_ids")
     except CalibrationError:
         calibration = None
     return AppRuntime(settings, calibration)
@@ -134,15 +137,15 @@ async def ws_capture(ws: WebSocket) -> None:
 
 
 async def _clock_probe_loop(ws: WebSocket, interval_s: float) -> None:
-    from uuid import uuid4
     import time
+    from uuid import uuid4
 
     for _ in range(4):
         try:
             ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
             await _send_model(ws, ping)
             await asyncio.sleep(0.05)
-        except Exception:
+        except Exception:  # noqa: BLE001 - a closed socket ends the probe task
             return
 
     while True:
@@ -150,7 +153,7 @@ async def _clock_probe_loop(ws: WebSocket, interval_s: float) -> None:
             await asyncio.sleep(interval_s)
             ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
             await _send_model(ws, ping)
-        except Exception:
+        except Exception:  # noqa: BLE001 - a closed socket ends the probe task
             break
 
 
@@ -183,9 +186,9 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
 
 async def _handle_capture_binary(runtime: AppRuntime, ws: WebSocket, device_id: str, data: bytes) -> None:
     try:
-        await runtime.handle_rgbd(data)
+        await runtime.handle_rgbd(data, connected_device_id=device_id)
     except EnvelopeError as exc:
-        log_event("warning", "rgbd_rejected", device_id=device_id, code=exc.code, message=exc.message)
+        log_event("warning", "rgbd_rejected", device_id=device_id, code=exc.code, detail=exc.message)
         await _send_model(ws, Error(code=exc.code, message=exc.message))
     except Exception:  # noqa: BLE001 - never let one frame kill the socket
         log_event("error", "rgbd_processing_failed", device_id=device_id, bytes=len(data))
@@ -295,6 +298,23 @@ async def rig_register_clear() -> JSONResponse:
     runtime: AppRuntime = app.state.runtime
     runtime.clear_registration()
     return JSONResponse({"cleared": True})
+
+
+@app.post("/calibration/captures")
+async def calibration_capture() -> JSONResponse:
+    """Request and persist one synchronized raw pair for board calibration."""
+    runtime: AppRuntime = app.state.runtime
+    accepted, result = await runtime.request_calibration_capture()
+    return JSONResponse(result, status_code=202 if accepted else 503)
+
+
+@app.get("/calibration/captures/{capture_id}")
+async def calibration_capture_status(capture_id: UUID) -> JSONResponse:
+    runtime: AppRuntime = app.state.runtime
+    result = runtime.calibration_capture_status(capture_id)
+    if result is None:
+        return JSONResponse({"code": "capture_not_found"}, status_code=404)
+    return JSONResponse(result)
 
 
 def _handle_live_control(runtime: AppRuntime, obj: dict) -> bool:

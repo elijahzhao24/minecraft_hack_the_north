@@ -65,10 +65,19 @@ class Settings(BaseSettings):
     # Take pitch/roll from each frame's ARKit gravity-aligned pose instead of
     # trusting the nominal camera pose, and unproject with the lens intrinsics
     # the phone reports rather than the rig file's nominal K.
-    gravity_align: bool = True
+    gravity_align: bool = False
     use_frame_intrinsics: bool = True
+    # Fixed-rig ChArUco calibration is authoritative. Person-target
+    # registration is an opt-in diagnostic escape hatch only.
+    enable_person_registration: bool = False
     # Persisted stage->stage corrections from person-target registration.
     registration_path: str = "data/registration.json"
+
+    # --- Calibration capture / acceptance --------------------------------
+    calibration_capture_timeout_s: float = 10.0
+    calibration_capture_count: int = 8
+    calibration_max_position_error_m: float = 0.03
+    calibration_max_reprojection_error_px: float = 3.0
 
     # Real inference is opt-in so fixtures and CI do not require model weights.
     vision_backend: Literal["fake", "mediapipe"] = "fake"
@@ -108,6 +117,24 @@ class Settings(BaseSettings):
             raise ValueError("expected_device_ids must contain exactly two device IDs")
         if len(set(value)) != len(value):
             raise ValueError("expected_device_ids must be unique")
+        return value
+
+    @field_validator(
+        "calibration_capture_timeout_s",
+        "calibration_max_position_error_m",
+        "calibration_max_reprojection_error_px",
+    )
+    @classmethod
+    def _require_positive_calibration_limits(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("calibration limits must be positive")
+        return value
+
+    @field_validator("calibration_capture_count")
+    @classmethod
+    def _require_enough_calibration_captures(cls, value: int) -> int:
+        if value < 4:
+            raise ValueError("calibration_capture_count must be at least 4")
         return value
 
 

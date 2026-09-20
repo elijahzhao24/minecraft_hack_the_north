@@ -37,6 +37,7 @@ class CapturedFrame:
     source_frame_id: UUID | None = None
     trace: TraceContext = field(default_factory=lambda: TraceContext())
     received_monotonic_s: float | None = None
+    image_orientation: str = "landscape_right"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,7 @@ class CameraCalibration:
     T_stage_from_optical: NDArray[np.float64]  # 4 x 4
     reprojection_error_px: float
     created_at_utc: datetime
+    image_orientation: str = "landscape_right"
 
 
 @dataclass(frozen=True, slots=True)
