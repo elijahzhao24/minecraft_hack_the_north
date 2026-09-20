@@ -402,6 +402,13 @@ public final class HumanCraftPayloads {
 		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
+	public record CameraCalibrationRequest() implements CustomPacketPayload {
+		public static final Type<CameraCalibrationRequest> TYPE = new Type<>(id("camera_calibration_request"));
+		public static final StreamCodec<FriendlyByteBuf, CameraCalibrationRequest> CODEC = StreamCodec.of(
+				(buf, p) -> {}, buf -> new CameraCalibrationRequest());
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
 	// ---- registration ------------------------------------------------------------------------
 
 	private static boolean registered;
@@ -424,6 +431,7 @@ public final class HumanCraftPayloads {
 		s2c.register(ContactState.TYPE, ContactState.CODEC);
 		s2c.register(AvatarState.TYPE, AvatarState.CODEC);
 		s2c.register(DebugState.TYPE, DebugState.CODEC);
+		s2c.register(CameraCalibrationRequest.TYPE, CameraCalibrationRequest.CODEC);
 		HumanCraft.LOGGER.debug("Registered {} payload types", 10);
 	}
 }

@@ -10,6 +10,8 @@ new file with a new ``calibration_id``.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -77,6 +79,10 @@ def _parse_camera(entry: dict, calibration_id: UUID, created_at: datetime) -> Ca
     depth = entry["depth"]
     k = _matrix(entry["K_rgb_row_major"], 9, "K_rgb")
     t = _matrix(entry["T_stage_from_optical_row_major"], 16, "T_stage_from_optical")
+    if not valid_rigid_transform(t):
+        raise CalibrationError("T_stage_from_optical must be a proper rigid transform")
+    if k[0, 0] <= 0 or k[1, 1] <= 0:
+        raise CalibrationError("focal lengths must be positive")
 
     return CameraCalibration(
         calibration_id=calibration_id,
@@ -143,7 +149,7 @@ def rig_to_json(rig: RigCalibration) -> dict:
         cameras.append(
             {
                 "device_id": cam.device_id,
-                "image_orientation": "landscape_right",
+                "image_orientation": rig.validation.get(cam.device_id, {}).get("baseline", {}).get("image_orientation", "landscape_right"),
                 "rgb": {"width": cam.rgb_size[0], "height": cam.rgb_size[1]},
                 "depth": {"width": cam.depth_size[0], "height": cam.depth_size[1]},
                 "K_rgb_row_major": cam.K_rgb.reshape(-1).tolist(),
@@ -167,4 +173,23 @@ def save_rig_calibration(rig: RigCalibration, path: str | Path) -> None:
     """Write a rig calibration to disk as JSON."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(rig_to_json(rig), indent=2))
+    raw = rig_to_json(rig)
+    parse_rig_calibration(raw)
+    name = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=p.parent, delete=False) as f:
+            name = f.name
+            json.dump(raw, f, indent=2, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(name, p)
+    finally:
+        if name and os.path.exists(name):
+            os.unlink(name)
+
+
+def valid_rigid_transform(t: NDArray) -> bool:
+    return bool(t.shape == (4, 4) and np.isfinite(t).all()
+                and np.allclose(t[3], [0, 0, 0, 1], atol=1e-6)
+                and np.allclose(t[:3, :3].T @ t[:3, :3], np.eye(3), atol=1e-3)
+                and abs(np.linalg.det(t[:3, :3]) - 1) < 1e-3)

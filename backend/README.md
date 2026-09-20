@@ -61,3 +61,10 @@ uv run pytest
 | `colliders/` | anatomical hand/foot/limb/torso fitting, validation, and subject dimensions |
 | `pipeline.py` | `CharacterProcessor` and `FrameAssembler` |
 | `api/` | FastAPI routes, socket registries, `/health` |
+
+## Physical camera calibration
+
+See [the guided setup and printable A3 board](../docs/camera-calibration.md).
+The backend can calibrate without an existing rig file. Legacy person-ICP
+corrections are ignored; synthetic demos require `HMC_SIMULATION_MODE=true`.
+`HMC_MAX_RANGE_M` defaults to 5 meters of actual camera-to-sample distance.

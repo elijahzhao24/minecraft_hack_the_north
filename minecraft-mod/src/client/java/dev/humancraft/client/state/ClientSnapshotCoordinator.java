@@ -45,6 +45,7 @@ public final class ClientSnapshotCoordinator {
 	private WorldSnapshot pending;
 	private WorldSnapshot active;
 	private long activeSinceMs;
+	private long lastReceivedMs;
 	private boolean liveRequested;
 	private Mode lastInstalledMode;
 	/** Client ticks to wait after JOIN before the player's position is trustworthy. */
@@ -110,7 +111,7 @@ public final class ClientSnapshotCoordinator {
 			// until the player has ticked; tick() applies it and reinstalls.
 			anchorPendingTicks = ANCHOR_SETTLE_TICKS;
 		}
-		if (latestDecoded != null && hasCriticalTracking(latestDecoded)) {
+		if (latestDecoded != null && hasRenderableCloud(latestDecoded)) {
 			install(latestDecoded, "joined world");
 		} else if (config.fixtureOnStart) {
 			SyntheticHuman.Pose pose;
@@ -154,7 +155,8 @@ public final class ClientSnapshotCoordinator {
 			return;
 		}
 		latestDecoded = frame;
-		if (!hasCriticalTracking(frame)) {
+		lastReceivedMs = System.currentTimeMillis();
+		if (!hasRenderableCloud(frame)) {
 			if (joined) {
 				try {
 					ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
@@ -162,7 +164,7 @@ public final class ClientSnapshotCoordinator {
 					HumanCraft.LOGGER.debug("Could not clear invalid tracked frame", e);
 				}
 			}
-			clearLocal("tracking degraded: critical body unavailable");
+			clearLocal("no usable cloud in received frame");
 			return;
 		}
 		if (pendingCapture != null && frame.header().sourceFrames().stream()
@@ -175,16 +177,8 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
-	private static boolean hasCriticalTracking(CharacterFrame frame) {
-		if (!frame.header().quality().valid()) return false;
-		java.util.EnumSet<dev.humancraft.contract.BodyPart> found =
-				java.util.EnumSet.noneOf(dev.humancraft.contract.BodyPart.class);
-		for (var collider : frame.header().colliders()) {
-			if (collider.valid()) found.add(collider.bodyPart());
-		}
-		return found.contains(dev.humancraft.contract.BodyPart.HEAD)
-				&& found.contains(dev.humancraft.contract.BodyPart.TORSO)
-				&& found.contains(dev.humancraft.contract.BodyPart.PELVIS);
+	private static boolean hasRenderableCloud(CharacterFrame frame) {
+		return frame.hasRenderableCloud();
 	}
 
 	private void install(CharacterFrame frame, String reason) {
@@ -289,7 +283,7 @@ public final class ClientSnapshotCoordinator {
 		normalizationRevision = state.normalizationRevision();
 		controllingSeparate = state.controlling();
 		if (normalizationChanged) lockedBlocksPerMeter = Double.NaN;
-		if (joined && latestDecoded != null && hasCriticalTracking(latestDecoded)) {
+		if (joined && latestDecoded != null && hasRenderableCloud(latestDecoded)) {
 			install(latestDecoded, "avatar binding changed");
 		}
 	}
@@ -325,12 +319,10 @@ public final class ClientSnapshotCoordinator {
 		if (active != null && active.mode() == Mode.LIVE
 				&& System.currentTimeMillis() - activeSinceMs > config.liveFrameTtlMs) {
 			consistency.checkStale(config.liveFrameTtlMs);
-			try {
-				ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
-			} catch (RuntimeException e) {
-				HumanCraft.LOGGER.debug("Could not send stale-frame clear", e);
-			}
-			clearLocal("live frame expired");
+			// Server-side TTL still expires interactions; retain the scan for diagnosis.
+			contactCount = 0;
+			serverStatus = "live frame expired; displaying stale scan";
+			activeSinceMs = System.currentTimeMillis();
 		}
 	}
 
@@ -393,13 +385,13 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
-	/** Asks the backend to snap the two cameras together using the person as the target. */
+	/** Starts guided calibration using the stationary printed floor board. */
 	public void registerRig() {
 		if (backend == null || !backend.registerRig()) {
 			message(Component.literal("HumanCraft: backend is not connected"));
 			return;
 		}
-		message(Component.literal("HumanCraft: aligning cameras on the next capture — hold still"));
+		message(Component.literal("HumanCraft: camera calibration started — board face up on floor, phones still, step out"));
 	}
 
 	public boolean isLiveRequested() {
@@ -445,7 +437,7 @@ public final class ClientSnapshotCoordinator {
 
 	private void persistAndReinstall(String reason) {
 		config.save(FabricLoader.getInstance().getConfigDir());
-		if (joined && latestDecoded != null && hasCriticalTracking(latestDecoded)) {
+		if (joined && latestDecoded != null && hasRenderableCloud(latestDecoded)) {
 			install(latestDecoded, reason);
 		}
 	}
@@ -548,8 +540,14 @@ public final class ClientSnapshotCoordinator {
 		lines.add("frames decoded/pending/active: " + lastDecodedFrameId() + "/"
 				+ (pending == null ? "-" : pending.frameId()) + "/" + (active == null ? "-" : active.frameId()));
 		if (active != null) {
-			long age = System.currentTimeMillis() - activeSinceMs;
+			long age = System.currentTimeMillis() - lastReceivedMs;
 			lines.add("calibration: " + shortId(active.calibrationId()) + "  age: " + age + " ms");
+			if (age > 2000) lines.add("STALE scan: no new paired frame for " + age / 1000 + " s");
+			if (latestDecoded != null) {
+				for (String warning : latestDecoded.header().quality().warnings()) lines.add("WARNING: " + warning);
+				if (latestDecoded.header().quality().validColliderCount() < 3)
+					lines.add("Body tracking incomplete; available cloud shown");
+			}
 			lines.add("points/landmarks/colliders: " + active.stageCloud().count() + "/" + active.landmarks().size()
 					+ "/" + active.validColliderCount() + "  contacts: " + contactCount);
 		}

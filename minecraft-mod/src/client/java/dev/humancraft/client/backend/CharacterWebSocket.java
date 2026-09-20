@@ -319,7 +319,7 @@ public final class CharacterWebSocket implements AutoCloseable {
 				}
 				setStatus("streaming");
 			}
-			case ControlMessage.Ack ack -> setStatus("backend ack: " + ack.code());
+			case ControlMessage.Ack ack -> setStatus(ack.code() + ack.detail().map(d -> ": " + d).orElse(""));
 			case ControlMessage.Error error -> {
 				setStatus("backend error: " + error.code());
 				Telemetry.log(SentryLevel.WARNING, "backend error code=%s retryable=%s message=%s",

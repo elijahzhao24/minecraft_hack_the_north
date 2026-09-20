@@ -135,11 +135,10 @@ public final class HumanRenderer implements AutoCloseable {
 				int g = points.g(i);
 				int b = points.b(i);
 				if (config.sourceColors) {
-					// The v1 cloud has no source-mask buffer. This stage-side split is explicitly a registration aid.
-					boolean leftStageHalf = points.x(i) >= 0;
-					r = leftStageHalf ? 40 : 230;
-					g = leftStageHalf ? 210 : 50;
-					b = leftStageHalf ? 240 : 210;
+					int color = points.sourceColor(i);
+					r = (color >> 16) & 255;
+					g = (color >> 8) & 255;
+					b = color & 255;
 				}
 				cube(builder, p, half, r, g, b, points.a(i));
 			}

@@ -382,10 +382,7 @@ def solve_camera(
     ]
     outliers = len(observations) - len(kept)
     if not kept:
-        # Every view disagrees with the mean: the board likely moved between
-        # frames. Fall back to the full set rather than inventing a pose.
-        kept = observations
-        outliers = 0
+        raise CharucoError(f"{device_id}: inconsistent board observations; keep board and phones still")
 
     kept_rotations = [o.R_camera_from_board for o in kept]
     kept_weights = [o.corner_count / max(o.reprojection_error_px, 1e-3) for o in kept]
@@ -430,16 +427,20 @@ def validate_solution(
 
     reference = solution.camera_position_stage_m
     errors = []
+    angles = []
     for o in held_out:
         t = compose_stage_from_optical(
             o.R_camera_from_board, o.t_camera_from_board, t_stage_from_board
         )
         errors.append(float(np.linalg.norm(t[:3, 3] - reference)))
+        angles.append(float(np.degrees(geodesic_angle_rad(
+            t[:3, :3], solution.T_stage_from_optical[:3, :3]))))
 
     return {
         "held_out_frames": len(held_out),
         "median_position_error_m": float(np.median(errors)),
         "max_position_error_m": float(np.max(errors)),
+        "max_rotation_error_deg": float(np.max(angles)),
         "median_reprojection_error_px": float(
             np.median([o.reprojection_error_px for o in held_out])
         ),

@@ -180,6 +180,8 @@ def _icp_yaw_translation(
             break
         rms = new_rms
 
+    if not np.isfinite(rms) or inliers < 30 or rms > max_pair_distance_m:
+        raise ValueError("insufficient valid correspondences")
     return t_total, rms, inliers
 
 
@@ -193,6 +195,8 @@ def register_yaw_translation(
     """Multi-start wrapper: ICP alone finds only a nearby minimum, so try
     several initial yaws about the source centroid and keep the best fit."""
     src = np.asarray(source, np.float64)
+    if src.shape[0] < 50 or not np.isfinite(src).all():
+        raise ValueError("not enough finite points to register")
     centroid = src.mean(axis=0)
     best: tuple[NDArray[np.float64], float, int] | None = None
     for yaw in initial_yaws_deg:

@@ -14,27 +14,27 @@ class CharacterHub:
     """Latest-wins broadcast of serialized CHARACTER_FRAME bytes."""
 
     def __init__(self) -> None:
-        self._subscribers: set[asyncio.Queue[bytes]] = set()
+        self._subscribers: set[asyncio.Queue[bytes | str]] = set()
 
-    def subscribe(self) -> asyncio.Queue[bytes]:
-        q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
+    def subscribe(self) -> asyncio.Queue[bytes | str]:
+        q: asyncio.Queue[bytes | str] = asyncio.Queue(maxsize=1)
         self._subscribers.add(q)
         return q
 
-    def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
+    def unsubscribe(self, q: asyncio.Queue[bytes | str]) -> None:
         self._subscribers.discard(q)
 
     @property
     def subscriber_count(self) -> int:
         return len(self._subscribers)
 
-    def broadcast(self, encoded: bytes) -> None:
+    def broadcast(self, encoded: bytes | str) -> None:
         """Deliver ``encoded`` to every subscriber, evicting stale pending frames."""
         for q in self._subscribers:
             _put_latest(q, encoded)
 
 
-def _put_latest(q: asyncio.Queue[bytes], item: bytes) -> None:
+def _put_latest(q: asyncio.Queue[bytes | str], item: bytes | str) -> None:
     if q.full():
         try:
             q.get_nowait()

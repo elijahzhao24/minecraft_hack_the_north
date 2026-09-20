@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.runtime = build_runtime(settings)
     start_discovery(port=settings.port)
     yield
-    app.state.runtime.stop_live()
+    await app.state.runtime.shutdown()
     stop_discovery()
     # Shutdown: flush any pending Sentry events with a short timeout.
     flush_sentry()
@@ -134,15 +134,15 @@ async def ws_capture(ws: WebSocket) -> None:
 
 
 async def _clock_probe_loop(ws: WebSocket, interval_s: float) -> None:
-    from uuid import uuid4
     import time
+    from uuid import uuid4
 
     for _ in range(4):
         try:
             ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
             await _send_model(ws, ping)
             await asyncio.sleep(0.05)
-        except Exception:
+        except Exception:  # noqa: BLE001 - a failed clock probe must not close the socket
             return
 
     while True:
@@ -150,7 +150,7 @@ async def _clock_probe_loop(ws: WebSocket, interval_s: float) -> None:
             await asyncio.sleep(interval_s)
             ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
             await _send_model(ws, ping)
-        except Exception:
+        except Exception:  # noqa: BLE001 - a failed clock probe must not close the socket
             break
 
 
@@ -159,6 +159,12 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
         obj = json.loads(text)
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
+        return
+    if obj.get("type") == "register_rig":
+        from uuid import UUID
+        ok = runtime.request_registration()
+        await _send_model(ws, Ack(request_id=UUID(obj["request_id"]) if "request_id" in obj else None,
+                                  accepted=ok, code="registration_requested" if ok else "calibration_in_progress"))
         return
     if _handle_live_control(runtime, obj):
         return
@@ -242,10 +248,13 @@ async def ws_character(ws: WebSocket) -> None:
             await sender
 
 
-async def _character_sender(ws: WebSocket, queue: asyncio.Queue[bytes]) -> None:
+async def _character_sender(ws: WebSocket, queue: asyncio.Queue[bytes | str]) -> None:
     while True:
         encoded = await queue.get()
-        await ws.send_bytes(encoded)
+        if isinstance(encoded, str):
+            await ws.send_text(encoded)
+        else:
+            await ws.send_bytes(encoded)
 
 
 async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) -> None:
@@ -253,6 +262,12 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
         obj = json.loads(text)
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
+        return
+    if obj.get("type") == "register_rig":
+        from uuid import UUID
+        ok = runtime.request_registration()
+        await _send_model(ws, Ack(request_id=UUID(obj["request_id"]) if "request_id" in obj else None,
+                                  accepted=ok, code="registration_requested" if ok else "calibration_in_progress"))
         return
     if _handle_live_control(runtime, obj):
         from uuid import UUID, uuid4
@@ -278,7 +293,7 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
 
 @app.post("/rig/register")
 async def rig_register() -> JSONResponse:
-    """Align the side camera onto the front camera using the next paired frame."""
+    """Start a bounded, guided two-phone ChArUco calibration session."""
     runtime: AppRuntime = app.state.runtime
     ok = runtime.request_registration()
     return JSONResponse({"requested": ok}, status_code=202 if ok else 503)

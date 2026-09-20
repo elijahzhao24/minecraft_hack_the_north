@@ -40,7 +40,14 @@ final class FrameEncoder: @unchecked Sendable {
         do {
             encodedDepth = try DepthEncoder.encode(
                 depth: source.depthPixelBuffer,
-                confidence: source.confidencePixelBuffer
+                confidence: source.confidencePixelBuffer,
+                rangeGate: DepthRangeGate(
+                    rgbIntrinsics: source.rgbIntrinsics,
+                    rgbWidth: CVPixelBufferGetWidth(source.rgbPixelBuffer),
+                    rgbHeight: CVPixelBufferGetHeight(source.rgbPixelBuffer),
+                    depthWidth: CVPixelBufferGetWidth(source.depthPixelBuffer),
+                    depthHeight: CVPixelBufferGetHeight(source.depthPixelBuffer)
+                )
             )
             copySpan?.setData(value: encodedDepth.validFraction, key: "valid_depth_fraction")
             copySpan?.setData(value: encodedDepth.validPointCount, key: "point_count")

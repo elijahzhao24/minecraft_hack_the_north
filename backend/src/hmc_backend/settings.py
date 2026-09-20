@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,14 +61,18 @@ class Settings(BaseSettings):
 
     depth_min_m: float = 0.2
     depth_max_m: float = 5.0
+    max_range_m: float = Field(default=5.0, gt=0, le=5.0)
     confidence_min: int = 1  # ARKit confidence 0/1/2; accept >= this
     # Take pitch/roll from each frame's ARKit gravity-aligned pose instead of
     # trusting the nominal camera pose, and unproject with the lens intrinsics
     # the phone reports rather than the rig file's nominal K.
     gravity_align: bool = True
     use_frame_intrinsics: bool = True
-    # Persisted stage->stage corrections from person-target registration.
+    # Legacy path retained for configuration compatibility; never loaded by live capture.
     registration_path: str = "data/registration.json"
+    simulation_mode: bool = False
+    calibration_capture_hz: float = Field(default=3.0, gt=0, le=10)
+    calibration_timeout_s: float = Field(default=30.0, gt=0, le=120)
 
     # Real inference is opt-in so fixtures and CI do not require model weights.
     vision_backend: Literal["fake", "mediapipe"] = "fake"
@@ -109,6 +113,15 @@ class Settings(BaseSettings):
         if len(set(value)) != len(value):
             raise ValueError("expected_device_ids must be unique")
         return value
+
+    @model_validator(mode="after")
+    def _validate_depth_bounds(self):
+        import math
+        if not (math.isfinite(self.depth_min_m) and math.isfinite(self.depth_max_m)
+                and 0 <= self.depth_min_m < self.depth_max_m
+                and self.depth_min_m < self.max_range_m):
+            raise ValueError("depth bounds must be finite, ordered and below max_range_m")
+        return self
 
 
 def load_settings() -> Settings:

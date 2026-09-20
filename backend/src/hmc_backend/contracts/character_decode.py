@@ -99,6 +99,7 @@ class DecodedCharacterFrame:
     colliders: tuple[Collider, ...]
     header: dict
     fusion_id: UUID | None = None
+    source_mask: NDArray[np.uint8] | None = None
 
     @property
     def point_count(self) -> int:
@@ -317,6 +318,15 @@ def decode_character_frame(raw: bytes) -> DecodedCharacterFrame:
     xyz, rgba = unpack_points(buffers.raw("points"), count)
     _require(bool(np.isfinite(xyz).all()), "non_finite_geometry", "cloud contains a non-finite coordinate")
 
+    source_mask = None
+    if any(b.get("name") == "point_sources" for b in header["buffers"]):
+        source_desc = buffers.descriptor("point_sources")
+        _require(source_desc.encoding.value == "uint8" and source_desc.shape == (count,)
+                 and source_desc.length == count, "invalid_buffer_range", "invalid point_sources buffer")
+        source_mask = np.frombuffer(buffers.raw("point_sources"), dtype=np.uint8).copy()
+        source_count = len(header.get("source_frames") or ())
+        _require(source_count <= 8 and bool(np.all(source_mask < (1 << source_count))),
+                 "invalid_message", "point source bits reference absent cameras")
     quality = header.get("quality")
     _require(isinstance(quality, dict), "invalid_message", "quality must be an object")
 
@@ -331,6 +341,7 @@ def decode_character_frame(raw: bytes) -> DecodedCharacterFrame:
         quality=dict(quality),  # type: ignore[arg-type]
         xyz_stage_m=xyz,
         rgba=rgba,
+        source_mask=source_mask,
         landmarks=landmarks,
         colliders=colliders,
         header=header,

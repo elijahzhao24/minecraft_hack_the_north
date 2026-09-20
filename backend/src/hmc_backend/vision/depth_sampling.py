@@ -35,6 +35,7 @@ class DepthSamplingConfig:
     discontinuity_rel: float = 0.03  # 3% of the median depth
     depth_min_m: float = 0.2
     depth_max_m: float = 5.0
+    max_range_m: float = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +173,8 @@ def observe_landmarks(
             continue
         depth, support, spread = est
         optical = unproject(np.array([xy_d[0]]), np.array([xy_d[1]]), np.array([depth]), k_depth)
+        if np.linalg.norm(optical[0]) > cfg.max_range_m:
+            continue
         stage = apply_transform(calibration.T_stage_from_optical, optical)[0]
         if not np.isfinite(stage).all():
             continue

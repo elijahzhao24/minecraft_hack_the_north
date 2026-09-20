@@ -13,8 +13,12 @@ public final class CharacterFrameEncoder {
 
 	public static byte[] encode(CharacterFrame frame) {
 		ByteBuffer points = frame.cloud().data();
-		byte[] payload = new byte[points.remaining()];
-		points.get(payload);
+		int pointBytes = points.remaining();
+		byte[] payload = new byte[pointBytes + (frame.cloud().hasSources() ? frame.cloud().count() : 0)];
+		points.get(payload, 0, pointBytes);
+		if (frame.cloud().hasSources()) {
+			for (int i = 0; i < frame.cloud().count(); i++) payload[pointBytes + i] = (byte) frame.cloud().sourceMask(i);
+		}
 		return Hmc1Envelope.encode(Hmc1Envelope.MESSAGE_TYPE_CHARACTER_FRAME, frame.header().toJson().toString(), payload);
 	}
 }

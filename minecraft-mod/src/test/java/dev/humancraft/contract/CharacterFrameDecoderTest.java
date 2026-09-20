@@ -130,6 +130,42 @@ class CharacterFrameDecoderTest {
 	}
 
 	@Test
+	void sourceMasksDecodeAndKeepTheirMeaningAfterScaling() {
+		CharacterFrame original = SyntheticHuman.frame(SyntheticHuman.Pose.NEUTRAL, 42, Mode.SNAPSHOT, 3);
+		var header = original.header().toJson();
+		header.getAsJsonArray("colliders").asList().clear();
+		header.getAsJsonObject("quality").addProperty("valid_collider_count", 0);
+		var descriptor = new com.google.gson.JsonObject();
+		descriptor.addProperty("name", "point_sources");
+		descriptor.addProperty("encoding", "uint8");
+		descriptor.addProperty("offset", 48);
+		descriptor.addProperty("length", 3);
+		var shape = new com.google.gson.JsonArray();
+		shape.add(3);
+		descriptor.add("shape", shape);
+		header.getAsJsonArray("buffers").add(descriptor);
+		byte[] payload = new byte[51];
+		original.cloud().data().get(payload, 0, 48);
+		payload[48] = 1; payload[49] = 2; payload[50] = 3;
+		byte[] bytes = Hmc1Envelope.encode(Hmc1Envelope.MESSAGE_TYPE_CHARACTER_FRAME, header.toString(), payload);
+		var decoded = CharacterFrameDecoder.decode(ByteBuffer.wrap(bytes));
+		assertArrayEquals(bytes, CharacterFrameEncoder.encode(decoded));
+		assertTrue(decoded.hasRenderableCloud(), "missing anatomy must not hide usable camera points");
+		var cloud = decoded.cloud();
+		assertEquals(0x28D2F0, cloud.sourceColor(0));
+		assertEquals(0xE632D2, cloud.sourceColor(1));
+		assertEquals(0xFFE050, cloud.sourceColor(2));
+		assertEquals(3, cloud.transform(dev.humancraft.geometry.Vector3.ZERO, 8).sourceMask(2));
+		assertEquals(0x888888, original.cloud().sourceColor(0));
+		payload[50] = 4;
+		byte[] bad = Hmc1Envelope.encode(Hmc1Envelope.MESSAGE_TYPE_CHARACTER_FRAME, header.toString(), payload);
+		assertThrows(ProtocolException.class, () -> CharacterFrameDecoder.decode(ByteBuffer.wrap(bad)));
+		descriptor.addProperty("length", 2);
+		byte[] shortBuffer = Hmc1Envelope.encode(Hmc1Envelope.MESSAGE_TYPE_CHARACTER_FRAME, header.toString(), payload);
+		assertThrows(ProtocolException.class, () -> CharacterFrameDecoder.decode(ByteBuffer.wrap(shortBuffer)));
+	}
+
+	@Test
 	void strictJsonRejectsDuplicateKeysAndTrailingContent() {
 		assertThrows(ProtocolException.class, () -> StrictJson.parseObject("{\"a\":1,\"a\":2}"));
 		assertThrows(ProtocolException.class, () -> StrictJson.parseObject("{\"a\":1} x"));

@@ -12,18 +12,19 @@ import asyncio
 import contextlib
 import json
 import time
-from pathlib import Path
-
-import numpy as np
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
+import numpy as np
+
 from hmc_backend.api.hub import CharacterHub
-from hmc_backend.calibration.model import RigCalibration
+from hmc_backend.calibration.model import RigCalibration, save_rig_calibration
+from hmc_backend.calibration.session import BoardCalibrationSession, RigFreshness
 from hmc_backend.capture.clock import ClockEstimator
 from hmc_backend.capture.pairing import Pairer
+from hmc_backend.capture.recording import save_recording
 from hmc_backend.capture.replay import captured_frame_from_decoded
 from hmc_backend.capture.rgbd_ingest import decode_rgbd_frame
 from hmc_backend.contracts.character_codec import encode_character_frame
@@ -52,6 +53,9 @@ class DeviceState:
     token: object | None = None
     clock: ClockEstimator = field(default_factory=ClockEstimator)
     send_text: Callable[[str], Awaitable[None]] | None = None
+    last_frame_s: float | None = None
+    tracking_state: str | None = None
+    valid_depth_count: int = 0
 
 
 class AppRuntime:
@@ -87,10 +91,18 @@ class AppRuntime:
         self._live_inflight: dict[UUID, float] = {}
         self._live_paired = asyncio.Event()
 
+        self._board_session: BoardCalibrationSession | None = None
+        self._board_task: asyncio.Task | None = None
+        self._board_pairer = build_pairer(settings)
+        self._board_pair_id = uuid4()
+        self._board_packets: OrderedDict = OrderedDict()
+        self._freshness = RigFreshness(calibration) if calibration else None
+        self._last_published_s: float | None = None
+        self._closing = False
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
             self._processor = processor or build_processor(settings, calibration)
-            self._load_registration()
+            # Person-target corrections are deliberately never loaded in the physical workflow.
         else:
             self._pairer = None
             self._processor = None
@@ -114,7 +126,10 @@ class AppRuntime:
         return self._hub
 
     def is_ready(self) -> bool:
-        return self._calibration is not None and self._processor is not None
+        return (self._calibration is not None and self._processor is not None
+                and (self._calibration.board is not None or self._settings.simulation_mode)
+                and set(self._calibration.device_ids()) == set(self._settings.expected_device_ids)
+                and not (self._freshness and self._freshness.invalid_reason))
 
     # --- capture device lifecycle ----------------------------------------
 
@@ -140,14 +155,18 @@ class AppRuntime:
             state.token = None
             state.send_text = None
 
-    async def dispatch_capture(self, capture_id: UUID, mode: str) -> tuple[bool, str]:
+    async def dispatch_capture(self, capture_id: UUID, mode: str, *, board: bool = False) -> tuple[bool, str]:
         """Forward a capture_request to both phones if the rig can accept one."""
-        if not self.is_ready():
+        if not board and self.calibrating:
+            return False, "calibration_in_progress"
+        if not board and not self.is_ready():
             return False, "not_ready"
         if not all(s.connected and s.send_text is not None for s in self._devices.values()):
             return False, "devices_unavailable"
+        if not self._settings.simulation_mode and not all(s.clock.ready for s in self._devices.values()):
+            return False, "clocks_not_ready"
         req = CaptureRequest(request_id=uuid4(), capture_id=capture_id, mode=Mode(mode))
-        self._capture_modes[capture_id] = mode
+        self._capture_modes[capture_id] = "calibration" if board else mode
         while len(self._capture_modes) > 256:
             self._capture_modes.popitem(last=False)
         payload = req.model_dump_json()
@@ -158,59 +177,138 @@ class AppRuntime:
 
     # --- rig registration -------------------------------------------------
 
+    @property
+    def calibrating(self) -> bool:
+        return self._board_task is not None and not self._board_task.done()
+
     def request_registration(self) -> bool:
-        """Align the side camera onto the front one using the next paired frame."""
-        if self._processor is None:
+        if self.calibrating:
             return False
-        self._processor.request_registration()
-        self._registration_dirty = True
+        self._board_session = BoardCalibrationSession(self._settings.expected_device_ids)
+        self._board_pairer = build_pairer(self._settings)
+        self._board_pair_id = uuid4()
+        self._board_packets.clear()
+        self._board_task = asyncio.create_task(self._calibration_loop())
         return True
 
     def clear_registration(self) -> None:
-        if self._processor is not None:
-            self._processor.set_corrections({})
-            self._processor.last_registration = None
-        path = Path(self._settings.registration_path)
-        if path.exists():
-            path.unlink()
-        log_event("info", "rig_registration_cleared")
+        # DELETE cancels setup; it never deletes a previously validated rig.
+        if self._board_task is not None:
+            self._board_task.cancel()
+        if self._board_session is not None:
+            self._board_session.fail("calibration_cancelled")
+        self._announce_calibration()
+
+    async def shutdown(self) -> None:
+        self._closing = True
+        self.stop_live()
+        if self._board_task is not None:
+            self._board_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._board_task
 
     def registration_status(self) -> dict:
-        if self._processor is None:
-            return {"corrections": {}, "last": None}
-        return {
-            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
-            "last": self._processor.last_registration,
+        result = self._board_session.status() if self._board_session else {
+            "state": "ready" if self.is_ready() else "failed",
+            "error": None if self.is_ready() else "calibration_required", "devices": {},
         }
+        result["active_calibration_id"] = str(self._calibration.calibration_id) if self._calibration else None
+        result["invalid_reason"] = self._freshness.invalid_reason if self._freshness else None
+        if result["invalid_reason"] and result["state"] not in ("collecting", "validating"):
+            result["state"] = "failed"
+            result["error"] = result["error"] or result["invalid_reason"]
+        result["max_range_m"] = self._settings.max_range_m
+        return result
 
-    def _load_registration(self) -> None:
-        self._registration_dirty = False
-        path = Path(self._settings.registration_path)
-        if not path.exists() or self._processor is None:
+    def _announce_calibration(self) -> None:
+        status = self.registration_status()
+        details = []
+        for dev, progress in status["devices"].items():
+            rejected = progress["rejections"]
+            reason = max(rejected, key=rejected.get) if rejected else ""
+            details.append(f"{dev}: {progress['accepted']}/{progress['required']} {reason}")
+        detail = status.get("error") or "; ".join(details)
+        if status["state"] == "collecting":
+            detail = "Board face up on floor, phones still, step out. " + detail
+        self._hub.broadcast(json.dumps({"type": "ack", "protocol_version": 1,
+            "accepted": status["state"] != "failed",
+            "code": "calibration_" + status["state"],
+            "detail": detail or "Both cameras calibrated"}))
+
+    async def _calibration_loop(self) -> None:
+        was_live = self.live_active
+        self.stop_live()
+        job = self._board_session
+        assert job is not None
+        deadline = time.monotonic() + self._settings.calibration_timeout_s
+        self._board_deadline = deadline
+        try:
+            while job.state in ("collecting", "validating") and time.monotonic() < deadline:
+                if job.state == "collecting":
+                    # Unknown clocks must not masquerade as synchronized board captures.
+                    if all(s.connected and s.clock.ready for s in self._devices.values()):
+                        await self.dispatch_capture(uuid4(), "snapshot", board=True)
+                    self._announce_calibration()
+                await asyncio.sleep(1 / self._settings.calibration_capture_hz)
+            if job.state in ("collecting", "validating"):
+                job.fail("timeout: both phones need 12 stable board observations; check connection, clocks and board visibility")
+        except asyncio.CancelledError:
+            job.fail("calibration_cancelled")
+            raise
+        except Exception as exc:  # noqa: BLE001 - report setup failure without losing the active rig
+            job.fail(f"calibration_failed: {exc}")
+        finally:
+            self._announce_calibration()
+            if was_live and not self._closing:
+                self.start_live()
+
+    async def _offer_board_frame(self, frame, raw: bytes) -> None:
+        job = self._board_session
+        if job is None or job.state != "collecting":
+            return
+        packets = self._board_packets.setdefault(frame.capture_id, {})
+        packets[frame.device_id] = raw
+        while len(self._board_packets) > 8:
+            self._board_packets.popitem(last=False)
+        outcome = self._board_pairer.offer(frame, self._board_pair_id)
+        if outcome.paired is None:
+            if outcome.rejected_reason:
+                job.rejections[frame.device_id][outcome.rejected_reason] += 1
+            return
+        pair = outcome.paired
+        raw_pair = self._board_packets.pop(frame.capture_id, {})
+        try:
+            await asyncio.to_thread(save_recording, self._settings.recording_root, frame.capture_id,
+                                    raw_pair, pair_skew_ms=pair.pair_skew_ms,
+                                    consent_note="board calibration capture")
+        except (OSError, ValueError) as exc:
+            job.fail(f"recording_failed: {exc}")
+            self._announce_calibration()
+            return
+        await asyncio.to_thread(job.offer, pair.first)
+        await asyncio.to_thread(job.offer, pair.second)
+        self._announce_calibration()
+        if job.state != "validating":
             return
         try:
-            data = json.loads(path.read_text())
-            self._processor.set_corrections(
-                {k: np.array(v, np.float64).reshape(4, 4) for k, v in data.get("corrections", {}).items()}
-            )
-            log_event("info", "rig_registration_loaded", devices=list(data.get("corrections", {})))
-        except (ValueError, OSError) as exc:
-            log_event("warning", "rig_registration_load_failed", error=str(exc))
-
-    def _save_registration_if_dirty(self) -> None:
-        if not getattr(self, "_registration_dirty", False) or self._processor is None:
-            return
-        last = self._processor.last_registration
-        if last is None or not last.get("ok"):
-            return
-        self._registration_dirty = False
-        path = Path(self._settings.registration_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
-            "calibration_id": str(self._calibration.calibration_id) if self._calibration else None,
-            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
-            "last": last,
-        }, indent=2))
+            rig = await asyncio.to_thread(job.solve)
+            if job.state != "validating" or time.monotonic() > self._board_deadline:
+                job.fail("calibration_cancelled_or_timed_out")
+                return
+            processor = build_processor(self._settings, rig,
+                assembler=self._processor.assembler if self._processor else None,
+                session_id=self._server_session_id)
+            # Small atomic file commit and memory swap share one event-loop turn.
+            # Cancellation cannot install a file without installing its matching rig.
+            save_rig_calibration(rig, self._settings.calibration_path)
+            # Called with the ingest lock: no old frame can publish after this swap.
+            self._calibration, self._processor = rig, processor
+            self._pairer = build_pairer(self._settings)
+            self._freshness = RigFreshness(rig)
+            job.result, job.state = rig, "ready"
+        except Exception as exc:  # noqa: BLE001 - report setup failure without losing the active rig
+            job.fail(f"validation_failed: {exc}")
+        self._announce_calibration()
 
     # --- live mode --------------------------------------------------------
 
@@ -281,10 +379,11 @@ class AppRuntime:
     # --- capture ingest ---------------------------------------------------
 
     async def handle_rgbd(self, raw: bytes, *, mode: str = "snapshot") -> CharacterFrame | None:
-        """Decode a packet, pair it, and (on a completed pair) publish a frame."""
-        if self._pairer is None or self._processor is None or self._calibration is None:
-            return None
+        async with self._lock:
+            return await self._handle_rgbd_locked(raw, mode=mode)
 
+    async def _handle_rgbd_locked(self, raw: bytes, *, mode: str = "snapshot") -> CharacterFrame | None:
+        """Decode a packet, pair it, and (on a completed pair) publish a frame."""
         env = decode_envelope(raw)
         decoded = decode_rgbd_frame(env)
         device_id = decoded.header.device_id
@@ -293,13 +392,30 @@ class AppRuntime:
         if state is None:
             return None
 
+        state.last_frame_s = time.monotonic()
+        state.tracking_state = decoded.header.tracking_state.value
+        state.valid_depth_count = int(np.count_nonzero(np.isfinite(decoded.depth_m) & (decoded.depth_m > 0)))
         offset = state.clock.offset_s() or 0.0
         uncertainty = state.clock.uncertainty_ms()
         if uncertainty is None:
-            uncertainty = 0.0  # no probes yet; treated as synchronized for the MVP
+            if not self._settings.simulation_mode:
+                return None
+            uncertainty = 0.0  # explicit simulation mode only
         frame = captured_frame_from_decoded(
             decoded, clock_offset_s=offset, clock_uncertainty_ms=uncertainty
         )
+
+        if mode == "calibration":
+            await self._offer_board_frame(frame, raw)
+            return None
+        if self.calibrating or self._pairer is None or self._processor is None or self._calibration is None:
+            return None
+        if self._freshness and self._freshness.observe(frame):
+            self._announce_calibration()
+            return None
+        if not self.is_ready():
+            self._announce_calibration()
+            return None
 
         with transaction(
             "character.snapshot",
@@ -359,7 +475,6 @@ class AppRuntime:
                 character = await asyncio.to_thread(
                     self._processor.process, pair, mode=mode, trace=output_trace
                 )
-            self._save_registration_if_dirty()
             if mode == "live" and character.quality.point_count == 0:
                 # Nobody in frame; publishing an empty live frame only makes
                 # the client log a decode error and blank the figure.
@@ -373,6 +488,7 @@ class AppRuntime:
             # Publish only after successful serialization (all-or-nothing).
             with span("hmc.character_publish", "store + latest-wins broadcast"):
                 self._store.publish(character, encoded)
+                self._last_published_s = time.monotonic()
                 self._hub.broadcast(encoded)
 
         self._log_publication(character, len(encoded))
@@ -418,6 +534,10 @@ class AppRuntime:
         devices = {
             dev: DeviceHealth(
                 connected=state.connected,
+                frame_age_ms=(round((time.monotonic() - state.last_frame_s) * 1000) if state.last_frame_s else None),
+                tracking_state=state.tracking_state,
+                valid_depth_count=state.valid_depth_count,
+                reconstruction=(self._processor.view_diagnostics.get(dev, {}) if self._processor else {}),
                 clock_ready=state.clock.ready,
                 queue_depth=(self._pairer.pending_depth(dev) if self._pairer else 0),
             )
@@ -443,11 +563,14 @@ class AppRuntime:
             status=status,
             calibration=CalibrationHealth(
                 loaded=calib is not None,
+                state=self.registration_status(),
                 calibration_id=calib.calibration_id if calib else None,
             ),
             models=models,
             devices=devices,
             latest_frame_id=self._store.latest_frame_id,
+            max_range_m=self._settings.max_range_m,
+            frame_age_ms=(round((time.monotonic() - self._last_published_s) * 1000) if self._last_published_s else None),
         )
         http_status = 200 if status is HealthStatus.READY else 503
         return response, http_status

@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from hmc_backend.contracts.internal import (
     CameraCalibration,
@@ -39,6 +40,7 @@ class CropBounds:
     max_z: float
     depth_min: float
     depth_max: float
+    max_range_m: float = 5.0
 
 
 def _resample_mask_to_depth(mask_rgb: np.ndarray, depth_hw: tuple[int, int]) -> np.ndarray:
@@ -78,12 +80,12 @@ def reconstruct_view(
     confidence_min: int,
     source_bit: int,
     use_frame_intrinsics: bool = False,
+    diagnostics: dict | None = None,
 ) -> ColoredPointCloud:
     """Reconstruct one view's masked person cloud in stage meters.
 
     With ``use_frame_intrinsics`` the phone's own K (reported per frame for its
-    RGB raster) is used for unprojection; the rig file's nominal K is only a
-    fallback. A real lens rarely matches the synthetic 60 degree K, and the
+    RGB raster) is used for unprojection; invalid live intrinsics are rejected. A real lens rarely matches the synthetic 60 degree K, and the
     mismatch scales the whole body.
     """
     depth = frame.depth_m
@@ -92,26 +94,31 @@ def reconstruct_view(
 
     mask_depth = _resample_mask_to_depth(detection.person_mask, (h_d, w_d))
 
-    valid = (
-        mask_depth
-        & np.isfinite(depth)
-        & (depth > 0.0)
-        & (depth >= crop.depth_min)
-        & (depth <= crop.depth_max)
-        & (conf >= confidence_min)
-    )
-    vs, us = np.nonzero(valid)
-    if us.size == 0:
-        empty_xyz = np.zeros((0, 3), np.float32)
-        return ColoredPointCloud(empty_xyz, np.zeros((0, 4), np.uint8), np.zeros((0,), np.uint8))
-
-    z = depth[vs, us].astype(np.float64)
+    # Range is measured in each camera's optical frame, never from stage origin.
     depth_wh = (w_d, h_d)
     rgb_wh = (frame.rgb.shape[1], frame.rgb.shape[0])
     k_src, k_wh = calibration.K_rgb, calibration.rgb_size
-    if use_frame_intrinsics and _plausible_intrinsics(frame.K_rgb, rgb_wh):
+    if use_frame_intrinsics:
+        if not _plausible_intrinsics(frame.K_rgb, rgb_wh):
+            raise ValueError("invalid frame intrinsics")
         k_src, k_wh = frame.K_rgb, rgb_wh
     k_depth = scale_intrinsics(k_src, k_wh, depth_wh)
+    vv, uu = np.indices(depth.shape)
+    ray_sq = 1 + ((uu - k_depth[0, 2]) / k_depth[0, 0]) ** 2 + ((vv - k_depth[1, 2]) / k_depth[1, 1]) ** 2
+    valid = np.isfinite(depth) & (depth > 0)
+    counts = {"valid_depth": int(valid.sum())}
+    valid &= (depth >= crop.depth_min) & (depth <= crop.depth_max)
+    valid &= depth.astype(np.float64) ** 2 * ray_sq <= crop.max_range_m ** 2
+    counts["after_range"] = int(valid.sum())
+    valid &= conf >= confidence_min
+    counts["after_confidence"] = int(valid.sum())
+    valid &= mask_depth
+    counts["after_mask"] = int(valid.sum())
+    counts["after_stage"] = 0
+    if diagnostics is not None:
+        diagnostics.update(counts)
+    vs, us = np.nonzero(valid)
+    z = depth[vs, us].astype(np.float64)
     optical = unproject(us.astype(np.float64), vs.astype(np.float64), z, k_depth)
     stage = apply_transform(calibration.T_stage_from_optical, optical)
 
@@ -125,6 +132,8 @@ def reconstruct_view(
         & (stage[:, 2] <= crop.max_z)
     )
     stage = stage[in_stage]
+    if diagnostics is not None:
+        diagnostics["after_stage"] = int(stage.shape[0])
     us_k, vs_k = us[in_stage], vs[in_stage]
 
     rgb = _sample_rgb(frame.rgb, us_k, vs_k, depth_wh, rgb_wh)

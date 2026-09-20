@@ -77,7 +77,7 @@ public final class HumanCraftKeybindings {
 		consume(sourceColors, () -> {
 			config.sourceColors = !config.sourceColors;
 			coordinator.refreshRenderer();
-			savedMessage("stage-side registration colors", config.sourceColors);
+			savedMessage("camera contribution colors (cyan / magenta / yellow)", config.sourceColors);
 		});
 		consume(hud, () -> {
 			config.showHud = !config.showHud;

@@ -128,16 +128,23 @@ class RequestCapture(_Strict):
 
 class CalibrationHealth(_Strict):
     loaded: bool
+    state: dict = {}
     calibration_id: UUID | None = None
 
 
 class DeviceHealth(_Strict):
     connected: bool
+    frame_age_ms: int | None = None
+    tracking_state: str | None = None
+    valid_depth_count: int = 0
+    reconstruction: dict = {}
     clock_ready: bool
     queue_depth: int
 
 
 class HealthResponse(_Strict):
+    max_range_m: float = 5.0
+    frame_age_ms: int | None = None
     status: HealthStatus
     protocol_version: Literal[1] = 1
     calibration: CalibrationHealth

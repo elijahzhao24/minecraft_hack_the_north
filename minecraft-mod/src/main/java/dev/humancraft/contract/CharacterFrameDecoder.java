@@ -33,9 +33,23 @@ public final class CharacterFrameDecoder {
 					"quality.point_count " + header.quality().pointCount() + " != points shape " + count);
 		}
 		ByteBuffer slice = envelope.payload().slice((int) points.offset(), (int) points.length());
+		ByteBuffer sources = null;
+		for (BufferDescriptor b : header.buffers()) {
+			if (!b.name().equals("point_sources")) continue;
+			if (!b.encoding().equals("uint8") || b.shape().size() != 1 || b.shape().get(0) != count || b.length() != count) {
+				throw new ProtocolException(ProtocolException.INVALID_BUFFER_RANGE, "invalid point_sources buffer");
+			}
+			sources = envelope.payload().slice((int) b.offset(), (int) b.length());
+			int devices = header.sourceFrames().size();
+			if (devices > 8) throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "too many source devices");
+			for (int i = 0; i < count; i++) {
+				if ((sources.get(i) & 0xFF) >= (1 << devices))
+					throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "source bit references absent camera");
+			}
+		}
 		PointCloud cloud;
 		try {
-			cloud = new PointCloud(slice, (int) count);
+			cloud = new PointCloud(slice, (int) count, sources);
 			cloud.requireFinite();
 		} catch (IllegalArgumentException e) {
 			throw new ProtocolException(ProtocolException.NON_FINITE_GEOMETRY, e.getMessage(), e);

@@ -17,8 +17,13 @@ public final class PointCloud {
 
 	private final ByteBuffer data;
 	private final int count;
+	private final ByteBuffer sources;
 
 	public PointCloud(ByteBuffer data, int count) {
+		this(data, count, null);
+	}
+
+	public PointCloud(ByteBuffer data, int count, ByteBuffer sources) {
 		if (count < 0 || count > ProtocolLimits.MAX_POINTS) {
 			throw new IllegalArgumentException("point count out of range: " + count);
 		}
@@ -27,6 +32,22 @@ public final class PointCloud {
 		}
 		this.data = data.slice().asReadOnlyBuffer().order(ByteOrder.LITTLE_ENDIAN);
 		this.count = count;
+		if (sources != null && sources.remaining() != count) throw new IllegalArgumentException("source count mismatch");
+		this.sources = sources == null ? null : sources.slice().asReadOnlyBuffer();
+	}
+
+	public boolean hasSources() { return sources != null; }
+
+	public int sourceMask(int i) { return sources == null ? 0 : sources.get(i) & 0xFF; }
+
+	/** First phone cyan, second magenta, shared yellow; unknown provenance gray. */
+	public int sourceColor(int i) {
+		return switch (sourceMask(i)) {
+			case 1 -> 0x28D2F0;
+			case 2 -> 0xE632D2;
+			case 3 -> 0xFFE050;
+			default -> 0x888888;
+		};
 	}
 
 	public int count() {
@@ -106,7 +127,7 @@ public final class PointCloud {
 			out.put((byte) a(i));
 		}
 		out.flip();
-		return new PointCloud(out, count);
+		return new PointCloud(out, count, sources);
 	}
 
 	/** Builder used by the synthetic fixture. */
