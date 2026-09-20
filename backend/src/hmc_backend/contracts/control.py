@@ -124,6 +124,14 @@ class RequestCapture(_Strict):
     mode: Mode
 
 
+# --- Hacker Badge controller subscriber ---------------------------------
+
+class ControllerHello(_Strict):
+    type: Literal["controller_hello"]
+    protocol_version: Literal[1]
+    client_id: str
+
+
 # --- HTTP health -----------------------------------------------------------
 
 class CalibrationHealth(_Strict):

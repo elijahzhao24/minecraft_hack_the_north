@@ -393,13 +393,13 @@ public final class ClientSnapshotCoordinator {
 		}
 	}
 
-	/** Asks the backend to snap the two cameras together using the person as the target. */
-	public void registerRig() {
-		if (backend == null || !backend.registerRig()) {
+	/** Asks the backend to anchor both cameras using the shared ChArUco marker. */
+	public void anchorRig() {
+		if (backend == null || !backend.anchorRig()) {
 			message(Component.literal("HumanCraft: backend is not connected"));
 			return;
 		}
-		message(Component.literal("HumanCraft: aligning cameras on the next capture — hold still"));
+		message(Component.literal("HumanCraft: anchoring cameras — show the marker to both phones"));
 	}
 
 	public boolean isLiveRequested() {

@@ -3,6 +3,8 @@
   "package": "dev.humancraft.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "KeyboardInputMixin",
+    "MinecraftAttackInvoker",
     "PlayerRendererMixin"
   ],
   "injectors": {

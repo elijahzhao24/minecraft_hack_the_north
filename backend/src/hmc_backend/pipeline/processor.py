@@ -10,13 +10,11 @@ fake substitutes for hardware.
 from __future__ import annotations
 
 import time
-import threading
 from collections.abc import Callable
+from dataclasses import replace
 from uuid import UUID
 
-import numpy as np
-from numpy.typing import NDArray
-
+from hmc_backend.calibration.frame_tree import RigFrameTree
 from hmc_backend.calibration.model import RigCalibration
 from hmc_backend.contracts.internal import (
     CharacterFrame,
@@ -30,11 +28,8 @@ from hmc_backend.observability import log_event, span
 from hmc_backend.observability.quality import QualityMonitor, measure_view_quality
 from hmc_backend.pipeline.assembler import FrameAssembler
 from hmc_backend.reconstruction.reconstruct import CropBounds, merge_clouds, reconstruct_view
-from hmc_backend.reconstruction.registration import (
-    gravity_aligned,
-    register_yaw_translation,
-    with_stage_correction,
-)
+from hmc_backend.reconstruction.registration import gravity_aligned
+from hmc_backend.transforms import TransformError, optical_frame
 from hmc_backend.vision.protocols import CharacterFitter, ViewDetector
 
 PostFitHook = Callable[
@@ -49,7 +44,7 @@ class CharacterProcessor:
         self,
         detector: ViewDetector,
         fitter: CharacterFitter,
-        calibration: RigCalibration,
+        frame_tree: RigFrameTree | RigCalibration,
         assembler: FrameAssembler,
         crop: CropBounds,
         *,
@@ -59,13 +54,16 @@ class CharacterProcessor:
         observability_delay_ms: int = 0,
         quality_monitor: QualityMonitor | None = None,
         post_fit_hook: PostFitHook | None = None,
-        reference_device: str | None = None,
         gravity_align: bool = False,
         use_frame_intrinsics: bool = False,
     ) -> None:
         self._detector = detector
         self._fitter = fitter
-        self._calibration = calibration
+        self._frame_tree = (
+            frame_tree
+            if isinstance(frame_tree, RigFrameTree)
+            else RigFrameTree.from_legacy_rig(frame_tree)
+        )
         self._assembler = assembler
         self._crop = crop
         self._voxel_size_m = voxel_size_m
@@ -74,70 +72,30 @@ class CharacterProcessor:
         self._observability_delay_ms = max(0, observability_delay_ms)
         self._quality_monitor = quality_monitor or QualityMonitor()
         self._post_fit_hook = post_fit_hook
-        self._reference_device = reference_device
         self._gravity_align = gravity_align
         self._use_frame_intrinsics = use_frame_intrinsics
-        # device -> 4x4 stage->stage correction learned by registration.
-        self._corrections: dict[str, NDArray[np.float64]] = {}
-        self._register_requested = threading.Event()
-        self.last_registration: dict | None = None
-
-    # --- rig registration -------------------------------------------------
 
     @property
-    def corrections(self) -> dict[str, NDArray[np.float64]]:
-        return dict(self._corrections)
+    def frame_tree(self) -> RigFrameTree:
+        return self._frame_tree
 
-    def set_corrections(self, corrections: dict[str, NDArray[np.float64]]) -> None:
-        self._corrections = {k: np.asarray(v, np.float64).reshape(4, 4) for k, v in corrections.items()}
-
-    def request_registration(self) -> None:
-        """Align the non-reference camera onto the reference on the next pair."""
-        self._register_requested.set()
+    @property
+    def calibration(self):
+        return self._frame_tree.rig
 
     def _effective_calibration(self, device_id: str, frame):
-        calib = self._calibration.camera(device_id)
+        calib = self._frame_tree.rig.camera(device_id)
         if self._gravity_align:
             calib = gravity_aligned(calib, frame)
-        return with_stage_correction(calib, self._corrections.get(device_id))
-
-    def _register(self, clouds_by_device: dict) -> None:
-        devices = list(clouds_by_device)
-        ref = self._reference_device if self._reference_device in clouds_by_device else devices[0]
-        others = [d for d in devices if d != ref]
-        if not others:
-            return
-        target = clouds_by_device[ref].xyz_stage_m
-        for dev in others:
-            source = clouds_by_device[dev].xyz_stage_m
-            # First pass recovers a coarse placement error and is tuned to
-            # tolerate large gaps. Once a correction exists the views nearly
-            # coincide, so refine with tight matching and no yaw seeding.
-            refine = dev in self._corrections
-            kwargs = (
-                {"initial_yaws_deg": (0.0,), "voxel_m": 0.01, "max_pair_distance_m": 0.08, "keep_fraction": 0.8}
-                if refine
-                else {}
+        try:
+            t_stage = self._frame_tree.transforms.lookup_transform(
+                "stage",
+                optical_frame(device_id),
+                frame.normalized_capture_time_s,
             )
-            try:
-                t_inc, rms, inliers = register_yaw_translation(source, target, **kwargs)
-            except ValueError as exc:
-                self.last_registration = {"ok": False, "device_id": dev, "error": str(exc)}
-                log_event("warning", "rig_registration_failed", device_id=dev, error=str(exc))
-                continue
-            prev = self._corrections.get(dev, np.eye(4))
-            self._corrections[dev] = t_inc @ prev
-            yaw_deg = float(np.degrees(np.arctan2(t_inc[0, 2], t_inc[0, 0])))
-            self.last_registration = {
-                "ok": True,
-                "device_id": dev,
-                "rms_m": round(rms, 4),
-                "inliers": inliers,
-                "yaw_deg": round(yaw_deg, 2),
-                "shift_m": [round(float(v), 3) for v in t_inc[:3, 3]],
-                "pass": "refine" if refine else "coarse",
-            }
-            log_event("info", "rig_registered", **self.last_registration)
+        except TransformError as exc:
+            raise ValueError(f"transform lookup failed for {device_id!r}: {exc}") from exc
+        return replace(calib, T_stage_from_optical=t_stage)
 
     @property
     def detector(self) -> ViewDetector:
@@ -159,7 +117,6 @@ class CharacterProcessor:
 
         detections = {}
         clouds = []
-        clouds_by_device = {}
         source_bit = 1
         view_quality = []
         source_ids = ",".join(
@@ -198,26 +155,7 @@ class CharacterProcessor:
                     )
                     reconstruct_span.set_data("point_count", cloud.count)
                 clouds.append(cloud)
-                clouds_by_device[device_id] = cloud
                 source_bit <<= 1
-
-            if self._register_requested.is_set():
-                self._register_requested.clear()
-                self._register(clouds_by_device)
-                # Rebuild corrected views so this frame already uses the new registration.
-                for i, device_id in enumerate((pair.first.device_id, pair.second.device_id)):
-                    if device_id in self._corrections:
-                        with span("hmc.reconstruct", "rebuild registered view", camera_id=device_id) as reconstruct_span:
-                            clouds[i] = reconstruct_view(
-                                frames[device_id],
-                                detections[device_id],
-                                self._effective_calibration(device_id, frames[device_id]),
-                                self._crop,
-                                confidence_min=self._confidence_min,
-                                source_bit=1 << i,
-                                use_frame_intrinsics=self._use_frame_intrinsics,
-                            )
-                            reconstruct_span.set_data("point_count", clouds[i].count)
 
             seed = _seed_from_pair(pair)
             with span("hmc.fuse", "merge, voxel downsample and cap") as merge_span:
@@ -226,8 +164,7 @@ class CharacterProcessor:
                 )
                 merge_span.set_data("point_count", merged.count)
 
-            # Fit against the front camera's calibration (registration reference).
-            front_calib = self._calibration.camera(pair.first.device_id)
+            front_calib = self._effective_calibration(pair.first.device_id, pair.first)
             with span("hmc.fit", "landmarks and colliders"):
                 fitted = self._fitter.fit_character(pair, detections, merged, front_calib)
 
@@ -249,7 +186,7 @@ class CharacterProcessor:
                     merged,
                     fitted,
                     mode=mode,
-                    calibration_id=self._calibration.calibration_id,
+                    calibration_id=self._frame_tree.rig.calibration_id,
                     trace=trace or TraceContext(),
                     extra_warnings=warnings,
                 )
@@ -260,7 +197,7 @@ class CharacterProcessor:
             self._quality_monitor.observe(
                 frame_id=result.frame_id,
                 fusion_id=pair.pair_id,
-                calibration_id=self._calibration.calibration_id,
+                calibration_id=self._frame_tree.rig.calibration_id,
                 quality=quality,
             )
         return result

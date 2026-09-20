@@ -31,30 +31,35 @@ uv run uvicorn hmc_backend.api.app:app --host 0.0.0.0 --port 8000 --workers 1
 The backend must run as a **single Uvicorn worker** — device connections,
 calibration, queues, and subscribers are in-memory shared state.
 
-## Calibrate and merge two fixed iPhones
+### Enable the Hacker Badge controller on macOS
 
-Place the measured ChArUco board flat on the stage mark in the orientation
-documented in `calibration/charuco.py`, connect both phones as `front-phone` and
-`side-phone`, and leave both tripods fixed. The backend accepts calibration
-captures even when `/health` is 503 because no calibration exists yet.
+Turn Bluetooth on and start the backend with the BLE receiver enabled:
 
 ```bash
-uv run python scripts/calibrate.py \
-  --url http://127.0.0.1:8000 \
-  --capture-count 8 \
-  --out data/calibration.json
+HMC_BADGE_CONTROLLER_ENABLED=true uv run uvicorn hmc_backend.api.app:app \
+  --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-The command requests synchronized raw pairs, solves both
-`T_stage_from_optical` transforms, and writes the file only when every camera
-has at least two held-out frames, at most 3 cm held-out position error, and at
-most 3 px reprojection error. Restart the backend afterward. Moving either
-phone, or changing its raster size or orientation, requires recalibration.
+The receiver scans for the custom service and a local name beginning with
+`HTN-Badge`. Override the exact name with `HMC_BADGE_CONTROLLER_NAME`. The
+latest validated state is available to Minecraft at `/ws/controller`, and
+`/health` includes connection age, malformed packets, gaps, and reconnects.
+Bluetooth loss neutralizes all buttons after 250 ms.
 
-`POST /calibration/captures` requests one raw pair and
-`GET /calibration/captures/{capture_id}` reports its status. Production frames
-whose device, raster, or orientation differs from the loaded calibration are
-rejected instead of being merged in the wrong frame.
+## Calibrate and merge two fixed iPhones
+
+Place the measured ChArUco board at the stage origin, connect both phones as
+`front-phone` and `side-phone`, then press **N** in Minecraft. The character
+WebSocket sends `anchor_rig`; the backend pauses live capture, requests
+clock-aligned samples from both phones, solves `stage -> <device>/optical`, and
+atomically writes `data/frame-tree.json`. Progress and failure details return as
+`anchor_status` messages. Live streaming resumes automatically.
+
+Each incoming cloud is transformed through the frame tree at its normalized
+capture timestamp before fusion. Frames with the wrong device, raster size, or
+orientation are rejected. Moving either phone requires anchoring again. The
+offline `scripts/calibrate.py --recordings ...` command remains available for
+diagnostics and reproducible solves; there is no HTTP calibration endpoint.
 
 Fixture mode remains the default. For real Pose/Hand inference:
 
@@ -80,6 +85,7 @@ uv run pytest
 | `protocol/` | HMC1 envelope framing and buffer-descriptor decoding |
 | `contracts/` | Pydantic transport models and internal typed data structures |
 | `capture/` | clock sync, frame queues, pairing, recording/replay |
+| `controller/` | Hacker Badge BLE decoding, fail-safe state, and fanout |
 | `calibration/` | ChArUco camera→stage calibration and calibration IO |
 | `reconstruction/` | mask resample, depth unprojection, cloud merge/downsample |
 | `vision/` | MediaPipe Pose/Hand detection, depth sampling, multiview fusion, and fixture detectors |

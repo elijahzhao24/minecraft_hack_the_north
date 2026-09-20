@@ -258,6 +258,19 @@ Minecraft may initiate one synchronized capture:
 
 The backend accepts it only when both configured phones are connected, clock-ready, and the processor can accept a snapshot. It forwards `capture_request` carrying the same IDs to both phones and replies to Minecraft with `ack`. That acknowledgement means the request was dispatched, not that a `CharacterFrame` exists; completion is the later binary frame whose two source records carry that `capture_id`.
 
+Minecraft starts shared-marker anchoring over the same WebSocket:
+
+```json
+{"type":"anchor_rig","protocol_version":1,"request_id":"04b17d28-d361-4ea5-a196-6ed1f7578f17"}
+```
+
+The backend pauses live capture, sends synchronized `capture_request` messages
+with per-phone `not_before_phone_time_s` deadlines, and streams
+`anchor_status` messages with `state`, accepted/required sample counts, nullable
+`rig_id`, and nullable `failure_code`. On success it atomically persists a
+`stage -> <device-id>/optical` transform tree and resumes live capture. This
+replaces the former HTTP calibration-capture and person-ICP registration paths.
+
 ### HTTP health response
 
 `GET /health` returns `HealthResponse` with `status` (`starting`, `ready`, or `degraded`), protocol version, calibration readiness/ID, named model states, each expected device's connected/clock-ready/queue-depth state, and nullable latest frame ID. HTTP status is 200 only for `ready`, otherwise 503. The concrete example is in [workflows/02-python-backend.md](workflows/02-python-backend.md).
@@ -576,7 +589,48 @@ record ContactStatePayload(long frameId, BlockPos target, Set<BodyPart> touching
 
 The server emits only on state change or at a low heartbeat rate, not every tick.
 
-## 8. Type mapping across languages
+## 8. Hacker Badge controller protocol
+
+This protocol is independent of HMC1 so controller additions do not change the
+camera/character schema. The ESP32-C3 is a BLE GATT peripheral advertising
+`HTN-Badge-<id>` and service UUID
+`7b1e1000-6f7a-4d19-9c4b-5a2c8f1e2026`. Read/notify characteristic
+`7b1e1001-6f7a-4d19-9c4b-5a2c8f1e2026` emits exactly 20 little-endian bytes:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | ASCII[2] | `HB` |
+| 2 | uint8 | protocol version, exactly 1 |
+| 3 | uint8 | message type, exactly 1 (state) |
+| 4 | uint16 | wrapping packet sequence |
+| 6 | uint32 | badge monotonic uptime in milliseconds |
+| 10 | uint16 | buttons bitmask |
+| 12/14/16 | int16 | accelerometer X/Y/Z in mg |
+| 18 | uint16 | wrapping punch-event counter |
+
+Button bits are A, B, HOME, DOWN, LEFT, RIGHT, UP, AUX1, and START in bits
+0 through 8. Receivers reject unknown bits, duplicate/reordered packets, and
+wrong sizes/versions. A sequence gap is diagnostic and does not cause replay.
+The first punch counter after every connection is a baseline.
+
+Minecraft connects to `/ws/controller` and first sends:
+
+```json
+{"type":"controller_hello","protocol_version":1,"client_id":"minecraft-local"}
+```
+
+The backend immediately sends the current state, followed by latest-wins
+updates:
+
+```json
+{"type":"controller_state","protocol_version":1,"connected":true,"sequence":9,"badge_uptime_ms":1234,"buttons":65,"accel_mg":[12,-20,1001],"punch_counter":2}
+```
+
+On BLE disconnect or 250 ms without a valid packet, `connected` becomes false
+and `buttons` becomes zero. Consumers must neutralize input independently if
+their WebSocket state becomes stale.
+
+## 9. Type mapping across languages
 
 | Concept | Swift | Python boundary | Java |
 |---|---|---|---|
@@ -591,7 +645,7 @@ The server emits only on state change or at a low heartbeat rate, not every tick
 
 Do not generate Java game payloads directly from the WebSocket JSON models. Decode into transport DTOs, validate, apply the stage-to-world transform, then build separate game payload records. That boundary prevents meters/stage coordinates from being confused with blocks/world coordinates.
 
-## 9. Compatibility and fixtures
+## 10. Compatibility and fixtures
 
 - Envelope version changes only if the 16-byte framing changes.
 - Each header has an independent `schema_version` for field-level changes.

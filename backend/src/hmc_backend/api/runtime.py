@@ -1,6 +1,6 @@
 """AppRuntime: in-memory state and the capture->publish orchestration.
 
-Holds the calibration, pipeline, per-device connection/clock state, the snapshot
+Holds the frame tree, pipeline, per-device connection/clock state, the snapshot
 store, and the character hub. WebSocket handlers call into this; the CPU-heavy
 processing runs off the event loop via ``asyncio.to_thread``. All mutable state
 here is touched on the event loop only, matching the single-worker model.
@@ -15,16 +15,20 @@ import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from pathlib import Path
 from uuid import UUID, uuid4
 
-import numpy as np
-
 from hmc_backend.api.hub import CharacterHub
+from hmc_backend.calibration.anchor import (
+    DeviceAccumulator,
+    anchor_status_payload,
+    build_board_detector,
+    observe_decoded_frame,
+    solve_frame_tree,
+)
+from hmc_backend.calibration.frame_tree import RigFrameTree, save_frame_tree
 from hmc_backend.calibration.model import RigCalibration
 from hmc_backend.capture.clock import ClockEstimator
 from hmc_backend.capture.pairing import Pairer
-from hmc_backend.capture.recording import save_recording
 from hmc_backend.capture.replay import captured_frame_from_decoded
 from hmc_backend.capture.rgbd_ingest import decode_rgbd_frame
 from hmc_backend.contracts.character_codec import encode_character_frame
@@ -56,16 +60,30 @@ class DeviceState:
 
 
 @dataclass
-class CalibrationCaptureState:
-    """Raw synchronized packets collected before a rig calibration exists."""
+class AnchorCaptureState:
+    """One synchronized anchor sample waiting for both device packets."""
 
     capture_id: UUID
-    created_monotonic_s: float
-    deadline_monotonic_s: float
     packets: dict[str, bytes] = field(default_factory=dict)
-    state: str = "pending"
-    saved_recording_path: str | None = None
+
+
+@dataclass
+class AnchorSession:
+    """Shared-marker anchoring in progress."""
+
+    request_id: UUID
+    started_monotonic_s: float
+    deadline_monotonic_s: float
+    required_samples: int
+    accepted_samples: int = 0
+    pending: dict[UUID, AnchorCaptureState] = field(default_factory=dict)
+    accumulators: dict[str, DeviceAccumulator] = field(default_factory=dict)
+    state: str = "collecting"
     failure_code: str | None = None
+    resume_live: bool = False
+    board_spec: object | None = None
+    board: object | None = None
+    detector: object | None = None
 
 
 class AppRuntime:
@@ -74,14 +92,16 @@ class AppRuntime:
     def __init__(
         self,
         settings: Settings,
-        calibration: RigCalibration | None,
+        frame_tree: RigFrameTree | RigCalibration | None,
         *,
         processor: CharacterProcessor | None = None,
         pairer: Pairer | None = None,
         store: SnapshotStore | None = None,
     ) -> None:
+        if isinstance(frame_tree, RigCalibration):
+            frame_tree = RigFrameTree.from_legacy_rig(frame_tree)
         self._settings = settings
-        self._calibration = calibration
+        self._frame_tree = frame_tree
         self._server_session_id = uuid4()
         self._store = store or SnapshotStore()
         self._hub = CharacterHub()
@@ -91,23 +111,19 @@ class AppRuntime:
         self._last_aggregate_s = time.perf_counter()
 
         self._devices = {dev: DeviceState(dev) for dev in settings.expected_device_ids}
-        # capture_id -> mode for requests this backend dispatched, so a frame
-        # can be tagged live/snapshot when it comes back (the RGBD header has
-        # no mode field). Bounded: live mode issues several per second.
         self._capture_modes: OrderedDict[UUID, str] = OrderedDict()
         self._live_task: asyncio.Task[None] | None = None
         self._live_rate_hz: float = settings.live_rate_hz
-        # Live requests dispatched but not yet paired: capture_id -> send time.
         self._live_inflight: dict[UUID, float] = {}
         self._live_paired = asyncio.Event()
-        self._calibration_captures: OrderedDict[UUID, CalibrationCaptureState] = OrderedDict()
+        self._anchor: AnchorSession | None = None
+        self._anchor_task: asyncio.Task[None] | None = None
 
         self._pairer: Pairer | None
         self._processor: CharacterProcessor | None
-        if calibration is not None:
+        if frame_tree is not None:
             self._pairer = pairer or build_pairer(settings)
-            self._processor = processor or build_processor(settings, calibration)
-            self._load_registration()
+            self._processor = processor or build_processor(settings, frame_tree)
         else:
             self._pairer = None
             self._processor = None
@@ -130,8 +146,34 @@ class AppRuntime:
     def hub(self) -> CharacterHub:
         return self._hub
 
+    @property
+    def frame_tree(self) -> RigFrameTree | None:
+        return self._frame_tree
+
+    @property
+    def calibration(self) -> RigCalibration | None:
+        return self._frame_tree.rig if self._frame_tree is not None else None
+
     def is_ready(self) -> bool:
-        return self._calibration is not None and self._processor is not None
+        return self._frame_tree is not None and self._processor is not None
+
+    def _emit_anchor_status(self, session: AnchorSession) -> None:
+        rig_id = self._frame_tree.rig.calibration_id if session.state == "complete" and self._frame_tree else None
+        payload = anchor_status_payload(
+            request_id=session.request_id,
+            state=session.state,
+            accepted_sample_count=session.accepted_samples,
+            required_sample_count=session.required_samples,
+            rig_id=rig_id,
+            failure_code=session.failure_code,
+        )
+        self._hub.broadcast_text(json.dumps(payload))
+
+    def _install_frame_tree(self, tree: RigFrameTree) -> None:
+        self._frame_tree = tree
+        self._pairer = build_pairer(self._settings)
+        self._processor = build_processor(self._settings, tree)
+        log_event("info", "frame_tree_installed", rig_id=str(tree.rig.calibration_id))
 
     # --- capture device lifecycle ----------------------------------------
 
@@ -157,146 +199,172 @@ class AppRuntime:
             state.token = None
             state.send_text = None
 
-    async def dispatch_capture(self, capture_id: UUID, mode: str) -> tuple[bool, str]:
+    async def dispatch_capture(
+        self,
+        capture_id: UUID,
+        mode: str,
+        *,
+        sync_lead_s: float = 0.05,
+    ) -> tuple[bool, str]:
         """Forward a capture_request to both phones if the rig can accept one."""
-        if not self.is_ready():
+        if not self.is_ready() and self._anchor is None:
             return False, "not_ready"
         if not all(s.connected and s.send_text is not None for s in self._devices.values()):
             return False, "devices_unavailable"
-        req = CaptureRequest(request_id=uuid4(), capture_id=capture_id, mode=Mode(mode))
+        target_backend_s = time.monotonic() + sync_lead_s
         self._capture_modes[capture_id] = mode
         while len(self._capture_modes) > 256:
             self._capture_modes.popitem(last=False)
-        payload = req.model_dump_json()
         for state in self._devices.values():
             assert state.send_text is not None
-            await state.send_text(payload)
+            offset = state.clock.offset_s() or 0.0
+            req = CaptureRequest(
+                request_id=uuid4(),
+                capture_id=capture_id,
+                mode=Mode(mode),
+                not_before_phone_time_s=target_backend_s + offset,
+            )
+            await state.send_text(req.model_dump_json())
         return True, "capture_dispatched"
 
-    async def request_calibration_capture(self) -> tuple[bool, dict]:
-        """Request one raw synchronized pair, even when no calibration is loaded."""
+    # --- shared-marker anchoring ------------------------------------------
+
+    @property
+    def anchor_active(self) -> bool:
+        return self._anchor is not None and self._anchor.state == "collecting"
+
+    async def start_anchor(self, request_id: UUID) -> tuple[bool, str]:
+        """Begin collecting synchronized board samples from both phones."""
+        if self._anchor is not None:
+            return False, "anchor_in_progress"
         if not all(s.connected and s.send_text is not None for s in self._devices.values()):
-            return False, {"code": "devices_unavailable"}
-        capture_id = uuid4()
+            return False, "devices_unavailable"
+        resume_live = self.live_active
+        if resume_live:
+            self.stop_live()
+        spec, board, detector = build_board_detector()
         now = time.monotonic()
-        state = CalibrationCaptureState(
-            capture_id=capture_id,
-            created_monotonic_s=now,
-            deadline_monotonic_s=now + self._settings.calibration_capture_timeout_s,
+        session = AnchorSession(
+            request_id=request_id,
+            started_monotonic_s=now,
+            deadline_monotonic_s=now + self._settings.anchor_timeout_s,
+            required_samples=self._settings.anchor_sample_count,
+            resume_live=resume_live,
+            board_spec=spec,
+            board=board,
+            detector=detector,
+            accumulators={
+                dev: DeviceAccumulator(dev) for dev in self._settings.expected_device_ids
+            },
         )
-        self._calibration_captures[capture_id] = state
-        while len(self._calibration_captures) > 64:
-            self._calibration_captures.popitem(last=False)
-        request = CaptureRequest(request_id=uuid4(), capture_id=capture_id, mode=Mode.SNAPSHOT)
-        payload = request.model_dump_json()
-        for device in self._devices.values():
-            assert device.send_text is not None
-            await device.send_text(payload)
-        return True, self.calibration_capture_status(capture_id) or {}
+        self._anchor = session
+        self._emit_anchor_status(session)
+        self._anchor_task = asyncio.create_task(self._anchor_loop())
+        log_event("info", "anchor_started", request_id=str(request_id))
+        return True, "anchor_started"
 
-    def calibration_capture_status(self, capture_id: UUID) -> dict | None:
-        state = self._calibration_captures.get(capture_id)
-        if state is None:
-            return None
-        if state.state == "pending" and time.monotonic() > state.deadline_monotonic_s:
-            state.state = "failed"
-            state.failure_code = "capture_timeout"
-        return {
-            "capture_id": str(state.capture_id),
-            "device_ids": sorted(state.packets),
-            "state": state.state,
-            "saved_recording_path": state.saved_recording_path,
-            "failure_code": state.failure_code,
-        }
+    def _anchor_timed_out(self, session: AnchorSession) -> bool:
+        return time.monotonic() > session.deadline_monotonic_s
 
-    async def _record_calibration_packet(self, device_id: str, capture_id: UUID, raw: bytes) -> None:
-        state = self._calibration_captures[capture_id]
-        self.calibration_capture_status(capture_id)
-        if state.state != "pending":
-            return
-        if device_id in state.packets:
-            state.state = "failed"
-            state.failure_code = "duplicate_device_packet"
-            return
-        state.packets[device_id] = bytes(raw)
-        if set(state.packets) != set(self._devices):
+    async def _anchor_loop(self) -> None:
+        """Request anchor captures until enough valid board pairs are collected."""
+        try:
+            while True:
+                session = self._anchor
+                if session is None or session.state != "collecting":
+                    return
+                if self._anchor_timed_out(session):
+                    await self._finish_anchor(session, "anchor_timeout")
+                    return
+                if session.accepted_samples >= session.required_samples:
+                    await self._finalize_anchor(session)
+                    return
+                if len(session.pending) >= 2:
+                    await asyncio.sleep(0.05)
+                    continue
+                capture_id = uuid4()
+                session.pending[capture_id] = AnchorCaptureState(capture_id=capture_id)
+                accepted, _ = await self.dispatch_capture(capture_id, "snapshot", sync_lead_s=0.08)
+                if not accepted:
+                    await self._finish_anchor(session, "devices_unavailable")
+                    return
+                await asyncio.sleep(0.12)
+        except asyncio.CancelledError:
+            pass
+
+    async def _finish_anchor(self, session: AnchorSession, failure_code: str) -> None:
+        session.state = "failed"
+        session.failure_code = failure_code
+        self._emit_anchor_status(session)
+        log_event("warning", "anchor_failed", request_id=str(session.request_id), code=failure_code)
+        if session.resume_live:
+            self.start_live()
+        self._anchor = None
+
+    async def _finalize_anchor(self, session: AnchorSession) -> None:
+        session.state = "solving"
+        self._emit_anchor_status(session)
+        try:
+            tree = await asyncio.to_thread(solve_frame_tree, session.accumulators, self._settings)
+        except Exception as exc:  # noqa: BLE001 - anchor errors are reported to the client
+            await self._finish_anchor(session, str(exc).replace(" ", "_")[:64])
             return
         try:
-            path = await asyncio.to_thread(
-                save_recording,
-                self._settings.recording_root,
-                capture_id,
-                state.packets,
-                backend_release=self._settings.release,
-                consent_note="calibration board capture; may contain surrounding RGB/depth data",
+            await asyncio.to_thread(save_frame_tree, tree, self._settings.frame_tree_path)
+        except Exception as exc:  # noqa: BLE001 - preserve the active rig on disk failure
+            await self._finish_anchor(session, f"persist_failed_{type(exc).__name__}")
+            return
+        self._install_frame_tree(tree)
+        session.state = "complete"
+        self._emit_anchor_status(session)
+        log_event(
+            "info",
+            "anchor_complete",
+            request_id=str(session.request_id),
+            rig_id=str(tree.rig.calibration_id),
+        )
+        if session.resume_live:
+            self.start_live()
+        self._anchor = None
+
+    async def _handle_anchor_packet(self, device_id: str, capture_id: UUID, raw: bytes) -> None:
+        session = self._anchor
+        if session is None or session.state != "collecting":
+            return
+        pending = session.pending.get(capture_id)
+        if pending is None:
+            return
+        if device_id in pending.packets:
+            await self._finish_anchor(session, "duplicate_device_packet")
+            return
+        pending.packets[device_id] = bytes(raw)
+        if set(pending.packets) != set(self._devices):
+            return
+
+        assert session.board is not None and session.detector is not None
+        accepted_pair = True
+        for dev_id, packet in pending.packets.items():
+            try:
+                decoded = decode_rgbd_frame(decode_envelope(packet))
+            except EnvelopeError:
+                accepted_pair = False
+                session.accumulators[dev_id].note_rejection("undecodable_packet")
+                continue
+            observed = await asyncio.to_thread(
+                observe_decoded_frame,
+                decoded,
+                board=session.board,
+                detector=session.detector,
+                accumulator=session.accumulators[dev_id],
             )
-        except OSError:
-            state.state = "failed"
-            state.failure_code = "recording_write_failed"
-            return
-        state.state = "complete"
-        state.saved_recording_path = str(path.resolve())
-
-    # --- rig registration -------------------------------------------------
-
-    def request_registration(self) -> bool:
-        """Align the side camera onto the front one using the next paired frame."""
-        if not self._settings.enable_person_registration or self._processor is None:
-            return False
-        self._processor.request_registration()
-        self._registration_dirty = True
-        return True
-
-    def clear_registration(self) -> None:
-        if self._processor is not None:
-            self._processor.set_corrections({})
-            self._processor.last_registration = None
-        path = Path(self._settings.registration_path)
-        if path.exists():
-            path.unlink()
-        log_event("info", "rig_registration_cleared")
-
-    def registration_status(self) -> dict:
-        if self._processor is None:
-            return {"corrections": {}, "last": None}
-        return {
-            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
-            "last": self._processor.last_registration,
-        }
-
-    def _load_registration(self) -> None:
-        self._registration_dirty = False
-        if not self._settings.enable_person_registration:
-            return
-        path = Path(self._settings.registration_path)
-        if not path.exists() or self._processor is None:
-            return
-        try:
-            data = json.loads(path.read_text())
-            if self._calibration is None or data.get("calibration_id") != str(self._calibration.calibration_id):
-                log_event("warning", "rig_registration_ignored", reason="calibration_id_mismatch")
-                return
-            self._processor.set_corrections(
-                {k: np.array(v, np.float64).reshape(4, 4) for k, v in data.get("corrections", {}).items()}
-            )
-            log_event("info", "rig_registration_loaded", devices=list(data.get("corrections", {})))
-        except (ValueError, OSError) as exc:
-            log_event("warning", "rig_registration_load_failed", error=str(exc))
-
-    def _save_registration_if_dirty(self) -> None:
-        if not getattr(self, "_registration_dirty", False) or self._processor is None:
-            return
-        last = self._processor.last_registration
-        if last is None or not last.get("ok"):
-            return
-        self._registration_dirty = False
-        path = Path(self._settings.registration_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
-            "calibration_id": str(self._calibration.calibration_id) if self._calibration else None,
-            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
-            "last": last,
-        }, indent=2))
+            if not observed:
+                accepted_pair = False
+        del session.pending[capture_id]
+        if accepted_pair:
+            session.accepted_samples += 1
+            self._emit_anchor_status(session)
+            if session.accepted_samples >= session.required_samples:
+                await self._finalize_anchor(session)
 
     # --- live mode --------------------------------------------------------
 
@@ -305,11 +373,9 @@ class AppRuntime:
         return self._live_task is not None and not self._live_task.done()
 
     def start_live(self, rate_hz: float | None = None) -> None:
-        """Drive both phones with live capture_requests at ``rate_hz``.
-
-        Both devices answer with the same capture_id, so pairing is unchanged
-        from snapshot mode; the phones never need to invent their own ids.
-        """
+        """Drive both phones with live capture_requests at ``rate_hz``."""
+        if self.anchor_active:
+            return
         if rate_hz is not None and rate_hz > 0:
             self._live_rate_hz = min(rate_hz, 30.0)
         if self.live_active:
@@ -325,13 +391,6 @@ class AppRuntime:
             log_event("info", "live_stopped")
 
     async def _live_loop(self) -> None:
-        """Self-pacing request loop.
-
-        ``live_rate_hz`` is a ceiling. At most two requests are in flight; the
-        next goes out when one pairs (or is written off after a second), so a
-        slow phone is never asked for more than it can deliver and its queue
-        never overflows. That overflow is what stalled the first live attempt.
-        """
         max_inflight = 2
         self._live_inflight.clear()
         try:
@@ -379,13 +438,12 @@ class AppRuntime:
         device_id = decoded.header.device_id
         if connected_device_id is not None and connected_device_id != device_id:
             raise EnvelopeError("unauthorized_device", "packet device_id does not match connection")
-        calibration_capture = self._calibration_captures.get(decoded.header.capture_id)
-        if calibration_capture is not None:
-            await self._record_calibration_packet(device_id, decoded.header.capture_id, raw)
+        if self._anchor is not None:
+            await self._handle_anchor_packet(device_id, decoded.header.capture_id, raw)
             return None
-        if self._pairer is None or self._processor is None or self._calibration is None:
+        if self._pairer is None or self._processor is None or self._frame_tree is None:
             return None
-        camera = self._calibration.camera(device_id)
+        camera = self._frame_tree.rig.camera(device_id)
         header = decoded.header
         if header.image_orientation.value != camera.image_orientation:
             raise EnvelopeError("calibration_mismatch", "image orientation differs from calibration")
@@ -401,7 +459,7 @@ class AppRuntime:
         offset = state.clock.offset_s() or 0.0
         uncertainty = state.clock.uncertainty_ms()
         if uncertainty is None:
-            uncertainty = 0.0  # no probes yet; treated as synchronized for the MVP
+            uncertainty = 0.0
         frame = captured_frame_from_decoded(
             decoded, clock_offset_s=offset, clock_uncertainty_ms=uncertainty
         )
@@ -417,7 +475,7 @@ class AppRuntime:
         ) as txn:
             queue_depth = self._pairer.pending_depth(device_id)
             with span("hmc.pair", "offer frame to bounded pairing queue", queue_depth=queue_depth):
-                outcome = self._pairer.offer(frame, self._calibration.calibration_id)
+                outcome = self._pairer.offer(frame, self._frame_tree.rig.calibration_id)
             log_event(
                 "info",
                 "rgbd_received",
@@ -449,25 +507,20 @@ class AppRuntime:
                 if source.received_monotonic_s is not None
             ]
             txn.set_data("fusion_id", str(pair.pair_id))
-            txn.set_data("calibration_version", str(self._calibration.calibration_id))
+            txn.set_data("calibration_version", str(self._frame_tree.rig.calibration_id))
             txn.set_data("pair_skew_ms", round(pair.pair_skew_ms, 2))
             if waits:
-                # Derived only from this process's monotonic clock.
                 txn.set_data("pair_queue_wait_ms_max", round(max(waits), 3))
             propagated = txn.propagation_headers()
             output_trace = TraceContext(
                 sentry_trace=propagated.get("sentry-trace"),
                 baggage=propagated.get("baggage"),
             )
-            # Run the CPU-heavy stages off the event loop.
             with span("collider.fit_and_reconstruct", "detect+reconstruct+fit"):
                 character = await asyncio.to_thread(
                     self._processor.process, pair, mode=mode, trace=output_trace
                 )
-            self._save_registration_if_dirty()
             if mode == "live" and character.quality.point_count == 0:
-                # Nobody in frame; publishing an empty live frame only makes
-                # the client log a decode error and blank the figure.
                 log_event("info", "live_frame_empty", capture_id=str(pair.first.capture_id))
                 return None
             txn.set_data("frame_id", character.frame_id)
@@ -475,7 +528,6 @@ class AppRuntime:
             with span("hmc.character_serialize", "encode CHARACTER_FRAME") as serialize_span:
                 encoded = await asyncio.to_thread(encode_character_frame, character)
                 serialize_span.set_data("payload_size", len(encoded))
-            # Publish only after successful serialization (all-or-nothing).
             with span("hmc.character_publish", "store + latest-wins broadcast"):
                 self._store.publish(character, encoded)
                 self._hub.broadcast(encoded)
@@ -519,7 +571,7 @@ class AppRuntime:
 
     def health(self) -> tuple[HealthResponse, int]:
         """Build the health response and its HTTP status code."""
-        calib = self._calibration
+        calib = self.calibration
         devices = {
             dev: DeviceHealth(
                 connected=state.connected,

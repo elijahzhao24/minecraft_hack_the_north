@@ -7,9 +7,11 @@ capture loop build the pipeline the same way.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from hmc_backend.calibration.frame_tree import RigFrameTree
 from hmc_backend.calibration.model import RigCalibration
 from hmc_backend.capture.pairing import Pairer
 from hmc_backend.contracts.internal import (
@@ -24,6 +26,7 @@ from hmc_backend.pipeline.processor import CharacterProcessor, PostFitHook
 from hmc_backend.pipeline.snapshot_store import SnapshotStore
 from hmc_backend.reconstruction.reconstruct import CropBounds
 from hmc_backend.settings import Settings
+from hmc_backend.transforms import optical_frame
 from hmc_backend.vision.fake import FakeCharacterFitter, FakePersonMaskDetector
 from hmc_backend.vision.protocols import CharacterFitter, ViewDetector
 
@@ -78,7 +81,7 @@ def build_fitter(settings: Settings, calibration: RigCalibration) -> CharacterFi
     raise ValueError(f"unknown collider_backend {settings.collider_backend!r}")
 
 
-def build_debug_hook(settings: Settings, calibration: RigCalibration, fitter: CharacterFitter) -> PostFitHook | None:
+def build_debug_hook(settings: Settings, frame_tree: RigFrameTree, fitter: CharacterFitter) -> PostFitHook | None:
     if not settings.debug_artifacts_dir:
         return None
     from hmc_backend.vision.overlays import write_debug_artifacts
@@ -87,39 +90,49 @@ def build_debug_hook(settings: Settings, calibration: RigCalibration, fitter: Ch
 
     def hook(pair: PairedFrames, detections: dict[str, ViewDetection], cloud: ColoredPointCloud, fitted: FittedCharacter) -> None:
         frames = {pair.first.device_id: pair.first, pair.second.device_id: pair.second}
+        calibrations = {
+            device_id: replace(
+                frame_tree.rig.camera(device_id),
+                T_stage_from_optical=frame_tree.transforms.lookup_transform(
+                    "stage", optical_frame(device_id), frame.normalized_capture_time_s
+                ),
+            )
+            for device_id, frame in frames.items()
+        }
         write_debug_artifacts(
             root / str(pair.pair_id), frames=frames, detections=detections,
-            calibrations={d: calibration.camera(d) for d in frames}, cloud=cloud,
+            calibrations=calibrations, cloud=cloud,
             landmarks=fitted.landmarks, colliders=getattr(fitter, "last_typed_colliders", ()),
             fit_report=getattr(fitter, "last_report", None),
-            extra={"pair_id": str(pair.pair_id), "calibration_id": str(calibration.calibration_id)},
+            extra={"pair_id": str(pair.pair_id), "calibration_id": str(frame_tree.rig.calibration_id)},
         )
     return hook
 
 
 def build_processor(
     settings: Settings,
-    calibration: RigCalibration,
+    frame_tree: RigFrameTree | RigCalibration,
     *,
     detector: ViewDetector | None = None,
     fitter: CharacterFitter | None = None,
     session_id: UUID | None = None,
 ) -> CharacterProcessor:
     """Build a processor using the configured production or fixture stages."""
+    if isinstance(frame_tree, RigCalibration):
+        frame_tree = RigFrameTree.from_legacy_rig(frame_tree)
     detector = detector or build_detector(settings)
-    fitter = fitter or build_fitter(settings, calibration)
+    fitter = fitter or build_fitter(settings, frame_tree.rig)
     return CharacterProcessor(
         detector,
         fitter,
-        calibration,
+        frame_tree,
         FrameAssembler(session_id or uuid4()),
         crop_from_settings(settings),
         voxel_size_m=settings.voxel_size_m,
         max_points=settings.max_points,
         confidence_min=settings.confidence_min,
         observability_delay_ms=settings.observability_demo_delay_ms,
-        post_fit_hook=build_debug_hook(settings, calibration, fitter),
-        reference_device=settings.expected_device_ids[0],
+        post_fit_hook=build_debug_hook(settings, frame_tree, fitter),
         gravity_align=settings.gravity_align,
         use_frame_intrinsics=settings.use_frame_intrinsics,
     )

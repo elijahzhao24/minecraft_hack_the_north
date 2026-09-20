@@ -17,12 +17,8 @@ Then restart the backend; it loads the calibration at startup.
 from __future__ import annotations
 
 import argparse
-import json
-import time
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 from uuid import uuid4
 
 import numpy as np
@@ -115,36 +111,6 @@ def collect(recording_dirs: list[Path], spec: BoardSpec) -> dict[str, DeviceFram
     return devices
 
 
-def capture_from_backend(base_url: str, count: int, timeout_s: float) -> list[Path]:
-    """Request ``count`` synchronized raw pairs and return their saved paths."""
-    base = base_url.rstrip("/")
-    paths: list[Path] = []
-    for index in range(count):
-        try:
-            with urlopen(Request(f"{base}/calibration/captures", method="POST"), timeout=5) as response:
-                requested = json.load(response)
-        except (HTTPError, URLError, TimeoutError) as exc:
-            raise RuntimeError(f"could not request calibration capture: {exc}") from exc
-        capture_id = requested["capture_id"]
-        deadline = time.monotonic() + timeout_s
-        while True:
-            if time.monotonic() >= deadline:
-                raise RuntimeError(f"capture {capture_id} did not complete within {timeout_s:g}s")
-            try:
-                with urlopen(f"{base}/calibration/captures/{capture_id}", timeout=5) as response:
-                    status = json.load(response)
-            except (HTTPError, URLError, TimeoutError) as exc:
-                raise RuntimeError(f"could not query calibration capture {capture_id}: {exc}") from exc
-            if status["state"] == "complete":
-                paths.append(Path(status["saved_recording_path"]))
-                print(f"captured {index + 1}/{count}: {capture_id}")
-                break
-            if status["state"] == "failed":
-                raise RuntimeError(f"capture {capture_id} failed: {status['failure_code']}")
-            time.sleep(0.1)
-    return paths
-
-
 def split_held_out(
     observations: list[BoardObservation], fraction: float
 ) -> tuple[list[BoardObservation], list[BoardObservation]]:
@@ -164,9 +130,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--recordings", default="data/recordings", help="root of capture dirs")
     parser.add_argument("--out", default="data/calibration.json")
-    parser.add_argument("--url", help="running backend base URL; collect synchronized pairs before solving")
-    parser.add_argument("--capture-count", type=int, default=8)
-    parser.add_argument("--capture-timeout-s", type=float, default=10.0)
     parser.add_argument("--devices", default="front-phone,side-phone")
     parser.add_argument("--dictionary", default="DICT_5X5_100")
     parser.add_argument("--squares-x", type=int, default=7)
@@ -199,12 +162,8 @@ def main() -> int:
 
     root = Path(args.recordings)
     try:
-        capture_dirs = (
-            capture_from_backend(args.url, args.capture_count, args.capture_timeout_s)
-            if args.url
-            else sorted(d for d in root.iterdir() if (d / "manifest.json").exists())
-        )
-    except (OSError, RuntimeError) as exc:
+        capture_dirs = sorted(d for d in root.iterdir() if (d / "manifest.json").exists())
+    except OSError as exc:
         print(f"calibration capture failed: {exc}")
         return 1
     if not capture_dirs:

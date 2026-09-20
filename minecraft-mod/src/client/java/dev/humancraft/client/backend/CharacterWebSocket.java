@@ -101,8 +101,8 @@ public final class CharacterWebSocket implements AutoCloseable {
 		return Optional.of(captureId);
 	}
 
-	public boolean registerRig() {
-		return send(new ControlMessage.RegisterRig(UUID.randomUUID()));
+	public boolean anchorRig() {
+		return send(new ControlMessage.AnchorRig(UUID.randomUUID()));
 	}
 
 	public boolean setLive(boolean enabled, double rateHz) {
@@ -320,6 +320,15 @@ public final class CharacterWebSocket implements AutoCloseable {
 				setStatus("streaming");
 			}
 			case ControlMessage.Ack ack -> setStatus("backend ack: " + ack.code());
+			case ControlMessage.AnchorStatus status -> {
+				String detail = status.failureCode().map(code -> " (" + code + ")").orElse("");
+				setStatus(String.format(java.util.Locale.ROOT,
+						"anchor %s: %d/%d%s",
+						status.state(),
+						status.acceptedSampleCount(),
+						status.requiredSampleCount(),
+						detail));
+			}
 			case ControlMessage.Error error -> {
 				setStatus("backend error: " + error.code());
 				Telemetry.log(SentryLevel.WARNING, "backend error code=%s retryable=%s message=%s",

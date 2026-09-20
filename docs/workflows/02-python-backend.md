@@ -150,13 +150,13 @@ Held-pose capture reduces motion artifacts but does not waive the skew validatio
 
 Use a printed ChArUco board with measured square/marker sizes and a defined board-to-stage transform.
 
-1. Start the backend and connect both configured phones. Calibration capture remains available when no active calibration is loaded.
-2. Keep the board fixed at the documented stage mark and run `scripts/calibrate.py --url http://127.0.0.1:8000 --capture-count 8`; the backend stores each synchronized raw pair under `data/recordings/<capture_id>/`.
+1. Start the backend and connect both configured phones. Shared-marker anchoring remains available when no frame tree is loaded.
+2. Keep the board fixed at the documented stage mark and press **N** in Minecraft. The `anchor_rig` WebSocket command gathers clock-aligned pairs and reports progress with `anchor_status`.
 3. Detect ChArUco corners using `opencv-contrib-python` and the RGB intrinsics supplied by ARKit.
 4. Estimate board-to-optical pose with `solvePnP`; compose/invert it into `T_stage_from_optical` according to the named frame convention.
 5. Reject frames with negative target depth, excessive reprojection error, too few/spatially clustered corners, inconsistent raster/orientation, or inconsistent metric scale.
 6. Robustly aggregate accepted transforms. Do not element-wise average rotation matrices; average rotations on SO(3) or choose/refine a robust joint pose.
-7. Require both configured devices, at least two held-out frames per camera, maximum held-out position error of 3 cm, and maximum reprojection error of 3 px. Write the new calibration atomically only after all gates pass, then restart the backend.
+7. Require both configured devices, at least two held-out frames per camera, maximum held-out position error of 3 cm, and maximum reprojection error of 3 px. Write the new frame tree atomically only after all gates pass; live capture then resumes without a restart.
 
 Calibration file contains:
 

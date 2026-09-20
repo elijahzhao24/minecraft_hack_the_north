@@ -1,5 +1,20 @@
 # HumanCraft Minecraft mod
 
+## Hacker Badge controller
+
+The client also connects to `ws://127.0.0.1:8000/ws/controller`. The D-pad
+controls yaw/pitch, A moves forward, B jumps, the Aux1 side switch enables
+sprint, HOME arms/disarms the controller, and each calibrated punch invokes one
+normal Minecraft attack. Keyboard and mouse input remain active.
+
+Set `HUMANCRAFT_CONTROLLER_URL` to override the controller socket. The defaults
+are a 250 ms stale-input fail-safe, 120 degrees/second yaw, and 90
+degrees/second pitch; these can also be adjusted in `humancraft.json`.
+
+Controller input is suppressed while chat or another screen is open, the game
+is unfocused, or the player is dead. The HumanCraft HUD reports badge
+connection, armed state, packet age, and punch count.
+
 ## Run with Sentry
 
 The Gradle development launcher automatically resolves and attaches the Sentry

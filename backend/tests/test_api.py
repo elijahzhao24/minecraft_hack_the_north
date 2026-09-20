@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from hmc_backend.api.app import app
 from hmc_backend.api.runtime import AppRuntime
+from hmc_backend.calibration.frame_tree import RigFrameTree
 from hmc_backend.calibration.synthetic import build_synthetic_rig
 from hmc_backend.fixtures.scene import build_capture_packets
 from hmc_backend.settings import Settings
@@ -17,7 +18,8 @@ from hmc_backend.settings import Settings
 def _install_runtime(*, with_calibration: bool = True) -> tuple[AppRuntime, object]:
     settings = Settings()
     rig = build_synthetic_rig(rgb_size=(160, 120), depth_size=(160, 120)) if with_calibration else None
-    runtime = AppRuntime(settings, rig)
+    tree = RigFrameTree.from_legacy_rig(rig) if rig is not None else None
+    runtime = AppRuntime(settings, tree)
     app.state.runtime = runtime
     return runtime, rig
 
@@ -25,7 +27,6 @@ def _install_runtime(*, with_calibration: bool = True) -> tuple[AppRuntime, obje
 def test_health_ready_when_calibrated():
     _install_runtime(with_calibration=True)
     with TestClient(app) as client:
-        # Override the lifespan-installed runtime with our calibrated one.
         _install_runtime(with_calibration=True)
         resp = client.get("/health")
     assert resp.status_code == 200
@@ -41,33 +42,6 @@ def test_health_503_without_calibration():
         resp = client.get("/health")
     assert resp.status_code == 503
     assert resp.json()["status"] in {"starting", "degraded"}
-
-
-def test_calibration_capture_routes_work_without_calibration(tmp_path):
-    with TestClient(app) as client:
-        settings = Settings(_env_file=None, recording_root=str(tmp_path / "recordings"))
-        runtime = AppRuntime(settings, None)
-        sent: dict[str, list[str]] = {"front-phone": [], "side-phone": []}
-
-        for device_id in sent:
-            async def send(payload: str, *, target=device_id) -> None:
-                sent[target].append(payload)
-
-            runtime.register_capture(device_id, send)
-        app.state.runtime = runtime
-
-        response = client.post("/calibration/captures")
-        assert response.status_code == 202
-        requested = response.json()
-        assert requested["state"] == "pending"
-        assert all(json.loads(messages[-1])["capture_id"] == requested["capture_id"] for messages in sent.values())
-
-        status = client.get(f"/calibration/captures/{requested['capture_id']}")
-        assert status.status_code == 200
-        assert status.json()["state"] == "pending"
-
-        missing = client.get(f"/calibration/captures/{uuid4()}")
-        assert missing.status_code == 404
 
 
 def test_capture_hello_rejects_unknown_device():
@@ -114,7 +88,6 @@ def test_capture_to_character_end_to_end():
         capture_id = uuid4()
         packets = build_capture_packets(rig, capture_id=capture_id, seed=5, splat=2)
 
-        # Subscribe a character client first.
         with client.websocket_connect("/ws/character") as char:
             char.send_text(
                 json.dumps({"type": "character_hello", "protocol_version": 1, "client_id": "demo"})
@@ -122,7 +95,6 @@ def test_capture_to_character_end_to_end():
             server_hello = json.loads(char.receive_text())
             assert server_hello["type"] == "character_server_hello"
 
-            # Two phones connect and each send their RGBD frame.
             with client.websocket_connect("/ws/capture") as front:
                 front.send_text(_client_hello("front-phone"))
                 assert json.loads(front.receive_text())["type"] == "server_hello"
@@ -133,7 +105,6 @@ def test_capture_to_character_end_to_end():
                     assert json.loads(side.receive_text())["type"] == "server_hello"
                     side.send_bytes(packets["side-phone"])
 
-                    # The pair completes and a CHARACTER_FRAME is pushed.
                     frame_bytes = char.receive_bytes()
                     assert frame_bytes[:4] == b"HMC1"
 
@@ -145,7 +116,7 @@ def test_character_request_capture_forwards_to_phones():
         _install_runtime(with_calibration=True)
         with client.websocket_connect("/ws/capture") as front:
             front.send_text(_client_hello("front-phone"))
-            front.receive_text()  # server_hello
+            front.receive_text()
             with client.websocket_connect("/ws/capture") as side:
                 side.send_text(_client_hello("side-phone"))
                 side.receive_text()
@@ -154,7 +125,7 @@ def test_character_request_capture_forwards_to_phones():
                     char.send_text(
                         json.dumps({"type": "character_hello", "protocol_version": 1, "client_id": "demo"})
                     )
-                    char.receive_text()  # character_server_hello
+                    char.receive_text()
                     req_id = str(uuid4())
                     char.send_text(
                         json.dumps(
@@ -167,18 +138,18 @@ def test_character_request_capture_forwards_to_phones():
                             }
                         )
                     )
+
                     def _receive_capture_request(sock):
                         while True:
                             msg = json.loads(sock.receive_text())
                             if msg.get("type") == "capture_request":
                                 return msg
 
-                    # Both phones receive a capture_request.
                     front_msg = _receive_capture_request(front)
                     side_msg = _receive_capture_request(side)
                     assert front_msg["type"] == "capture_request"
                     assert side_msg["type"] == "capture_request"
-                    # And the character client is acked.
+                    assert "not_before_phone_time_s" in front_msg
                     ack = json.loads(char.receive_text())
                     assert ack["type"] == "ack"
                     assert ack["accepted"] is True

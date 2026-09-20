@@ -40,12 +40,20 @@ class Settings(BaseSettings):
     subscriber_queue_size: int = 1
 
     # --- Pairing / clock budgets -----------------------------------------
-    pair_skew_limit_ms: float = 80.0
+    pair_skew_limit_ms: float = 30.0
     clock_uncertainty_limit_ms: float = 100.0
     hello_deadline_s: float = 10.0
     clock_probe_interval_s: float = 2.0
     # Backend-driven live capture: requests per second sent to both phones.
     live_rate_hz: float = 8.0
+
+    # --- Hacker Badge controller -----------------------------------------
+    badge_controller_enabled: bool = False
+    badge_controller_name: str = "HTN-Badge"
+    badge_service_uuid: str = "7b1e1000-6f7a-4d19-9c4b-5a2c8f1e2026"
+    badge_state_uuid: str = "7b1e1001-6f7a-4d19-9c4b-5a2c8f1e2026"
+    badge_stale_timeout_ms: int = 250
+    badge_scan_timeout_s: float = 5.0
 
     # --- Reconstruction tunables -----------------------------------------
     voxel_size_m: float = 0.006
@@ -67,17 +75,11 @@ class Settings(BaseSettings):
     # the phone reports rather than the rig file's nominal K.
     gravity_align: bool = False
     use_frame_intrinsics: bool = True
-    # Fixed-rig ChArUco calibration is authoritative. Person-target
-    # registration is an opt-in diagnostic escape hatch only.
-    enable_person_registration: bool = False
-    # Persisted stage->stage corrections from person-target registration.
-    registration_path: str = "data/registration.json"
-
-    # --- Calibration capture / acceptance --------------------------------
-    calibration_capture_timeout_s: float = 10.0
-    calibration_capture_count: int = 8
+    # --- Anchoring / acceptance ------------------------------------------
     calibration_max_position_error_m: float = 0.03
     calibration_max_reprojection_error_px: float = 3.0
+    anchor_sample_count: int = 8
+    anchor_timeout_s: float = 20.0
 
     # Real inference is opt-in so fixtures and CI do not require model weights.
     vision_backend: Literal["fake", "mediapipe"] = "fake"
@@ -87,6 +89,7 @@ class Settings(BaseSettings):
 
     # --- Paths ------------------------------------------------------------
     calibration_path: str = "data/calibration.json"
+    frame_tree_path: str = "data/frame_tree.json"
     recording_root: str = "data/recordings"
     model_manifest_path: str = "models/manifest.json"
     models_dir: str | None = None
@@ -120,9 +123,9 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "calibration_capture_timeout_s",
         "calibration_max_position_error_m",
         "calibration_max_reprojection_error_px",
+        "anchor_timeout_s",
     )
     @classmethod
     def _require_positive_calibration_limits(cls, value: float) -> float:
@@ -130,11 +133,25 @@ class Settings(BaseSettings):
             raise ValueError("calibration limits must be positive")
         return value
 
-    @field_validator("calibration_capture_count")
+    @field_validator("anchor_sample_count")
     @classmethod
-    def _require_enough_calibration_captures(cls, value: int) -> int:
+    def _require_enough_anchor_samples(cls, value: int) -> int:
         if value < 4:
-            raise ValueError("calibration_capture_count must be at least 4")
+            raise ValueError("anchor_sample_count must be at least 4")
+        return value
+
+    @field_validator("badge_stale_timeout_ms")
+    @classmethod
+    def _require_safe_badge_timeout(cls, value: int) -> int:
+        if not 100 <= value <= 2_000:
+            raise ValueError("badge_stale_timeout_ms must be between 100 and 2000")
+        return value
+
+    @field_validator("badge_scan_timeout_s")
+    @classmethod
+    def _require_positive_badge_scan_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("badge_scan_timeout_s must be positive")
         return value
 
 

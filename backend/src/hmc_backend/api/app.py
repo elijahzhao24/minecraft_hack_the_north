@@ -1,6 +1,6 @@
 """FastAPI application: lifespan wiring, /health, and the capture/character WS.
 
-One Uvicorn worker owns all state. Startup loads calibration (if present) and
+One Uvicorn worker owns all state. Startup loads the frame tree (if present) and
 builds the runtime; the capture socket ingests HMC1 RGBD frames and the
 character socket streams the latest published snapshot to Minecraft.
 """
@@ -12,13 +12,14 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from hmc_backend.api.discovery import start_discovery, stop_discovery
 from hmc_backend.api.runtime import AppRuntime
+from hmc_backend.calibration.frame_tree import RigFrameTree, load_frame_tree
 from hmc_backend.calibration.model import CalibrationError, load_rig_calibration
 from hmc_backend.contracts.control import (
     Ack,
@@ -26,31 +27,39 @@ from hmc_backend.contracts.control import (
     CharacterServerHello,
     ClientHello,
     ClockPing,
+    ControllerHello,
     Error,
     ServerHello,
 )
+from hmc_backend.controller.ble import BadgeBleReceiver
+from hmc_backend.controller.state import ControllerState, ControllerStore
 from hmc_backend.observability import configure_sentry, flush_sentry, log_event
 from hmc_backend.protocol.envelope import EnvelopeError
 from hmc_backend.settings import Settings, load_settings
 
 
 def build_runtime(settings: Settings) -> AppRuntime:
-    """Load calibration (if any) and construct the runtime."""
-    calibration = None
+    """Load the frame tree (if any) and construct the runtime."""
+    frame_tree: RigFrameTree | None = None
     try:
-        calibration = load_rig_calibration(settings.calibration_path)
-        if set(calibration.device_ids()) != set(settings.expected_device_ids):
-            raise CalibrationError("calibration devices do not match expected_device_ids")
+        frame_tree = load_frame_tree(settings.frame_tree_path)
+        if set(frame_tree.rig.device_ids()) != set(settings.expected_device_ids):
+            raise CalibrationError("frame tree devices do not match expected_device_ids")
     except CalibrationError:
-        calibration = None
-    return AppRuntime(settings, calibration)
+        try:
+            rig = load_rig_calibration(settings.calibration_path)
+            if set(rig.device_ids()) != set(settings.expected_device_ids):
+                raise CalibrationError("calibration devices do not match expected_device_ids")
+            frame_tree = RigFrameTree.from_legacy_rig(rig)
+            log_event("info", "frame_tree_loaded_from_legacy_calibration")
+        except CalibrationError:
+            frame_tree = None
+    return AppRuntime(settings, frame_tree)
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
-    # hmc_backend loggers have no handler of their own; without this the
-    # structured log_event lines never reach the console.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     configure_sentry(
         settings.sentry_dsn,
@@ -60,11 +69,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         send_default_pii=settings.sentry_send_default_pii,
     )
     app.state.runtime = build_runtime(settings)
+    app.state.controller = ControllerStore(stale_timeout_ms=settings.badge_stale_timeout_ms)
+    app.state.badge_receiver = BadgeBleReceiver(settings, app.state.controller)
+    badge_task = asyncio.create_task(app.state.badge_receiver.run())
     start_discovery(port=settings.port)
     yield
+    app.state.badge_receiver.stop()
+    badge_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await badge_task
     app.state.runtime.stop_live()
     stop_discovery()
-    # Shutdown: flush any pending Sentry events with a short timeout.
     flush_sentry()
 
 
@@ -75,7 +90,47 @@ app = FastAPI(title="hmc-backend", lifespan=lifespan)
 async def health() -> JSONResponse:
     runtime: AppRuntime = app.state.runtime
     response, status_code = runtime.health()
-    return JSONResponse(content=json.loads(response.model_dump_json()), status_code=status_code)
+    content = json.loads(response.model_dump_json())
+    controller: ControllerStore = app.state.controller
+    content["controller"] = {
+        "enabled": runtime.settings.badge_controller_enabled,
+        **controller.health(),
+    }
+    return JSONResponse(content=content, status_code=status_code)
+
+
+@app.websocket("/ws/controller")
+async def ws_controller(ws: WebSocket) -> None:
+    runtime: AppRuntime = app.state.runtime
+    controller: ControllerStore = app.state.controller
+    await ws.accept()
+    try:
+        first = await asyncio.wait_for(ws.receive_text(), timeout=runtime.settings.hello_deadline_s)
+        ControllerHello.model_validate_json(first)
+    except (TimeoutError, WebSocketDisconnect, ValueError):
+        await ws.close(code=1008)
+        return
+
+    queue = controller.subscribe()
+    sender = asyncio.create_task(_controller_sender(ws, queue))
+    try:
+        while True:
+            message = await ws.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        controller.unsubscribe(queue)
+        sender.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await sender
+
+
+async def _controller_sender(ws: WebSocket, queue: asyncio.Queue[ControllerState]) -> None:
+    while True:
+        state = await queue.get()
+        await ws.send_text(json.dumps(state.wire(), separators=(",", ":")))
 
 
 @app.websocket("/ws/capture")
@@ -83,7 +138,6 @@ async def ws_capture(ws: WebSocket) -> None:
     runtime: AppRuntime = app.state.runtime
     await ws.accept()
 
-    # 1. Hello handshake with deadline.
     try:
         first = await asyncio.wait_for(ws.receive_text(), timeout=runtime.settings.hello_deadline_s)
     except (TimeoutError, WebSocketDisconnect):
@@ -117,7 +171,6 @@ async def ws_capture(ws: WebSocket) -> None:
         _clock_probe_loop(ws, runtime.settings.clock_probe_interval_s)
     )
 
-    # 2. Receive loop.
     try:
         while True:
             message = await ws.receive()
@@ -138,14 +191,13 @@ async def ws_capture(ws: WebSocket) -> None:
 
 async def _clock_probe_loop(ws: WebSocket, interval_s: float) -> None:
     import time
-    from uuid import uuid4
 
     for _ in range(4):
         try:
             ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
             await _send_model(ws, ping)
             await asyncio.sleep(0.05)
-        except Exception:  # noqa: BLE001 - a closed socket ends the probe task
+        except Exception:  # noqa: BLE001
             return
 
     while True:
@@ -153,7 +205,7 @@ async def _clock_probe_loop(ws: WebSocket, interval_s: float) -> None:
             await asyncio.sleep(interval_s)
             ping = ClockPing(request_id=uuid4(), backend_send_time_s=time.monotonic())
             await _send_model(ws, ping)
-        except Exception:  # noqa: BLE001 - a closed socket ends the probe task
+        except Exception:  # noqa: BLE001
             break
 
 
@@ -166,12 +218,9 @@ async def _handle_capture_text(runtime: AppRuntime, ws: WebSocket, device_id: st
     if _handle_live_control(runtime, obj):
         return
     if obj.get("type") == "ack" and not obj.get("accepted", True):
-        # The phone could not honour a capture_request (typically a full
-        # capture queue because its AR session is not running).
         log_event("warning", "capture_declined", device_id=device_id, code=obj.get("code"), detail=obj.get("detail"))
         return
     if obj.get("type") == "clock_pong":
-        # Backend records its own receive time on arrival.
         import time
 
         t3 = time.monotonic()
@@ -190,7 +239,7 @@ async def _handle_capture_binary(runtime: AppRuntime, ws: WebSocket, device_id: 
     except EnvelopeError as exc:
         log_event("warning", "rgbd_rejected", device_id=device_id, code=exc.code, detail=exc.message)
         await _send_model(ws, Error(code=exc.code, message=exc.message))
-    except Exception:  # noqa: BLE001 - never let one frame kill the socket
+    except Exception:  # noqa: BLE001
         log_event("error", "rgbd_processing_failed", device_id=device_id, bytes=len(data))
         await _send_model(ws, Error(code="internal_error", message="frame processing failed"))
 
@@ -222,13 +271,14 @@ async def ws_character(ws: WebSocket) -> None:
         ),
     )
 
-    # Immediately send the latest snapshot, if any.
     latest = runtime.store.latest_encoded
     if latest is not None:
         await ws.send_bytes(latest)
 
     queue = runtime.hub.subscribe()
+    text_queue = runtime.hub.subscribe_text()
     sender = asyncio.create_task(_character_sender(ws, queue))
+    text_sender = asyncio.create_task(_character_text_sender(ws, text_queue))
     try:
         while True:
             message = await ws.receive()
@@ -240,9 +290,12 @@ async def ws_character(ws: WebSocket) -> None:
         pass
     finally:
         runtime.hub.unsubscribe(queue)
+        runtime.hub.unsubscribe_text(text_queue)
         sender.cancel()
+        text_sender.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await sender
+            await text_sender
 
 
 async def _character_sender(ws: WebSocket, queue: asyncio.Queue[bytes]) -> None:
@@ -251,25 +304,21 @@ async def _character_sender(ws: WebSocket, queue: asyncio.Queue[bytes]) -> None:
         await ws.send_bytes(encoded)
 
 
+async def _character_text_sender(ws: WebSocket, queue: asyncio.Queue[str]) -> None:
+    while True:
+        payload = await queue.get()
+        await ws.send_text(payload)
+
+
 async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) -> None:
     try:
         obj = json.loads(text)
     except json.JSONDecodeError:
         await _send_model(ws, Error(code="invalid_message", message="control frame not JSON"))
         return
-    if _handle_live_control(runtime, obj):
-        from uuid import UUID, uuid4
-
-        request_id = UUID(obj["request_id"]) if "request_id" in obj else uuid4()
-        if obj.get("type") == "register_rig":
-            code = "registration_requested"
-        else:
-            code = "live_started" if runtime.live_active else "live_stopped"
-        await _send_model(ws, Ack(request_id=request_id, accepted=True, code=code))
+    if await _handle_live_control(runtime, ws, obj):
         return
     if obj.get("type") == "request_capture":
-        from uuid import UUID, uuid4
-
         capture_id = UUID(obj["capture_id"]) if "capture_id" in obj else uuid4()
         request_id = UUID(obj["request_id"]) if "request_id" in obj else uuid4()
         accepted, code = await runtime.dispatch_capture(capture_id, obj.get("mode", "snapshot"))
@@ -279,56 +328,25 @@ async def _handle_character_text(runtime: AppRuntime, ws: WebSocket, text: str) 
         )
 
 
-@app.post("/rig/register")
-async def rig_register() -> JSONResponse:
-    """Align the side camera onto the front camera using the next paired frame."""
-    runtime: AppRuntime = app.state.runtime
-    ok = runtime.request_registration()
-    return JSONResponse({"requested": ok}, status_code=202 if ok else 503)
-
-
-@app.get("/rig/register")
-async def rig_register_status() -> JSONResponse:
-    runtime: AppRuntime = app.state.runtime
-    return JSONResponse(runtime.registration_status())
-
-
-@app.delete("/rig/register")
-async def rig_register_clear() -> JSONResponse:
-    runtime: AppRuntime = app.state.runtime
-    runtime.clear_registration()
-    return JSONResponse({"cleared": True})
-
-
-@app.post("/calibration/captures")
-async def calibration_capture() -> JSONResponse:
-    """Request and persist one synchronized raw pair for board calibration."""
-    runtime: AppRuntime = app.state.runtime
-    accepted, result = await runtime.request_calibration_capture()
-    return JSONResponse(result, status_code=202 if accepted else 503)
-
-
-@app.get("/calibration/captures/{capture_id}")
-async def calibration_capture_status(capture_id: UUID) -> JSONResponse:
-    runtime: AppRuntime = app.state.runtime
-    result = runtime.calibration_capture_status(capture_id)
-    if result is None:
-        return JSONResponse({"code": "capture_not_found"}, status_code=404)
-    return JSONResponse(result)
-
-
-def _handle_live_control(runtime: AppRuntime, obj: dict) -> bool:
-    """Apply a live_start/live_stop control message; True if it was one."""
+async def _handle_live_control(runtime: AppRuntime, ws: WebSocket, obj: dict) -> bool:
+    """Apply live/anchor control messages; True if handled."""
     kind = obj.get("type")
+    request_id = UUID(obj["request_id"]) if "request_id" in obj else uuid4()
     if kind == "live_start":
         rate = obj.get("rate_hz")
         runtime.start_live(float(rate) if isinstance(rate, (int, float)) else None)
+        await _send_model(
+            ws,
+            Ack(request_id=request_id, accepted=True, code="live_started" if runtime.live_active else "live_stopped"),
+        )
         return True
     if kind == "live_stop":
         runtime.stop_live()
+        await _send_model(ws, Ack(request_id=request_id, accepted=True, code="live_stopped"))
         return True
-    if kind == "register_rig":
-        runtime.request_registration()
+    if kind == "anchor_rig":
+        accepted, code = await runtime.start_anchor(request_id)
+        await _send_model(ws, Ack(request_id=request_id, accepted=accepted, code=code))
         return True
     return False
 

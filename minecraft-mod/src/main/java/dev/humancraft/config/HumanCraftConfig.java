@@ -23,6 +23,8 @@ public final class HumanCraftConfig {
 
 	/** Perception backend WebSocket URL (character stream). */
 	public String backendUrl = "ws://127.0.0.1:8000/ws/character";
+	/** Hacker Badge controller stream; isolated from the HMC1 character protocol. */
+	public String controllerUrl = "ws://127.0.0.1:8000/ws/controller";
 	/** Identifies this Minecraft client to the backend in {@code character_hello}. */
 	public String clientId = "minecraft-local";
 	/** Reconnect backoff bounds in milliseconds. */
@@ -35,6 +37,9 @@ public final class HumanCraftConfig {
 	public double liveRateHz = 8.0;
 	/** Server reach used for probes when positive; otherwise the vanilla block interaction range. */
 	public double probeReachBlocks = 0;
+	public int controllerStaleMs = 250;
+	public double controllerYawDegreesPerSecond = 120.0;
+	public double controllerPitchDegreesPerSecond = 90.0;
 
 	/** Stage→world placement. When {@code anchorAuto} is true the anchor is placed in front of the player. */
 	public boolean anchorAuto = true;
@@ -105,6 +110,7 @@ public final class HumanCraftConfig {
 	/** Environment overrides. Package-private entry so tests can pass a synthetic map. */
 	void applyEnvironment(Map<String, String> env) {
 		override(env, "HUMANCRAFT_BACKEND_URL", v -> backendUrl = v);
+		override(env, "HUMANCRAFT_CONTROLLER_URL", v -> controllerUrl = v);
 		override(env, "HUMANCRAFT_CLIENT_ID", v -> clientId = v);
 		override(env, "HUMANCRAFT_LIVE_TTL_MS", v -> liveFrameTtlMs = Integer.parseInt(v));
 		override(env, "HUMANCRAFT_BLOCKS_PER_METER", v -> blocksPerMeter = Double.parseDouble(v));
@@ -136,6 +142,15 @@ public final class HumanCraftConfig {
 		reconnectMaxMs = Math.max(reconnectMinMs, reconnectMaxMs);
 		maxBinaryBytes = Math.min(Math.max(1024, maxBinaryBytes), dev.humancraft.contract.ProtocolLimits.MAX_MESSAGE_BYTES);
 		liveFrameTtlMs = Math.max(50, liveFrameTtlMs);
+		controllerStaleMs = Math.min(2_000, Math.max(100, controllerStaleMs));
+		if (!Double.isFinite(controllerYawDegreesPerSecond) || controllerYawDegreesPerSecond <= 0) {
+			controllerYawDegreesPerSecond = 120.0;
+		}
+		if (!Double.isFinite(controllerPitchDegreesPerSecond) || controllerPitchDegreesPerSecond <= 0) {
+			controllerPitchDegreesPerSecond = 90.0;
+		}
+		controllerYawDegreesPerSecond = Math.min(360.0, controllerYawDegreesPerSecond);
+		controllerPitchDegreesPerSecond = Math.min(360.0, controllerPitchDegreesPerSecond);
 		if (!Double.isFinite(liveRateHz) || liveRateHz <= 0) {
 			liveRateHz = 8.0;
 		}

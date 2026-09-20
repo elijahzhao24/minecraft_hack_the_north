@@ -100,17 +100,43 @@ public sealed interface ControlMessage {
 		}
 	}
 
-	/** Minecraft → backend: align the side camera onto the front one using the next paired frame. */
-	record RegisterRig(UUID requestId) implements ControlMessage {
+	/** Minecraft → backend: anchor both cameras to the shared ChArUco marker. */
+	record AnchorRig(UUID requestId) implements ControlMessage {
 		@Override
 		public String type() {
-			return "register_rig";
+			return "anchor_rig";
 		}
 
 		@Override
 		public JsonObject toJson() {
 			JsonObject o = base(this);
 			o.addProperty("request_id", requestId.toString());
+			return o;
+		}
+	}
+
+	/** Backend → Minecraft: shared-marker anchoring progress. */
+	record AnchorStatus(
+			UUID requestId,
+			String state,
+			int acceptedSampleCount,
+			int requiredSampleCount,
+			Optional<UUID> rigId,
+			Optional<String> failureCode) implements ControlMessage {
+		@Override
+		public String type() {
+			return "anchor_status";
+		}
+
+		@Override
+		public JsonObject toJson() {
+			JsonObject o = base(this);
+			o.addProperty("request_id", requestId.toString());
+			o.addProperty("state", state);
+			o.addProperty("accepted_sample_count", acceptedSampleCount);
+			o.addProperty("required_sample_count", requiredSampleCount);
+			o.add("rig_id", rigId.<JsonElement>map(id -> new JsonPrimitive(id.toString())).orElse(JsonNull.INSTANCE));
+			o.add("failure_code", failureCode.<JsonElement>map(JsonPrimitive::new).orElse(JsonNull.INSTANCE));
 			return o;
 		}
 	}
@@ -174,6 +200,13 @@ public sealed interface ControlMessage {
 			case "character_hello" -> new CharacterHello(o.string("client_id"), o.optionalCounter("last_frame_id"));
 			case "character_ack" -> new CharacterAck(o.counter("frame_id"), o.bool("accepted"), o.string("code"), o.optionalString("detail"));
 			case "request_capture" -> new RequestCapture(o.uuid("request_id"), o.uuid("capture_id"), o.enumValue("mode", Mode.class));
+			case "anchor_status" -> new AnchorStatus(
+					o.uuid("request_id"),
+					o.string("state"),
+					(int) o.counter("accepted_sample_count"),
+					(int) o.counter("required_sample_count"),
+					optionalUuid(o, "rig_id"),
+					o.optionalString("failure_code"));
 			default -> throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "unknown control message type '" + type + "'");
 		};
 		o.finish();

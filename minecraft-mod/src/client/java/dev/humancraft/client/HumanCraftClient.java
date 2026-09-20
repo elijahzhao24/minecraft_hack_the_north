@@ -2,6 +2,8 @@ package dev.humancraft.client;
 
 import dev.humancraft.HumanCraft;
 import dev.humancraft.client.backend.CharacterWebSocket;
+import dev.humancraft.client.backend.ControllerWebSocket;
+import dev.humancraft.client.controller.ExternalController;
 import dev.humancraft.client.input.HumanCraftKeybindings;
 import dev.humancraft.client.input.SeparatePlayerControl;
 import dev.humancraft.client.input.AnatomyAttackInput;
@@ -34,6 +36,11 @@ public final class HumanCraftClient implements ClientModInitializer {
 				frame -> Minecraft.getInstance().execute(() -> snapshots.receiveBackend(frame)),
 				status -> Minecraft.getInstance().execute(() -> snapshots.setBackendStatus(status)));
 		snapshots.setBackend(backend);
+		ExternalController controller = new ExternalController(config);
+		ControllerWebSocket controllerSocket = new ControllerWebSocket(
+				config,
+				state -> Minecraft.getInstance().execute(() -> controller.accept(state)),
+				status -> Minecraft.getInstance().execute(() -> controller.setTransportStatus(status)));
 
 		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.SnapshotAck.TYPE,
 				(payload, context) -> snapshots.onAck(payload));
@@ -47,20 +54,25 @@ public final class HumanCraftClient implements ClientModInitializer {
 				(payload, context) -> snapshots.setDebug(payload.enabled()));
 
 		HumanCraftKeybindings keys = new HumanCraftKeybindings(config, snapshots);
-		HumanCraftHud hud = new HumanCraftHud(config, snapshots);
+		HumanCraftHud hud = new HumanCraftHud(config, snapshots, controller);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			keys.tick(client);
 			snapshots.tick(client);
 		});
 		ClientTickEvents.START_CLIENT_TICK.register(client -> SeparatePlayerControl.tick(client, snapshots));
 		ClientTickEvents.END_CLIENT_TICK.register(client -> AnatomyAttackInput.tick(client, snapshots));
+		ClientTickEvents.END_CLIENT_TICK.register(controller::tick);
 		HudRenderCallback.EVENT.register((graphics, tickCounter) -> hud.render(graphics));
 
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> snapshots.onJoin(client));
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> snapshots.onDisconnect());
-		ClientLifecycleEvents.CLIENT_STARTED.register(client -> backend.start());
+		ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+			backend.start();
+			controllerSocket.start();
+		});
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			backend.close();
+			controllerSocket.close();
 			renderer.close();
 		});
 	}
