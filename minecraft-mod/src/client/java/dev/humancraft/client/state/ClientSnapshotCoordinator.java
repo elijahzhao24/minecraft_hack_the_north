@@ -528,19 +528,27 @@ public final class ClientSnapshotCoordinator {
 	private StageToWorld playerLocalTransform(CharacterFrame frame) {
 		var cloud = frame.cloud();
 		if (cloud.count() == 0) return new StageToWorld(Vector3.ZERO, 1.0);
-		double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY, sumX = 0, sumZ = 0;
-		for (int i = 0; i < cloud.count(); i++) {
-			minY = Math.min(minY, cloud.y(i));
-			maxY = Math.max(maxY, cloud.y(i));
-			sumX += cloud.x(i);
-			sumZ += cloud.z(i);
+		// Robust statistics: a handful of stray points (floor or wall leakage, a
+		// second person, LiDAR noise) drag the mean sideways and pull the minimum
+		// below the body, which displaced and sank the whole figure.
+		int n = cloud.count();
+		float[] xs = new float[n], ys = new float[n], zs = new float[n];
+		for (int i = 0; i < n; i++) {
+			xs[i] = cloud.x(i);
+			ys[i] = cloud.y(i);
+			zs[i] = cloud.z(i);
 		}
-		double height = maxY - minY;
+		java.util.Arrays.sort(xs);
+		java.util.Arrays.sort(ys);
+		java.util.Arrays.sort(zs);
+		int lo = (int) (n * 0.02), mid = n / 2, hi = Math.min(n - 1, (int) (n * 0.98));
+		double minY = ys[lo];
+		double height = ys[hi] - ys[lo];
 		if (!Double.isFinite(lockedBlocksPerMeter)) {
 			lockedBlocksPerMeter = height > 0.5 ? Math.max(0.1, Math.min(8.0, 1.8 / height)) : 1.0;
 		}
-		double rootX = sumX / cloud.count();
-		double rootZ = sumZ / cloud.count();
+		double rootX = xs[mid];
+		double rootZ = zs[mid];
 		return new StageToWorld(new Vector3(-rootX * lockedBlocksPerMeter, -minY * lockedBlocksPerMeter,
 				-rootZ * lockedBlocksPerMeter), lockedBlocksPerMeter);
 	}
