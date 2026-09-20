@@ -63,6 +63,25 @@ def _sample_rgb(rgb: np.ndarray, u_depth: np.ndarray, v_depth: np.ndarray, depth
     return rgb[v_r, u_r]  # M x 3
 
 
+def _not_flying_pixel(depth: NDArray[np.float32], max_step_m: float) -> NDArray[np.bool_]:
+    """False where depth jumps by more than ``max_step_m`` to any 4-neighbour.
+
+    LiDAR interpolates across silhouette edges, producing samples that float in
+    space between the body and the background; they render as a halo of stray
+    points. Interior samples differ from their neighbours by millimetres, so a
+    few centimetres of allowed step keeps the body intact.
+    """
+    d = np.where(np.isfinite(depth), depth, 0.0).astype(np.float32)
+    ok = np.ones(d.shape, np.bool_)
+    step = np.abs(d[:, 1:] - d[:, :-1]) > max_step_m
+    ok[:, 1:] &= ~step
+    ok[:, :-1] &= ~step
+    step = np.abs(d[1:, :] - d[:-1, :]) > max_step_m
+    ok[1:, :] &= ~step
+    ok[:-1, :] &= ~step
+    return ok
+
+
 def _plausible_intrinsics(k: NDArray[np.float64] | None, rgb_wh: tuple[int, int]) -> bool:
     if k is None or k.shape != (3, 3) or not np.all(np.isfinite(k)):
         return False
@@ -81,6 +100,7 @@ def reconstruct_view(
     source_bit: int,
     use_frame_intrinsics: bool = False,
     diagnostics: dict | None = None,
+    depth_edge_max_step_m: float = 0.0,
 ) -> ColoredPointCloud:
     """Reconstruct one view's masked person cloud in stage meters.
 
@@ -113,6 +133,8 @@ def reconstruct_view(
     valid &= conf >= confidence_min
     counts["after_confidence"] = int(valid.sum())
     valid &= mask_depth
+    if depth_edge_max_step_m > 0:
+        valid &= _not_flying_pixel(depth, depth_edge_max_step_m)
     counts["after_mask"] = int(valid.sum())
     counts["after_stage"] = 0
     if diagnostics is not None:

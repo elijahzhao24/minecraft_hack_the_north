@@ -35,7 +35,7 @@ from hmc_backend.contracts.control import (
     HealthResponse,
 )
 from hmc_backend.contracts.enums import HealthStatus, Mode
-from hmc_backend.contracts.internal import CharacterFrame, TraceContext
+from hmc_backend.contracts.internal import CapturedFrame, CharacterFrame, TraceContext
 from hmc_backend.observability import log_event, span, transaction
 from hmc_backend.pipeline.factory import build_pairer, build_processor
 from hmc_backend.pipeline.processor import CharacterProcessor
@@ -56,6 +56,7 @@ class DeviceState:
     last_frame_s: float | None = None
     tracking_state: str | None = None
     valid_depth_count: int = 0
+    virtual: bool = False
 
 
 class AppRuntime:
@@ -99,6 +100,15 @@ class AppRuntime:
         self._freshness = RigFreshness(calibration) if calibration else None
         self._last_published_s: float | None = None
         self._closing = False
+        self._virtual_device: str | None = None
+        if settings.single_device:
+            others = [d for d in settings.expected_device_ids if d != settings.single_device]
+            if len(others) == 1:
+                self._virtual_device = others[0]
+                virt = self._devices[self._virtual_device]
+                virt.virtual = True
+                virt.connected = True
+                virt.tracking_state = "virtual"
         if calibration is not None:
             self._pairer = pairer or build_pairer(settings)
             self._processor = processor or build_processor(settings, calibration)
@@ -161,9 +171,10 @@ class AppRuntime:
             return False, "calibration_in_progress"
         if not board and not self.is_ready():
             return False, "not_ready"
-        if not all(s.connected and s.send_text is not None for s in self._devices.values()):
+        real = [s for s in self._devices.values() if not s.virtual]
+        if not all(s.connected and s.send_text is not None for s in real):
             return False, "devices_unavailable"
-        if not self._settings.simulation_mode and not all(s.clock.ready for s in self._devices.values()):
+        if not self._settings.simulation_mode and not all(s.clock.ready for s in real):
             return False, "clocks_not_ready"
         req = CaptureRequest(request_id=uuid4(), capture_id=capture_id, mode=Mode(mode))
         self._capture_modes[capture_id] = "calibration" if board else mode
@@ -171,6 +182,8 @@ class AppRuntime:
             self._capture_modes.popitem(last=False)
         payload = req.model_dump_json()
         for state in self._devices.values():
+            if state.virtual:
+                continue
             assert state.send_text is not None
             await state.send_text(payload)
         return True, "capture_dispatched"
@@ -417,7 +430,31 @@ class AppRuntime:
             self._live_inflight.clear()
 
     def is_expected_device(self, device_id: str) -> bool:
-        return device_id in self._devices
+        return device_id in self._devices and not self._devices[device_id].virtual
+
+    def _virtual_partner(self, frame: CapturedFrame) -> CapturedFrame | None:
+        """An empty view for the virtual device, stamped like ``frame`` so it pairs at once."""
+        if self._virtual_device is None or self._calibration is None or frame.device_id == self._virtual_device:
+            return None
+        calib = self._calibration.camera(self._virtual_device)
+        w_rgb, h_rgb = calib.rgb_size
+        w_d, h_d = calib.depth_size
+        return CapturedFrame(
+            device_id=self._virtual_device,
+            session_id=self._server_session_id,
+            capture_id=frame.capture_id,
+            sequence=frame.sequence,
+            capture_timestamp_s=frame.capture_timestamp_s,
+            normalized_capture_time_s=frame.normalized_capture_time_s,
+            clock_uncertainty_ms=0.0,
+            rgb=np.zeros((h_rgb, w_rgb, 3), np.uint8),
+            depth_m=np.zeros((h_d, w_d), np.float32),
+            confidence=np.zeros((h_d, w_d), np.uint8),
+            K_rgb=calib.K_rgb.copy(),
+            arkit_pose=np.eye(4),
+            tracking_state="virtual",
+            image_orientation=frame.image_orientation,
+        )
 
     def on_clock_pong(self, device_id: str, t0: float, t1: float, t2: float, t3: float) -> None:
         state = self._devices.get(device_id)
@@ -474,6 +511,9 @@ class AppRuntime:
             camera_id=device_id,
             payload_size=len(raw),
         ) as txn:
+            partner = self._virtual_partner(frame)
+            if partner is not None:
+                self._pairer.offer(partner, self._calibration.calibration_id)
             queue_depth = self._pairer.pending_depth(device_id)
             with span("hmc.pair", "offer frame to bounded pairing queue", queue_depth=queue_depth):
                 outcome = self._pairer.offer(frame, self._calibration.calibration_id)
@@ -586,7 +626,7 @@ class AppRuntime:
                 tracking_state=state.tracking_state,
                 valid_depth_count=state.valid_depth_count,
                 reconstruction=(self._processor.view_diagnostics.get(dev, {}) if self._processor else {}),
-                clock_ready=state.clock.ready,
+                clock_ready=state.clock.ready or state.virtual,
                 queue_depth=(self._pairer.pending_depth(dev) if self._pairer else 0),
             )
             for dev, state in self._devices.items()

@@ -65,6 +65,7 @@ class CharacterProcessor:
         gravity_align: bool = False,
         use_frame_intrinsics: bool = False,
         view_alignment_warn_m: float = 0.4,
+        depth_edge_max_step_m: float = 0.0,
     ) -> None:
         self._detector = detector
         self._fitter = fitter
@@ -80,6 +81,7 @@ class CharacterProcessor:
         self._reference_device = reference_device
         self._gravity_align = gravity_align
         self._use_frame_intrinsics = use_frame_intrinsics
+        self._depth_edge_max_step_m = depth_edge_max_step_m
         self._view_alignment_warn_m = view_alignment_warn_m
         # device -> 4x4 stage->stage correction learned by registration.
         self._corrections: dict[str, NDArray[np.float64]] = {}
@@ -225,6 +227,7 @@ class CharacterProcessor:
                         source_bit=source_bit,
                         diagnostics=diagnostics,
                         use_frame_intrinsics=self._use_frame_intrinsics,
+                depth_edge_max_step_m=self._depth_edge_max_step_m,
                     )
                     reconstruct_span.set_data("point_count", cloud.count)
                 clouds.append(cloud)
@@ -246,6 +249,7 @@ class CharacterProcessor:
                                 confidence_min=self._confidence_min,
                                 source_bit=1 << i,
                                 use_frame_intrinsics=self._use_frame_intrinsics,
+                depth_edge_max_step_m=self._depth_edge_max_step_m,
                             )
                             reconstruct_span.set_data("point_count", clouds[i].count)
 

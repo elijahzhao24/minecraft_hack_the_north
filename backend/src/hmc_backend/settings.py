@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     depth_max_m: float = 5.0
     max_range_m: float = Field(default=5.0, gt=0, le=5.0)
     confidence_min: int = 1  # ARKit confidence 0/1/2; accept >= this
+    # Drop depth samples whose depth differs from any 4-neighbour by more than
+    # this: LiDAR "flying pixels" along silhouette edges that otherwise render
+    # as a halo of stray points. 0 disables the filter.
+    depth_edge_max_step_m: float = 0.05
+    # Single-phone operation: name the one real device. The other expected
+    # device becomes virtual: the backend fabricates an empty view for it so
+    # pairing and the rest of the pipeline run unchanged, and a phone trying to
+    # connect under that id is refused.
+    single_device: str | None = None
     # Warn on CharacterFrame quality when the two views' clouds sit this far
     # apart (symmetric median NN). A healthy opposed rig sits near the body's
     # surface thickness (~0.15-0.25m); a biased camera solve shows up above it.
