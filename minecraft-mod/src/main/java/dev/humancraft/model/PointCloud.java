@@ -114,6 +114,25 @@ public final class PointCloud {
 		return new Aabb(min, max);
 	}
 
+	/** Deterministic, evenly-spaced sampling used for bounded multiplayer visual relays. */
+	public PointCloud sampleAtMost(int maximum) {
+		if (maximum <= 0) throw new IllegalArgumentException("maximum must be positive");
+		if (count <= maximum) return this;
+		ByteBuffer out = ByteBuffer.allocate(maximum * ProtocolLimits.POINT_RECORD_BYTES).order(ByteOrder.LITTLE_ENDIAN);
+		ByteBuffer sampledSources = sources == null ? null : ByteBuffer.allocate(maximum);
+		for (int i = 0; i < maximum; i++) {
+			int sourceIndex = (int) ((long) i * count / maximum);
+			ByteBuffer record = data.duplicate();
+			record.position(sourceIndex * ProtocolLimits.POINT_RECORD_BYTES);
+			record.limit(record.position() + ProtocolLimits.POINT_RECORD_BYTES);
+			out.put(record);
+			if (sampledSources != null) sampledSources.put(sources.get(sourceIndex));
+		}
+		out.flip();
+		if (sampledSources != null) sampledSources.flip();
+		return new PointCloud(out, maximum, sampledSources);
+	}
+
 	/** Applies {@code p' = anchor + scale * p} to every position, keeping colors. */
 	public PointCloud transform(Vector3 anchor, double scale) {
 		ByteBuffer out = ByteBuffer.allocate(count * ProtocolLimits.POINT_RECORD_BYTES).order(ByteOrder.LITTLE_ENDIAN);

@@ -21,7 +21,6 @@ import dev.humancraft.model.PointCloud;
 import dev.humancraft.model.EntityRenderTransform;
 import dev.humancraft.model.WorldSnapshot;
 import dev.humancraft.telemetry.Telemetry;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.util.Mth;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -53,30 +52,21 @@ public final class HumanRenderer implements AutoCloseable {
 	};
 
 	private final HumanCraftConfig config;
-	private VertexBuffer cloudBuffer;
-	private VertexBuffer skeletonBuffer;
-	private VertexBuffer colliderBuffer;
-	private long uploadedFrame = -1;
-	private boolean renderFailed;
-	private UUID targetPlayerId;
+	private static final class Entry {
+		VertexBuffer cloud;
+		VertexBuffer skeleton;
+		VertexBuffer colliders;
+		boolean failed;
+		void close() { closeBuffer(cloud); closeBuffer(skeleton); closeBuffer(colliders); }
+	}
+	private final Map<UUID, Entry> entries = new HashMap<>();
 
 	public HumanRenderer(HumanCraftConfig config) {
 		this.config = config;
 	}
 
 	public void register() {
-		WorldRenderEvents.START.register(context -> refreshSkinReplacement());
 		ScanRenderState.renderer = this;
-	}
-
-	private void refreshSkinReplacement() {
-		if (config.showCloud && cloudBuffer != null && !cloudBuffer.isInvalid() && !renderFailed && targetPlayerId != null)
-			ScanRenderState.activate(targetPlayerId);
-		else ScanRenderState.clear();
-	}
-
-	public long uploadedFrame() {
-		return uploadedFrame;
 	}
 
 	/** Must run on the render thread. Builds all replacement buffers before releasing the active set. */
@@ -97,16 +87,12 @@ public final class HumanRenderer implements AutoCloseable {
 				closeBuffer(nextColliders);
 				throw e;
 			}
-			closeBuffer(cloudBuffer);
-			closeBuffer(skeletonBuffer);
-			closeBuffer(colliderBuffer);
-			cloudBuffer = nextCloud;
-			skeletonBuffer = nextSkeleton;
-			colliderBuffer = nextColliders;
-			this.targetPlayerId = targetPlayerId;
-			uploadedFrame = snapshot.frameId();
-			renderFailed = false;
-			refreshSkinReplacement();
+			Entry next = new Entry();
+			next.cloud = nextCloud;
+			next.skeleton = nextSkeleton;
+			next.colliders = nextColliders;
+			Entry previous = entries.put(targetPlayerId, next);
+			if (previous != null) previous.close();
 			span.data("frame_id", snapshot.frameId()).data("points", snapshot.stageCloud().count())
 					.measurement("cpu_upload_ms", (System.nanoTime() - start) / 1_000_000.0);
 		}
@@ -117,15 +103,17 @@ public final class HumanRenderer implements AutoCloseable {
 			RenderSystem.recordRenderCall(this::clear);
 			return;
 		}
-		closeBuffer(cloudBuffer);
-		closeBuffer(skeletonBuffer);
-		closeBuffer(colliderBuffer);
-		cloudBuffer = null;
-		skeletonBuffer = null;
-		colliderBuffer = null;
-		uploadedFrame = -1;
-		targetPlayerId = null;
-		ScanRenderState.clear();
+		entries.values().forEach(Entry::close);
+		entries.clear();
+	}
+
+	public void clear(UUID targetPlayerId) {
+		if (!RenderSystem.isOnRenderThread()) {
+			RenderSystem.recordRenderCall(() -> clear(targetPlayerId));
+			return;
+		}
+		Entry entry = entries.remove(targetPlayerId);
+		if (entry != null) entry.close();
 	}
 
 	private VertexBuffer buildCloud(WorldSnapshot snapshot) {
@@ -200,7 +188,8 @@ public final class HumanRenderer implements AutoCloseable {
 
 	/** Uses the entity renderer's already-positioned stack: exactly the player/shadow origin. */
 	public boolean renderPlayer(AbstractClientPlayer target, float partialTick, PoseStack matrices) {
-		if (uploadedFrame < 0 || !target.getUUID().equals(targetPlayerId) || renderFailed) return false;
+		Entry entry = entries.get(target.getUUID());
+		if (entry == null || entry.failed) return false;
 		if (target.isSwimming() || target.isFallFlying()) return false;
 		var client = net.minecraft.client.Minecraft.getInstance();
 		if (target == client.player && client.options.getCameraType().isFirstPerson()) return false;
@@ -210,13 +199,12 @@ public final class HumanRenderer implements AutoCloseable {
 			matrices.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-Mth.rotLerp(partialTick, target.yRotO, target.getYRot())));
 			RenderSystem.enableDepthTest();
 			RenderSystem.disableCull();
-			if (config.showCloud) draw(cloudBuffer, matrices);
-			if (config.showSkeleton) draw(skeletonBuffer, matrices);
-			if (config.showColliders) draw(colliderBuffer, matrices);
-			return config.showCloud && cloudBuffer != null;
+			if (config.showCloud) draw(entry.cloud, matrices);
+			if (config.showSkeleton) draw(entry.skeleton, matrices);
+			if (config.showColliders) draw(entry.colliders, matrices);
+			return config.showCloud && entry.cloud != null;
 		} catch (RuntimeException e) {
-			ScanRenderState.clear();
-			renderFailed = true;
+			entry.failed = true;
 			Telemetry.captureException(e, "client.renderer.draw");
 			return false;
 		} finally {

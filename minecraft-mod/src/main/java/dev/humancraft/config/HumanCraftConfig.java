@@ -23,6 +23,8 @@ public final class HumanCraftConfig {
 
 	/** Perception backend WebSocket URL (character stream). */
 	public String backendUrl = "ws://127.0.0.1:8000/ws/character";
+	/** False for LAN viewers that only receive another player's shared scan. */
+	public boolean captureEnabled = true;
 	/** Identifies this Minecraft client to the backend in {@code character_hello}. */
 	public String clientId = "minecraft-local";
 	/** Reconnect backoff bounds in milliseconds. */
@@ -118,6 +120,7 @@ public final class HumanCraftConfig {
 	/** Environment overrides. Package-private entry so tests can pass a synthetic map. */
 	void applyEnvironment(Map<String, String> env) {
 		override(env, "HUMANCRAFT_BACKEND_URL", v -> backendUrl = v);
+		override(env, "HUMANCRAFT_CAPTURE_ENABLED", v -> captureEnabled = Boolean.parseBoolean(v));
 		override(env, "HUMANCRAFT_CLIENT_ID", v -> clientId = v);
 		override(env, "HUMANCRAFT_LIVE_RATE_HZ", v -> liveRateHz = Double.parseDouble(v));
 		override(env, "HUMANCRAFT_MOUSE_MOVEMENT_ENABLED", v -> mouseMovementEnabled = Boolean.parseBoolean(v));

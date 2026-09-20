@@ -10,6 +10,9 @@ import dev.humancraft.geometry.Ray;
 import dev.humancraft.geometry.Vector3;
 import dev.humancraft.model.SwingArc;
 import dev.humancraft.network.HumanCraftPayloads;
+import dev.humancraft.network.ScanTransfer;
+import dev.humancraft.network.SharedScanCodec;
+import dev.humancraft.network.WireCollider;
 import dev.humancraft.telemetry.Telemetry;
 import io.sentry.SentryLevel;
 import net.fabricmc.fabric.api.entity.event.v1.ServerEntityWorldChangeEvents;
@@ -32,7 +35,11 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.InteractionHand;
 
 import java.util.HashMap;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.UUID;
@@ -54,6 +61,18 @@ public final class HumanCraftServer {
 	private final AvatarService avatars = new AvatarService();
 	private final Map<UUID, ContactService.Emitter> emitters = new HashMap<>();
 	private final Map<UUID, ArmSwingGate> swingGates = new HashMap<>();
+	private record AcceptedInstall(HumanCraftPayloads.InstallSnapshot payload, String dimension, long acceptedAtMillis) {}
+	private record CachedVisual(long publication, UUID owner, UUID target, String dimension,
+			List<HumanCraftPayloads.SharedScanChunk> chunks) {}
+	private final Map<UUID, ArrayDeque<AcceptedInstall>> acceptedInstalls = new HashMap<>();
+	private final Map<UUID, ScanTransfer> incomingScans = new HashMap<>();
+	private final Map<UUID, CachedVisual> sharedVisuals = new HashMap<>();
+	private final Map<UUID, Long> lastVisualPublish = new HashMap<>();
+	private static final int MAX_VISUAL_UPLOAD_BYTES_PER_SECOND = 6 * 1024 * 1024;
+	private static final class UploadWindow { long startedAt; int bytes; }
+	private final Map<UUID, UploadWindow> visualUploadWindows = new HashMap<>();
+	private long publicationSequence;
+	private MinecraftServer runningServer;
 	private int tick;
 
 	private HumanCraftServer(HumanCraftConfig config) {
@@ -86,18 +105,24 @@ public final class HumanCraftServer {
 				(payload, ctx) -> onAnatomyAttack(payload, ctx.player()));
 		ServerPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.ArmSwing.TYPE,
 				(payload, ctx) -> onArmSwing(payload, ctx.player()));
+		ServerPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.ScanChunk.TYPE,
+				(payload, ctx) -> onScanChunk(payload, ctx.player()));
 
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+			runningServer = server;
 			if (!(handler.getPlayer() instanceof ScannedServerPlayer)) {
 				avatars.sendState(handler.getPlayer());
+				replaySharedVisuals(handler.getPlayer());
 			}
 		});
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			if (handler.getPlayer() instanceof ScannedServerPlayer) return;
+			removeSharedVisual(handler.getPlayer().getUUID());
 			forget(handler.getPlayer().getUUID(), "disconnect");
 			avatars.forget(handler.getPlayer());
 		});
 		ServerEntityWorldChangeEvents.AFTER_PLAYER_CHANGE_WORLD.register((player, from, to) -> {
+			removeSharedVisual(player.getUUID());
 			if (store.clear(player.getUUID())) {
 				emitters.remove(player.getUUID());
 				Telemetry.log(SentryLevel.INFO, "snapshot cleared for %s: changed world %s -> %s", player.getUUID(),
@@ -109,12 +134,22 @@ public final class HumanCraftServer {
 			store.forgetAll();
 			emitters.clear();
 			swingGates.clear();
+			acceptedInstalls.clear();
+			incomingScans.clear();
+			sharedVisuals.clear();
+			lastVisualPublish.clear();
+			visualUploadWindows.clear();
+			runningServer = null;
 		});
 		ServerTickEvents.END_SERVER_TICK.register(this::onTick);
 	}
 
 	private void forget(UUID player, String reason) {
 		store.forget(player);
+		acceptedInstalls.remove(player);
+		incomingScans.remove(player);
+		lastVisualPublish.remove(player);
+		visualUploadWindows.remove(player);
 		swingGates.remove(player);
 		emitters.remove(player);
 		HumanCraft.LOGGER.debug("Forgot snapshot state for {} ({})", player, reason);
@@ -153,6 +188,10 @@ public final class HumanCraftServer {
 				validColliders = store.active(owner, now).map(s -> (int) s.validColliderCount()).orElse(0);
 				ContactService.Emitter emitter = emitters.computeIfAbsent(owner, k -> new ContactService.Emitter(CONTACT_HEARTBEAT_MS));
 				emitter.reset();
+				ArrayDeque<AcceptedInstall> history = acceptedInstalls.computeIfAbsent(owner, ignored -> new ArrayDeque<>());
+				history.addLast(new AcceptedInstall(payload, dimension, now));
+				while (history.size() > 32) history.removeFirst();
+				history.removeIf(item -> now - item.acceptedAtMillis() > 2_000);
 			}
 			span.tag("result", outcome.code());
 			Telemetry.log(outcome.accepted() ? SentryLevel.INFO : SentryLevel.WARNING,
@@ -165,8 +204,124 @@ public final class HumanCraftServer {
 	private void onClear(ServerPlayer player) {
 		boolean had = store.clear(player.getUUID());
 		emitters.remove(player.getUUID());
+		acceptedInstalls.remove(player.getUUID());
+		incomingScans.remove(player.getUUID());
+		removeSharedVisual(player.getUUID());
 		Telemetry.breadcrumb("hmc.server", "clear snapshot had=" + had);
 		ServerPlayNetworking.send(player, new HumanCraftPayloads.SnapshotAck(-1, true, "cleared", had ? "cleared active snapshot" : "nothing active", -1, 0));
+	}
+
+	private void onScanChunk(HumanCraftPayloads.ScanChunk chunk, ServerPlayer owner) {
+		UUID ownerId = owner.getUUID();
+		long now = System.currentTimeMillis();
+		try {
+			UploadWindow window = visualUploadWindows.computeIfAbsent(ownerId, ignored -> new UploadWindow());
+			if (window.startedAt == 0 || now - window.startedAt >= 1_000) { window.startedAt = now; window.bytes = 0; }
+			window.bytes = Math.addExact(window.bytes, chunk.data().length);
+			if (window.bytes > MAX_VISUAL_UPLOAD_BYTES_PER_SECOND) {
+				throw new ProtocolException(ProtocolException.LIMIT_EXCEEDED, "shared scan upload rate exceeded");
+			}
+			ScanTransfer transfer = incomingScans.get(ownerId);
+			if (transfer == null || transfer.expired(now) || !transfer.transferId().equals(chunk.transferId())) {
+				transfer = new ScanTransfer(chunk, now);
+				incomingScans.put(ownerId, transfer);
+			}
+			Optional<byte[]> complete = transfer.accept(chunk);
+			if (complete.isEmpty()) return;
+			incomingScans.remove(ownerId);
+			var frame = SharedScanCodec.decode(complete.get());
+			AcceptedInstall accepted = matchingInstall(ownerId, chunk, now).orElseThrow(() ->
+					new ProtocolException(ProtocolException.INVALID_MESSAGE, "shared scan has no matching accepted install"));
+			if (frame.frameId() != chunk.frameId() || !frame.header().sessionId().equals(chunk.sessionId())
+					|| !frame.header().calibrationId().equals(chunk.calibrationId())
+					|| !Objects.equals(frame.header().fusionId(), chunk.fusionId())
+					|| !sameColliders(frame.header().colliders().stream().map(WireCollider::of).toList(), accepted.payload().colliders())) {
+				throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "shared scan frame identity or geometry metadata differs from install");
+			}
+			AvatarService.Binding binding = avatars.binding(owner);
+			if (!binding.targetId().equals(chunk.targetPlayerId()) || binding.generation() != chunk.bindingGeneration()
+					|| binding.normalizationRevision() != chunk.normalizationRevision()) {
+				throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "shared scan binding is obsolete");
+			}
+			ServerPlayer target = owner.server.getPlayerList().getPlayer(chunk.targetPlayerId());
+			if (target == null || target.serverLevel() != owner.serverLevel()) {
+				throw new ProtocolException(ProtocolException.INVALID_MESSAGE, "shared scan target is unavailable");
+			}
+			if (now - lastVisualPublish.getOrDefault(ownerId, 0L) < 100) return;
+			lastVisualPublish.put(ownerId, now);
+			long publication = ++publicationSequence;
+			List<byte[]> parts = SharedScanCodec.chunks(complete.get());
+			List<HumanCraftPayloads.SharedScanChunk> relayed = new ArrayList<>(parts.size());
+			for (int i = 0; i < parts.size(); i++) {
+				HumanCraftPayloads.ScanChunk part = new HumanCraftPayloads.ScanChunk(chunk.transferId(), chunk.frameId(), chunk.sessionId(),
+						chunk.calibrationId(), chunk.fusionId(), chunk.targetPlayerId(), chunk.bindingGeneration(),
+						chunk.normalizationRevision(), chunk.anchorX(), chunk.anchorY(), chunk.anchorZ(), chunk.blocksPerMeter(),
+						i, parts.size(), complete.get().length, parts.get(i));
+				relayed.add(new HumanCraftPayloads.SharedScanChunk(publication, ownerId, part));
+			}
+			CachedVisual cached = new CachedVisual(publication, ownerId, chunk.targetPlayerId(), accepted.dimension(), List.copyOf(relayed));
+			sharedVisuals.put(ownerId, cached);
+			broadcast(owner, cached);
+		} catch (RuntimeException e) {
+			incomingScans.remove(ownerId);
+			HumanCraft.LOGGER.warn("Rejected shared scan chunk from {}: {}", ownerId, e.toString());
+		}
+	}
+
+	private static boolean sameColliders(List<WireCollider> a, List<WireCollider> b) {
+		if (a.size() != b.size()) return false;
+		for (int i = 0; i < a.size(); i++) {
+			WireCollider x = a.get(i), y = b.get(i);
+			if (!x.id().equals(y.id()) || !x.bodyPart().equals(y.bodyPart()) || !x.type().equals(y.type())
+					|| x.valid() != y.valid() || !x.fitSource().equals(y.fitSource())
+					|| Float.compare(x.quality(), y.quality()) != 0 || !java.util.Arrays.equals(x.numbers(), y.numbers())) return false;
+		}
+		return true;
+	}
+
+	private Optional<AcceptedInstall> matchingInstall(UUID owner, HumanCraftPayloads.ScanChunk chunk, long now) {
+		ArrayDeque<AcceptedInstall> history = acceptedInstalls.get(owner);
+		if (history == null) return Optional.empty();
+		history.removeIf(item -> now - item.acceptedAtMillis() > 2_000);
+		return history.stream().filter(item -> {
+			var p = item.payload();
+			return p.frameId() == chunk.frameId() && p.sessionId().equals(chunk.sessionId())
+					&& p.calibrationId().equals(chunk.calibrationId()) && Objects.equals(p.fusionId(), chunk.fusionId())
+					&& p.targetPlayerId().equals(chunk.targetPlayerId()) && p.bindingGeneration() == chunk.bindingGeneration()
+					&& p.normalizationRevision() == chunk.normalizationRevision()
+					&& Double.compare(p.anchorX(), chunk.anchorX()) == 0 && Double.compare(p.anchorY(), chunk.anchorY()) == 0
+					&& Double.compare(p.anchorZ(), chunk.anchorZ()) == 0 && Double.compare(p.blocksPerMeter(), chunk.blocksPerMeter()) == 0;
+		}).reduce((a, b) -> b);
+	}
+
+	private void broadcast(ServerPlayer owner, CachedVisual visual) {
+		for (ServerPlayer viewer : owner.server.getPlayerList().getPlayers()) {
+			if (viewer == owner || !viewer.serverLevel().dimension().location().toString().equals(visual.dimension())) continue;
+			if (!ServerPlayNetworking.canSend(viewer, HumanCraftPayloads.SharedScanChunk.TYPE)) continue;
+			for (var chunk : visual.chunks()) ServerPlayNetworking.send(viewer, chunk);
+		}
+	}
+
+	private void replaySharedVisuals(ServerPlayer viewer) {
+		String dimension = viewer.serverLevel().dimension().location().toString();
+		for (CachedVisual visual : sharedVisuals.values()) {
+			if (visual.owner().equals(viewer.getUUID()) || !visual.dimension().equals(dimension)
+					|| !ServerPlayNetworking.canSend(viewer, HumanCraftPayloads.SharedScanChunk.TYPE)) continue;
+			for (var chunk : visual.chunks()) ServerPlayNetworking.send(viewer, chunk);
+		}
+	}
+
+	private void removeSharedVisual(UUID ownerId) {
+		CachedVisual visual = sharedVisuals.remove(ownerId);
+		if (visual == null) return;
+		long publication = ++publicationSequence;
+		HumanCraftPayloads.SharedScanRemoved removed = new HumanCraftPayloads.SharedScanRemoved(publication, ownerId, visual.target());
+		if (runningServer == null) return;
+		for (ServerPlayer viewer : runningServer.getPlayerList().getPlayers()) {
+			if (ServerPlayNetworking.canSend(viewer, HumanCraftPayloads.SharedScanRemoved.TYPE)) {
+				ServerPlayNetworking.send(viewer, removed);
+			}
+		}
 	}
 
 	private void onArmSwing(HumanCraftPayloads.ArmSwing payload, ServerPlayer observer) {
@@ -293,7 +448,17 @@ public final class HumanCraftServer {
 	// ---- contacts ----------------------------------------------------------------------------
 
 	private void onTick(MinecraftServer server) {
+		runningServer = server;
 		avatars.tick(server);
+		List<UUID> obsoleteVisuals = new ArrayList<>();
+		for (CachedVisual visual : sharedVisuals.values()) {
+			ServerPlayer owner = server.getPlayerList().getPlayer(visual.owner());
+			ServerPlayer target = server.getPlayerList().getPlayer(visual.target());
+			if (owner == null || target == null || target.serverLevel() != owner.serverLevel()
+					|| !owner.serverLevel().dimension().location().toString().equals(visual.dimension())
+					|| !avatars.binding(owner).targetId().equals(visual.target())) obsoleteVisuals.add(visual.owner());
+		}
+		obsoleteVisuals.forEach(this::removeSharedVisual);
 		tick++;
 		if (tick % CONTACT_INTERVAL_TICKS != 0 || store.size() == 0) {
 			return;

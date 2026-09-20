@@ -24,6 +24,7 @@ import java.util.OptionalLong;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -143,5 +144,20 @@ class HumanCraftPayloadsTest {
 		assertEquals("hmc:probe_request", HumanCraftPayloads.ProbeRequest.TYPE.id().toString());
 		assertEquals("hmc:probe_result", HumanCraftPayloads.ProbeResult.TYPE.id().toString());
 		assertEquals("hmc:contact_state", HumanCraftPayloads.ContactState.TYPE.id().toString());
+		assertEquals("hmc:scan_chunk", HumanCraftPayloads.ScanChunk.TYPE.id().toString());
+		assertEquals("hmc:shared_scan_chunk", HumanCraftPayloads.SharedScanChunk.TYPE.id().toString());
+	}
+
+	@Test void sharedScanMetadataRoundTrips() {
+		byte[] bytes = {1, 2, 3, 4};
+		var chunk = new HumanCraftPayloads.ScanChunk(UUID.randomUUID(), 9, SyntheticHuman.SESSION_ID,
+				SyntheticHuman.CALIBRATION_ID, UUID.randomUUID(), UUID.randomUUID(), 2, 3,
+				1.5, 2.5, 3.5, 1.25, 0, 1, bytes.length, bytes);
+		var decoded = roundTrip(HumanCraftPayloads.ScanChunk.CODEC, chunk);
+		assertEquals(chunk.transferId(), decoded.transferId());
+		assertEquals(chunk.frameId(), decoded.frameId());
+		assertEquals(chunk.targetPlayerId(), decoded.targetPlayerId());
+		assertEquals(chunk.blocksPerMeter(), decoded.blocksPerMeter());
+		assertArrayEquals(bytes, decoded.data());
 	}
 }

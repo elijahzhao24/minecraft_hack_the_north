@@ -44,11 +44,13 @@ class HumanCraftConfigTest {
 		HumanCraftConfig config = new HumanCraftConfig();
 		config.applyEnvironment(Map.of(
 				"HUMANCRAFT_BACKEND_URL", "ws://10.0.0.8:9000/ws/character",
+				"HUMANCRAFT_CAPTURE_ENABLED", "false",
 				"HUMANCRAFT_SENTRY_DSN", "https://public@example.invalid/42",
 				"HUMANCRAFT_BLOCKS_PER_METER", "2.5"));
 		config.clamp();
 
 		assertEquals("ws://10.0.0.8:9000/ws/character", config.backendUrl);
+		assertFalse(config.captureEnabled);
 		assertEquals(2.5, config.blocksPerMeter);
 		assertFalse(config.sentry.dsn.isEmpty());
 

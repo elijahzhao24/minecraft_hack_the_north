@@ -55,6 +55,12 @@ sentry {
 	authToken = System.getenv("SENTRY_AUTH_TOKEN")
 }
 
+// Local builds create the bundle but upload only when the developer supplied
+// an organization token explicitly.
+tasks.named('sentryUploadSourceBundleJava').configure {
+	onlyIf { System.getenv("SENTRY_AUTH_TOKEN") != null }
+}
+
 // The development launcher gets the same OpenTelemetry agent used by a packaged launch.
 // Resolution remains lazy, so ordinary compilation does not start or attach an agent.
 tasks.named('runClient').configure {
@@ -87,6 +93,13 @@ java {
 	withSourcesJar()
 	sourceCompatibility = JavaVersion.VERSION_21
 	targetCompatibility = JavaVersion.VERSION_21
+}
+
+// Sentry contributes generated source metadata that is included in sourcesJar.
+// Gradle 9 requires the producer tasks to be declared explicitly.
+tasks.named('sourcesJar').configure {
+	dependsOn tasks.named('collectExternalDependenciesForSentry')
+	dependsOn tasks.named('generateSentryDebugMetaPropertiesjava')
 }
 
 test {

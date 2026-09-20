@@ -422,6 +422,48 @@ public final class HumanCraftPayloads {
 		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
+	/** One bounded fragment of an accepted scan's render-only HMC1 frame. */
+	public record ScanChunk(UUID transferId, long frameId, UUID sessionId, UUID calibrationId, UUID fusionId,
+			UUID targetPlayerId, long bindingGeneration, long normalizationRevision,
+			double anchorX, double anchorY, double anchorZ, double blocksPerMeter,
+			int chunkIndex, int chunkCount, int totalBytes, byte[] data) implements CustomPacketPayload {
+		public static final Type<ScanChunk> TYPE = new Type<>(id("scan_chunk"));
+		public static final StreamCodec<FriendlyByteBuf, ScanChunk> CODEC = StreamCodec.of(ScanChunk::write, ScanChunk::read);
+		private static void write(FriendlyByteBuf b, ScanChunk p) {
+			b.writeUUID(p.transferId); b.writeLong(p.frameId); b.writeUUID(p.sessionId); b.writeUUID(p.calibrationId);
+			b.writeBoolean(p.fusionId != null); if (p.fusionId != null) b.writeUUID(p.fusionId);
+			b.writeUUID(p.targetPlayerId); b.writeVarLong(p.bindingGeneration); b.writeVarLong(p.normalizationRevision);
+			b.writeDouble(p.anchorX); b.writeDouble(p.anchorY); b.writeDouble(p.anchorZ); b.writeDouble(p.blocksPerMeter);
+			b.writeVarInt(p.chunkIndex); b.writeVarInt(p.chunkCount); b.writeVarInt(p.totalBytes); b.writeByteArray(p.data);
+		}
+		private static ScanChunk read(FriendlyByteBuf b) {
+			UUID transfer = b.readUUID(); long frame = b.readLong(); UUID session = b.readUUID(); UUID calibration = b.readUUID();
+			UUID fusion = b.readBoolean() ? b.readUUID() : null; UUID target = b.readUUID(); long generation = b.readVarLong();
+			long revision = b.readVarLong(); double x = b.readDouble(), y = b.readDouble(), z = b.readDouble(), scale = b.readDouble();
+			return new ScanChunk(transfer, frame, session, calibration, fusion, target, generation, revision, x, y, z, scale,
+					b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readByteArray(SharedScanCodec.CHUNK_BYTES));
+		}
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
+	/** Server-authenticated scan fragment relayed to viewing clients. */
+	public record SharedScanChunk(long publication, UUID ownerId, ScanChunk chunk) implements CustomPacketPayload {
+		public static final Type<SharedScanChunk> TYPE = new Type<>(id("shared_scan_chunk"));
+		public static final StreamCodec<FriendlyByteBuf, SharedScanChunk> CODEC = StreamCodec.of(
+				(b, p) -> { b.writeVarLong(p.publication); b.writeUUID(p.ownerId); ScanChunk.write(b, p.chunk); },
+				b -> new SharedScanChunk(b.readVarLong(), b.readUUID(), ScanChunk.read(b)));
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
+	/** Invalidates a published visual; publication ordering prevents late chunks from reviving it. */
+	public record SharedScanRemoved(long publication, UUID ownerId, UUID targetPlayerId) implements CustomPacketPayload {
+		public static final Type<SharedScanRemoved> TYPE = new Type<>(id("shared_scan_removed"));
+		public static final StreamCodec<FriendlyByteBuf, SharedScanRemoved> CODEC = StreamCodec.of(
+				(b, p) -> { b.writeVarLong(p.publication); b.writeUUID(p.ownerId); b.writeUUID(p.targetPlayerId); },
+				b -> new SharedScanRemoved(b.readVarLong(), b.readUUID(), b.readUUID()));
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+	}
+
 	// ---- registration ------------------------------------------------------------------------
 
 	private static boolean registered;
@@ -440,12 +482,15 @@ public final class HumanCraftPayloads {
 		c2s.register(ControlInput.TYPE, ControlInput.CODEC);
 		c2s.register(AnatomyAttack.TYPE, AnatomyAttack.CODEC);
 		c2s.register(ArmSwing.TYPE, ArmSwing.CODEC);
+		c2s.register(ScanChunk.TYPE, ScanChunk.CODEC);
 		s2c.register(SnapshotAck.TYPE, SnapshotAck.CODEC);
 		s2c.register(ProbeResult.TYPE, ProbeResult.CODEC);
 		s2c.register(ContactState.TYPE, ContactState.CODEC);
 		s2c.register(AvatarState.TYPE, AvatarState.CODEC);
 		s2c.register(DebugState.TYPE, DebugState.CODEC);
 		s2c.register(CameraCalibrationRequest.TYPE, CameraCalibrationRequest.CODEC);
-		HumanCraft.LOGGER.debug("Registered {} payload types", 10);
+		s2c.register(SharedScanChunk.TYPE, SharedScanChunk.CODEC);
+		s2c.register(SharedScanRemoved.TYPE, SharedScanRemoved.CODEC);
+		HumanCraft.LOGGER.debug("Registered {} payload types", 15);
 	}
 }

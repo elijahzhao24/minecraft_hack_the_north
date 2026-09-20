@@ -13,6 +13,8 @@ import dev.humancraft.model.ScanNormalization;
 import dev.humancraft.model.StageToWorld;
 import dev.humancraft.model.WorldSnapshot;
 import dev.humancraft.network.HumanCraftPayloads;
+import dev.humancraft.network.ScanTransfer;
+import dev.humancraft.network.SharedScanCodec;
 import dev.humancraft.server.InstallRequest;
 import dev.humancraft.telemetry.Telemetry;
 import dev.humancraft.telemetry.FrameConsistencyMonitor;
@@ -27,6 +29,9 @@ import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Locale;
+import java.util.LinkedHashMap;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,11 +50,12 @@ public final class ClientSnapshotCoordinator {
 	private CharacterFrame latestDecoded;
 	private volatile long lastBackendFrameId = -1;
 	private UUID lastBackendSession;
-	private WorldSnapshot pending;
+	private record PendingInstall(CharacterFrame frame, WorldSnapshot snapshot, long receivedAtMillis) {}
+	private final LinkedHashMap<String, PendingInstall> pending = new LinkedHashMap<>();
 	private WorldSnapshot active;
 	private long activeSinceMs;
 	private long lastReceivedMs;
-	private long pendingReceivedMs, displayedReceivedMs;
+	private long displayedReceivedMs;
 	private boolean invalidFrameStreak;
 	private boolean holdingLastScan;
 	// Clear acknowledgements are ordered; automatic dropout clears retain the visual.
@@ -74,6 +80,12 @@ public final class ClientSnapshotCoordinator {
 	private final ScanNormalization normalization = new ScanNormalization();
 	private final ArmSwingDetector swings;
 	private String lastSwing = "none";
+	private final ArrayDeque<HumanCraftPayloads.ScanChunk> outgoingScanChunks = new ArrayDeque<>();
+	private long lastSharedAtMillis;
+	private record Incoming(long publication, UUID target, ScanTransfer transfer) {}
+	private final Map<UUID, Incoming> incomingScans = new HashMap<>();
+	private final Map<UUID, Long> remotePublications = new HashMap<>();
+	private final Map<UUID, UUID> remoteTargets = new HashMap<>();
 
 	public ClientSnapshotCoordinator(HumanCraftConfig config, HumanRenderer renderer) {
 		this.config = config;
@@ -124,7 +136,7 @@ public final class ClientSnapshotCoordinator {
 		}
 		if (latestDecoded != null && hasRenderableCloud(latestDecoded)) {
 			install(latestDecoded, "joined world");
-		} else if (config.fixtureOnStart) {
+		} else if (config.captureEnabled && config.fixtureOnStart) {
 			SyntheticHuman.Pose pose;
 			try {
 				pose = SyntheticHuman.Pose.valueOf(config.fixturePose.toUpperCase(Locale.ROOT));
@@ -156,7 +168,11 @@ public final class ClientSnapshotCoordinator {
 		holdingLastScan = false;
 		swings.reset();
 		normalization.reset();
-		pending = null;
+		pending.clear();
+		outgoingScanChunks.clear();
+		incomingScans.clear();
+		remotePublications.clear();
+		remoteTargets.clear();
 		active = null;
 		contactCount = 0;
 		serverStatus = "not in world";
@@ -174,7 +190,7 @@ public final class ClientSnapshotCoordinator {
 		lastReceivedMs = System.currentTimeMillis();
 		if (!hasRenderableCloud(frame)) {
 			swings.reset();
-			pending = null;
+			pending.clear();
 			contactCount = 0;
 			holdingLastScan = active != null;
 			if (joined && !invalidFrameStreak) {
@@ -232,8 +248,9 @@ public final class ClientSnapshotCoordinator {
 			InstallRequest request = new InstallRequest(frame.frameId(), frame.header().sessionId(), frame.header().calibrationId(),
 					frame.header().mode(), transform, frame.header().colliders(), frame.header().landmarks().size(), frame.cloud().count(),
 					sentFusionId, sourceFrameIds(frame), targetPlayerId, bindingGeneration, normalizationRevision);
-			pending = next;
-			pendingReceivedMs = lastReceivedMs;
+			pending.put(pendingKey(frame.header().sessionId(), frame.frameId(), sentFusionId, bindingGeneration, normalizationRevision),
+					new PendingInstall(frame, next, lastReceivedMs));
+			while (pending.size() > 32) pending.remove(pending.keySet().iterator().next());
 			ClientPlayNetworking.send(HumanCraftPayloads.InstallSnapshot.of(request));
 			// Ordered immediately after install: server validates the exact live frame before causing damage.
 			// Reinstalls caused by display toggles or binding changes must never replay physical gestures.
@@ -245,7 +262,7 @@ public final class ClientSnapshotCoordinator {
 				});
 			}
 		} catch (RuntimeException e) {
-			pending = null;
+			pending.clear();
 			serverStatus = "install send failed";
 			Telemetry.captureException(e, "client.install.send");
 		}
@@ -260,36 +277,39 @@ public final class ClientSnapshotCoordinator {
 			}
 			return;
 		}
-		if (pending == null || ack.frameId() != pending.frameId()) {
+		Map.Entry<String, PendingInstall> match = pending.entrySet().stream()
+				.filter(e -> e.getValue().snapshot().frameId() == ack.frameId()
+						&& java.util.Objects.equals(e.getValue().snapshot().fusionId(), ack.fusionId())
+						&& ack.bindingGeneration() == bindingGeneration && ack.normalizationRevision() == normalizationRevision)
+				.reduce((a, b) -> b).orElse(null);
+		if (match == null) {
 			serverStatus = "ignored mismatched ack " + ack.frameId();
 			return;
 		}
-		consistency.compatible(ack.frameId(), pending.fusionId(), ack.fusionId(), sourceFrameIds(pending));
-		if (!java.util.Objects.equals(pending.fusionId(), ack.fusionId())) {
-			pending = null;
-			serverStatus = "rejected mismatched fusion identity";
-			return;
-		}
+		PendingInstall accepted = match.getValue();
+		pending.remove(match.getKey());
+		consistency.compatible(ack.frameId(), accepted.snapshot().fusionId(), ack.fusionId(), sourceFrameIds(accepted.snapshot()));
 		if (ack.bindingGeneration() != bindingGeneration || ack.normalizationRevision() != normalizationRevision) {
 			serverStatus = "ignored stale binding ack " + ack.frameId();
 			return;
 		}
 		if (!ack.accepted()) {
-			pending = null;
 			serverStatus = "rejected: " + ack.code() + " — " + ack.detail();
 			Telemetry.log(SentryLevel.WARNING, "snapshot rejected frame=%d code=%s detail=%s",
 					ack.frameId(), ack.code(), ack.detail());
 			return;
 		}
-		WorldSnapshot next = pending;
-		pending = null;
+		CharacterFrame visualFrame = SharedScanCodec.prepare(accepted.frame());
+		WorldSnapshot next = accepted.snapshot().transform().snapshot(visualFrame);
+		if (active != null && active.sessionId().equals(next.sessionId()) && next.frameId() < active.frameId()) return;
 		try {
 			renderer.activate(next, targetPlayerId);
 			active = next;
-			displayedReceivedMs = pendingReceivedMs;
+			displayedReceivedMs = accepted.receivedAtMillis();
 			activeSinceMs = System.currentTimeMillis();
 			holdingLastScan = false;
 			serverStatus = "active frame " + active.frameId() + " (" + ack.validColliders() + " colliders)";
+			queueSharedScan(accepted.frame(), next);
 		} catch (RuntimeException e) {
 			// activate builds replacement buffers before releasing the old scan.
 			holdingLastScan = active != null;
@@ -328,10 +348,10 @@ public final class ClientSnapshotCoordinator {
 			// A re-sent identical binding must not wipe the rendered figure.
 			return;
 		}
-		pending = null;
+		pending.clear();
 		active = null;
 		contactCount = 0;
-		renderer.clear();
+		renderer.clear(targetPlayerId);
 		targetPlayerId = state.targetPlayerId();
 		avatarMode = state.mode();
 		bindingGeneration = state.bindingGeneration();
@@ -360,6 +380,11 @@ public final class ClientSnapshotCoordinator {
 	public UUID targetPlayerId() { return targetPlayerId; }
 
 	public void tick(Minecraft client) {
+		for (int i = 0; i < 8 && !outgoingScanChunks.isEmpty(); i++) {
+			ClientPlayNetworking.send(outgoingScanChunks.removeFirst());
+		}
+		long now = System.currentTimeMillis();
+		incomingScans.entrySet().removeIf(e -> e.getValue().transfer().expired(now));
 		if (anchorPendingTicks > 0) {
 			anchorPendingTicks--;
 			if (anchorPendingTicks == 0) {
@@ -396,6 +421,74 @@ public final class ClientSnapshotCoordinator {
 				.map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
 	}
 
+	private static String pendingKey(UUID session, long frame, UUID fusion, long generation, long revision) {
+		return session + ":" + frame + ":" + fusion + ":" + generation + ":" + revision;
+	}
+
+	private void queueSharedScan(CharacterFrame frame, WorldSnapshot snapshot) {
+		if (!config.captureEnabled) return;
+		long now = System.currentTimeMillis();
+		if (now - lastSharedAtMillis < 100) return;
+		try {
+			byte[] encoded = SharedScanCodec.encode(frame);
+			List<byte[]> parts = SharedScanCodec.chunks(encoded);
+			UUID transfer = UUID.randomUUID();
+			StageToWorld transform = snapshot.transform();
+			outgoingScanChunks.clear();
+			for (int i = 0; i < parts.size(); i++) {
+				outgoingScanChunks.addLast(new HumanCraftPayloads.ScanChunk(transfer, frame.frameId(), frame.header().sessionId(),
+						frame.header().calibrationId(), frame.header().fusionId(), targetPlayerId, bindingGeneration,
+						normalizationRevision, transform.anchor().x(), transform.anchor().y(), transform.anchor().z(),
+						transform.blocksPerMeter(), i, parts.size(), encoded.length, parts.get(i)));
+			}
+			lastSharedAtMillis = now;
+		} catch (RuntimeException e) {
+			outgoingScanChunks.clear();
+			HumanCraft.LOGGER.warn("Could not prepare shared scan frame {}", frame.frameId(), e);
+		}
+	}
+
+	public void onSharedScanChunk(HumanCraftPayloads.SharedScanChunk payload) {
+		long latest = remotePublications.getOrDefault(payload.ownerId(), -1L);
+		if (payload.publication() < latest) return;
+		HumanCraftPayloads.ScanChunk chunk = payload.chunk();
+		Incoming incoming = incomingScans.get(payload.ownerId());
+		if (incoming == null || incoming.publication() != payload.publication()
+				|| !incoming.transfer().transferId().equals(chunk.transferId())) {
+			if (payload.publication() < latest) return;
+			remotePublications.put(payload.ownerId(), payload.publication());
+			incoming = new Incoming(payload.publication(), chunk.targetPlayerId(), new ScanTransfer(chunk, System.currentTimeMillis()));
+			incomingScans.put(payload.ownerId(), incoming);
+		}
+		try {
+			Optional<byte[]> completed = incoming.transfer().accept(chunk);
+			if (completed.isEmpty()) return;
+			CharacterFrame frame = SharedScanCodec.decode(completed.get());
+			if (frame.frameId() != chunk.frameId() || !frame.header().sessionId().equals(chunk.sessionId())
+					|| !frame.header().calibrationId().equals(chunk.calibrationId())
+					|| !java.util.Objects.equals(frame.header().fusionId(), chunk.fusionId())) {
+				throw new IllegalArgumentException("shared scan identity does not match relay metadata");
+			}
+			UUID previousTarget = remoteTargets.put(payload.ownerId(), chunk.targetPlayerId());
+			if (previousTarget != null && !previousTarget.equals(chunk.targetPlayerId())) renderer.clear(previousTarget);
+			StageToWorld transform = new StageToWorld(new Vector3(chunk.anchorX(), chunk.anchorY(), chunk.anchorZ()), chunk.blocksPerMeter());
+			renderer.activate(transform.snapshot(frame), chunk.targetPlayerId());
+			incomingScans.remove(payload.ownerId());
+		} catch (RuntimeException e) {
+			incomingScans.remove(payload.ownerId());
+			HumanCraft.LOGGER.warn("Rejected shared scan from {}", payload.ownerId(), e);
+		}
+	}
+
+	public void onSharedScanRemoved(HumanCraftPayloads.SharedScanRemoved payload) {
+		long latest = remotePublications.getOrDefault(payload.ownerId(), -1L);
+		if (payload.publication() < latest) return;
+		remotePublications.put(payload.ownerId(), payload.publication());
+		incomingScans.remove(payload.ownerId());
+		UUID target = remoteTargets.remove(payload.ownerId());
+		renderer.clear(target == null ? payload.targetPlayerId() : target);
+	}
+
 	public void probe() {
 		if (active == null) {
 			message(Component.literal("HumanCraft: no active snapshot"));
@@ -419,6 +512,10 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	public void requestCapture() {
+		if (!config.captureEnabled) {
+			message(Component.literal("HumanCraft: capture is disabled on this viewer"));
+			return;
+		}
 		if (backend == null) {
 			message(Component.literal("HumanCraft: backend client not ready"));
 			return;
@@ -434,6 +531,10 @@ public final class ClientSnapshotCoordinator {
 
 	/** Starts or stops the backend-driven live loop; frames then arrive continuously. */
 	public void toggleLive() {
+		if (!config.captureEnabled) {
+			message(Component.literal("HumanCraft: capture is disabled on this viewer"));
+			return;
+		}
 		if (backend == null) {
 			message(Component.literal("HumanCraft: backend client not ready"));
 			return;
@@ -450,6 +551,10 @@ public final class ClientSnapshotCoordinator {
 
 	/** Starts guided calibration using the stationary printed floor board. */
 	public void registerRig() {
+		if (!config.captureEnabled) {
+			message(Component.literal("HumanCraft: capture is disabled on this viewer"));
+			return;
+		}
 		if (backend == null || !backend.registerRig()) {
 			message(Component.literal("HumanCraft: backend is not connected"));
 			return;
@@ -462,7 +567,8 @@ public final class ClientSnapshotCoordinator {
 	}
 
 	public void reconnect() {
-		if (backend != null) {
+		if (!config.captureEnabled) message(Component.literal("HumanCraft: viewer mode has no capture backend"));
+		else if (backend != null) {
 			backend.reconnectNow();
 		}
 	}
@@ -572,21 +678,23 @@ public final class ClientSnapshotCoordinator {
 	private void clearLocal(String reason) {
 		swings.reset();
 		holdingLastScan = false;
-		pending = null;
+		pending.clear();
+		outgoingScanChunks.clear();
 		active = null;
 		contactCount = 0;
 		serverStatus = reason;
-		renderer.clear();
+		renderer.clear(targetPlayerId);
 	}
 
 	public List<String> hudLines() {
 		List<String> lines = new ArrayList<>();
-		lines.add("HumanCraft — backend: " + backendStatus);
+		lines.add("HumanCraft — " + (config.captureEnabled ? "backend: " + backendStatus : "viewer mode"));
 		lines.add("server: " + serverStatus);
 		lines.add("avatar: " + avatarMode + "  target: " + shortId(targetPlayerId)
 				+ (controllingSeparate ? "  CONTROLLED" : ""));
 		lines.add("frames decoded/pending/active: " + lastDecodedFrameId() + "/"
-				+ (pending == null ? "-" : pending.frameId()) + "/" + (active == null ? "-" : active.frameId()));
+				+ (pending.isEmpty() ? "-" : pending.values().stream().reduce((a, b) -> b).orElseThrow().snapshot().frameId())
+				+ "/" + (active == null ? "-" : active.frameId()));
 		if (active != null) {
 			long age = System.currentTimeMillis() - displayedReceivedMs;
 			lines.add("calibration: " + shortId(active.calibrationId()) + "  age: " + age + " ms");

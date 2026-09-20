@@ -28,12 +28,12 @@ public final class HumanCraftClient implements ClientModInitializer {
 		HumanRenderer renderer = new HumanRenderer(config);
 		renderer.register();
 		ClientSnapshotCoordinator snapshots = new ClientSnapshotCoordinator(config, renderer);
-		CharacterWebSocket backend = new CharacterWebSocket(
-				config,
-				snapshots::lastBackendFrameId,
+		CharacterWebSocket backend = config.captureEnabled ? new CharacterWebSocket(
+				config, snapshots::lastBackendFrameId,
 				frame -> Minecraft.getInstance().execute(() -> snapshots.receiveBackend(frame)),
-				status -> Minecraft.getInstance().execute(() -> snapshots.setBackendStatus(status)));
-		snapshots.setBackend(backend);
+				status -> Minecraft.getInstance().execute(() -> snapshots.setBackendStatus(status))) : null;
+		if (backend != null) snapshots.setBackend(backend);
+		else snapshots.setBackendStatus("viewer mode");
 		MouseMovement.configure(config, snapshots);
 
 		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.SnapshotAck.TYPE,
@@ -49,6 +49,10 @@ public final class HumanCraftClient implements ClientModInitializer {
 
 		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.CameraCalibrationRequest.TYPE,
 				(payload, context) -> snapshots.registerRig());
+		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.SharedScanChunk.TYPE,
+				(payload, context) -> snapshots.onSharedScanChunk(payload));
+		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.SharedScanRemoved.TYPE,
+				(payload, context) -> snapshots.onSharedScanRemoved(payload));
 
 		HumanCraftKeybindings keys = new HumanCraftKeybindings(config, snapshots);
 		HumanCraftHud hud = new HumanCraftHud(config, snapshots);
@@ -61,9 +65,9 @@ public final class HumanCraftClient implements ClientModInitializer {
 
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> snapshots.onJoin(client));
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> snapshots.onDisconnect());
-		ClientLifecycleEvents.CLIENT_STARTED.register(client -> backend.start());
+		ClientLifecycleEvents.CLIENT_STARTED.register(client -> { if (backend != null) backend.start(); });
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
-			backend.close();
+			if (backend != null) backend.close();
 			renderer.close();
 		});
 	}
