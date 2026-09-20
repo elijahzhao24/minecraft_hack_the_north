@@ -45,6 +45,9 @@ the paths with absolute paths on the machine running Minecraft:
 ```text
 -javaagent:/absolute/path/to/sentry-opentelemetry-agent-8.57.0.jar
 -Dsentry.properties.file=/absolute/path/to/sentry.properties
+-Dotel.traces.exporter=none
+-Dotel.logs.exporter=none
+-Dotel.metrics.exporter=none
 ```
 
 The checked-in development settings enable default PII and sample all traces

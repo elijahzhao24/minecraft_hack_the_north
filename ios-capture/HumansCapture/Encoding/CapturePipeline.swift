@@ -156,6 +156,7 @@ actor CapturePipeline {
 
                 statistics.sentFrames &+= 1
                 statistics.lastValidDepthFraction = encoded.validDepthFraction
+                let pointCount = encoded.validPointCount
                 let frameAttributes: [String: Any] = [
                     "device_id": deviceID,
                     "session_id": source.sessionID.uuidString.lowercased(),
@@ -169,11 +170,21 @@ actor CapturePipeline {
                     "valid_depth_fraction": encoded.validDepthFraction,
                     "encoded_rgb_bytes": encoded.jpegBytes,
                     "payload_bytes": encoded.envelope.count,
-                    "point_count": Int(Double(encoded.header.depth.width * encoded.header.depth.height) * encoded.validDepthFraction),
+                    "point_count": pointCount,
                     "dropped_frame_count": statistics.droppedLiveFrames
                 ]
                 if source.intent.mode == .snapshot {
                     diagnostics.log(.info, "capture.frame.sent", attributes: frameAttributes)
+                    diagnostics.recordCaptureMetrics(
+                        deviceID: deviceID,
+                        mode: source.intent.mode.rawValue,
+                        framesSent: 1,
+                        framesDropped: 0,
+                        pointCount: pointCount,
+                        payloadSize: encoded.envelope.count,
+                        validDepthFraction: encoded.validDepthFraction,
+                        queueDepth: queue.count
+                    )
                 } else {
                     liveSentSinceAggregate &+= 1
                     emitLiveAggregateIfNeeded(frameAttributes: frameAttributes)
@@ -222,6 +233,16 @@ actor CapturePipeline {
         attributes["frames_sent"] = liveSentSinceAggregate
         attributes["frames_dropped"] = statistics.droppedLiveFrames - liveDroppedAtLastAggregate
         diagnostics.log(.info, "capture.live.aggregate", attributes: attributes)
+        diagnostics.recordCaptureMetrics(
+            deviceID: deviceID,
+            mode: CaptureMode.live.rawValue,
+            framesSent: liveSentSinceAggregate,
+            framesDropped: statistics.droppedLiveFrames - liveDroppedAtLastAggregate,
+            pointCount: frameAttributes["point_count"] as? Int ?? 0,
+            payloadSize: frameAttributes["payload_bytes"] as? Int ?? 0,
+            validDepthFraction: frameAttributes["valid_depth_fraction"] as? Double ?? 0,
+            queueDepth: queue.count
+        )
         liveSentSinceAggregate = 0
         liveDroppedAtLastAggregate = statistics.droppedLiveFrames
         lastLiveAggregateTime = now

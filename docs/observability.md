@@ -12,6 +12,12 @@ HumanCraft instruments three failure modes: pipeline latency, silently bad scans
 
 Spans use local clocks. Phone, backend, and game timestamps are never subtracted to claim network latency. Useful attributes are `frame_id`, `fusion_id`/source frame IDs, `point_count`, and `payload_size`; routine frame logs are aggregated every 30 seconds while detailed traces are sampled (default 20%).
 
+The iOS capture app uses Sentry Cocoa 9.29 structured Logs for capture lifecycle,
+queue pressure, and failures. Metrics report frames sent/dropped, point count, payload
+size, valid-depth ratio, and queue depth. Snapshot metrics are emitted immediately;
+routine live metrics and logs are aggregated every 30 seconds. Frame IDs remain on logs
+and traces rather than metric dimensions to avoid high-cardinality metrics.
+
 In Sentry, open **Explore → Traces** and search transaction names `ios.capture_frame`, `character.snapshot`, or `client.install_snapshot`. Open one trace and compare the `hmc.*` spans, then group slow spans by point count or payload size.
 
 ### Scan quality
@@ -75,7 +81,7 @@ The token is never stored in this repository. The checked-in Java DSN is a clien
 key, not the source-upload credential. The supplied Java settings enable default PII and
 100% tracing/profiling; review and reduce those settings before a broad production rollout.
 
-The pinned SDK/API choices are Sentry Cocoa 8.56 (`startTransaction`, child spans, `toTraceHeader`, `baggageHttpHeader`), `sentry-sdk` 2.x (`continue_trace`, `start_transaction`, span headers), and Sentry Java 8.57 (`continueTrace`, structured Logs, metrics, async profiler, and OpenTelemetry agent). See the official [Cocoa SDK](https://github.com/getsentry/sentry-cocoa/tree/8.56.0), [Python tracing API](https://github.com/getsentry/sentry-python/blob/master/sentry_sdk/tracing.py), and [Java SDK](https://github.com/getsentry/sentry-java/tree/8.57.0).
+The pinned SDK/API choices are Sentry Cocoa 9.29 (`SentrySDK.logger`, `SentrySDK.metrics`, transactions, child spans, `toTraceHeader`, and `baggageHttpHeader`), `sentry-sdk` 2.x (`continue_trace`, `start_transaction`, span headers), and Sentry Java 8.57 (`continueTrace`, structured Logs, metrics, async profiler, and OpenTelemetry agent). See the official [Cocoa SDK](https://github.com/getsentry/sentry-cocoa/tree/9.29.0), [Python tracing API](https://github.com/getsentry/sentry-python/blob/master/sentry_sdk/tracing.py), and [Java SDK](https://github.com/getsentry/sentry-java/tree/8.57.0).
 
 ## Controlled demonstrations
 

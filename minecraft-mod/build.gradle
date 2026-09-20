@@ -61,6 +61,11 @@ tasks.named('runClient').configure {
 	doFirst {
 		jvmArgs "-javaagent:${configurations.sentryAgent.singleFile.absolutePath}"
 		environment "SENTRY_PROPERTIES_FILE", file("sentry.properties").absolutePath
+		// Sentry installs its own span processor. Disable the agent's unrelated
+		// default OTLP exporters; HumanCraft sends telemetry via the Sentry SDK.
+		environment "OTEL_TRACES_EXPORTER", "none"
+		environment "OTEL_LOGS_EXPORTER", "none"
+		environment "OTEL_METRICS_EXPORTER", "none"
 	}
 }
 

@@ -1,6 +1,8 @@
 import Foundation
 import os
-import Sentry
+// Sentry Cocoa documents these SDK-wide logging/metrics facades as thread-safe,
+// but its Swift 5 module does not yet carry Swift 6 Sendable annotations.
+@preconcurrency import Sentry
 
 enum CaptureLogLevel {
     case debug, info, warning, error
@@ -67,6 +69,8 @@ final class CaptureEventLogger: @unchecked Sendable {
             options.releaseName = "humans-capture@\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")"
             let configuredRate = Double(ProcessInfo.processInfo.environment["HMC_SENTRY_TRACES_SAMPLE_RATE"] ?? "0.2") ?? 0.2
             options.tracesSampleRate = NSNumber(value: min(1, max(0, configuredRate)))
+            options.enableLogs = true
+            options.enableMetrics = true
             options.sendDefaultPii = false
             options.debug = ProcessInfo.processInfo.environment["HMC_SENTRY_DEBUG"] == "true"
         }
@@ -150,11 +154,71 @@ final class CaptureEventLogger: @unchecked Sendable {
             level: level.osLogType,
             "\(message, privacy: .public) \(String(describing: attributes), privacy: .private(mask: .hash))"
         )
+        let scalarAttributes = attributes.filter { _, value in
+            value is String || value is Bool || value is Int || value is UInt ||
+                value is Int64 || value is UInt64 || value is Double || value is Float
+        }
+        switch level {
+        case .debug:
+            SentrySDK.logger.debug(message, attributes: scalarAttributes)
+        case .info:
+            SentrySDK.logger.info(message, attributes: scalarAttributes)
+        case .warning:
+            SentrySDK.logger.warn(message, attributes: scalarAttributes)
+        case .error:
+            SentrySDK.logger.error(message, attributes: scalarAttributes)
+        }
         guard level == .warning || level == .error else { return }
         SentrySDK.capture(message: message) { scope in
             scope.setLevel(level == .error ? .error : .warning)
             attributes.forEach { scope.setExtra(value: $0.value, key: $0.key) }
         }
+    }
+
+    func recordCaptureMetrics(
+        deviceID: String,
+        mode: String,
+        framesSent: UInt64,
+        framesDropped: UInt64,
+        pointCount: Int,
+        payloadSize: Int,
+        validDepthFraction: Double,
+        queueDepth: Int
+    ) {
+        SentrySDK.metrics.count(
+            key: "humancraft.capture.frames_sent",
+            value: UInt(framesSent),
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        if framesDropped > 0 {
+            SentrySDK.metrics.count(
+                key: "humancraft.capture.frames_dropped",
+                value: UInt(framesDropped),
+                attributes: ["device_id": deviceID, "mode": mode]
+            )
+        }
+        SentrySDK.metrics.distribution(
+            key: "humancraft.capture.point_count",
+            value: Double(pointCount),
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        SentrySDK.metrics.distribution(
+            key: "humancraft.capture.payload_size",
+            value: Double(payloadSize),
+            unit: .byte,
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        SentrySDK.metrics.gauge(
+            key: "humancraft.capture.valid_depth_fraction",
+            value: validDepthFraction,
+            unit: .ratio,
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
+        SentrySDK.metrics.gauge(
+            key: "humancraft.capture.queue_depth",
+            value: Double(queueDepth),
+            attributes: ["device_id": deviceID, "mode": mode]
+        )
     }
 }
 

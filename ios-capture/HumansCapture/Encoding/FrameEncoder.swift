@@ -5,6 +5,7 @@ struct EncodedRGBDFrame: Sendable {
     let header: RGBDFrameHeader
     let envelope: Data
     let validDepthFraction: Double
+    let validPointCount: Int
     let jpegBytes: Int
 }
 
@@ -112,6 +113,7 @@ final class FrameEncoder: @unchecked Sendable {
                 header: header,
                 envelope: envelope,
                 validDepthFraction: encodedDepth.validFraction,
+                validPointCount: encodedDepth.validPointCount,
                 jpegBytes: jpeg.count
             )
         } catch {
