@@ -181,6 +181,38 @@ class AppRuntime:
     def calibrating(self) -> bool:
         return self._board_task is not None and not self._board_task.done()
 
+    # --- person-target alignment (simulation / nominal rig only) -----------
+
+    def request_person_alignment(self) -> tuple[bool, str]:
+        """Align the side camera onto the front one using the subject's body.
+
+        Only meaningful on a nominal (synthetic) rig, where the phones were
+        placed by hand: the next paired frame runs the yaw+translation ICP and
+        the correction is applied to every later frame. A board calibration
+        already encodes the true geometry, so the request is refused then.
+        """
+        if self._processor is None or self._calibration is None:
+            return False, "not_ready"
+        if self._calibration.board is not None:
+            return False, "board_calibrated"
+        if self.calibrating:
+            return False, "board_calibration_in_progress"
+        self._processor.request_registration()
+        return True, "alignment_requested"
+
+    def clear_person_alignment(self) -> None:
+        if self._processor is not None:
+            self._processor.set_corrections({})
+            self._processor.last_registration = None
+
+    def person_alignment_status(self) -> dict:
+        if self._processor is None:
+            return {"corrections": {}, "last": None}
+        return {
+            "corrections": {k: v.reshape(-1).tolist() for k, v in self._processor.corrections.items()},
+            "last": self._processor.last_registration,
+        }
+
     def request_registration(self) -> bool:
         if self.calibrating:
             return False

@@ -115,6 +115,21 @@ public sealed interface ControlMessage {
 		}
 	}
 
+	/** Minecraft → backend: nominal-rig only, align the side camera onto the front one using the person in view. */
+	record AlignPerson(UUID requestId) implements ControlMessage {
+		@Override
+		public String type() {
+			return "align_person";
+		}
+
+		@Override
+		public JsonObject toJson() {
+			JsonObject o = base(this);
+			o.addProperty("request_id", requestId.toString());
+			return o;
+		}
+	}
+
 	/** Backend → Minecraft: generic acknowledgement of a request. */
 	record Ack(Optional<UUID> requestId, boolean accepted, String code, Optional<String> detail) implements ControlMessage {
 		@Override

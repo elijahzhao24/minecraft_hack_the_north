@@ -414,6 +414,9 @@ def main() -> int:
         help="write a synthetic rig calibration to PATH and exit",
     )
     parser.add_argument("--raster", type=int, nargs=2, default=(320, 240), metavar=("W", "H"))
+    parser.add_argument("--distance", type=float, default=2.5, help="camera distance from the mark, metres")
+    parser.add_argument("--height", type=float, default=1.1, help="camera height, metres")
+    parser.add_argument("--side-angle", type=float, default=40.0, help="side camera angle from front camera, degrees")
     args = parser.parse_args()
 
     if args.write_calibration:
@@ -422,6 +425,9 @@ def main() -> int:
             tuple(d.strip() for d in args.devices.split(",")),  # type: ignore[arg-type]
             rgb_size=(w, h),
             depth_size=(w, h),
+            distance_m=args.distance,
+            height_m=args.height,
+            side_angle_deg=args.side_angle,
         )
         save_rig_calibration(rig, args.write_calibration)
         print(f"wrote {args.write_calibration}")

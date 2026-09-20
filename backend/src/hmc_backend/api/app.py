@@ -299,6 +299,27 @@ async def rig_register() -> JSONResponse:
     return JSONResponse({"requested": ok}, status_code=202 if ok else 503)
 
 
+@app.post("/rig/align-person")
+async def rig_align_person() -> JSONResponse:
+    """Nominal rig only: align the side camera onto the front camera using the person in view."""
+    runtime: AppRuntime = app.state.runtime
+    ok, code = runtime.request_person_alignment()
+    return JSONResponse({"requested": ok, "code": code}, status_code=202 if ok else 409)
+
+
+@app.get("/rig/align-person")
+async def rig_align_person_status() -> JSONResponse:
+    runtime: AppRuntime = app.state.runtime
+    return JSONResponse(runtime.person_alignment_status())
+
+
+@app.delete("/rig/align-person")
+async def rig_align_person_clear() -> JSONResponse:
+    runtime: AppRuntime = app.state.runtime
+    runtime.clear_person_alignment()
+    return JSONResponse({"cleared": True})
+
+
 @app.get("/rig/register")
 async def rig_register_status() -> JSONResponse:
     runtime: AppRuntime = app.state.runtime
@@ -324,6 +345,9 @@ def _handle_live_control(runtime: AppRuntime, obj: dict) -> bool:
         return True
     if kind == "register_rig":
         runtime.request_registration()
+        return True
+    if kind == "align_person":
+        runtime.request_person_alignment()
         return True
     return False
 

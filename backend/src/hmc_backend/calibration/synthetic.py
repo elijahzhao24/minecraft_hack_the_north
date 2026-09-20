@@ -69,16 +69,21 @@ def build_synthetic_rig(
     depth_size: tuple[int, int] = (320, 240),
     distance_m: float = 2.5,
     height_m: float = 1.1,
+    side_angle_deg: float = 40.0,
     calibration_id: UUID | None = None,
 ) -> RigCalibration:
-    """Two cameras at oblique views of the stage origin (front and side)."""
+    """Two cameras at oblique views of the stage origin (front and side).
+
+    ``side_angle_deg`` is the side camera's angle around +Y from the front
+    camera, as seen from the subject (90 = phones at right angles).
+    """
     calibration_id = calibration_id or uuid4()
     created = datetime.now(UTC)
     target = np.array([0.0, height_m, 0.0])
     up = np.array([0.0, 1.0, 0.0])
 
-    # Front camera on +Z axis; side camera offset ~40 degrees around +Y.
-    angle = np.radians(40.0)
+    # Front camera on +Z axis; side camera offset around +Y.
+    angle = np.radians(side_angle_deg)
     eyes = {
         device_ids[0]: np.array([0.0, height_m, distance_m]),
         device_ids[1]: np.array([distance_m * np.sin(angle), height_m, distance_m * np.cos(angle)]),

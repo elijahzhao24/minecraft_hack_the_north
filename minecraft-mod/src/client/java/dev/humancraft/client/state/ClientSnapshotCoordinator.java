@@ -422,6 +422,15 @@ public final class ClientSnapshotCoordinator {
 		message(Component.literal("HumanCraft: camera calibration started — board face up on floor, phones still, step out"));
 	}
 
+	/** Nominal rig only: snap the side camera onto the front one using the person as the target. */
+	public void alignPerson() {
+		if (backend == null || !backend.alignPerson()) {
+			message(Component.literal("HumanCraft: backend is not connected"));
+			return;
+		}
+		message(Component.literal("HumanCraft: aligning cameras on the person — hold still"));
+	}
+
 	public boolean isLiveRequested() {
 		return liveRequested;
 	}

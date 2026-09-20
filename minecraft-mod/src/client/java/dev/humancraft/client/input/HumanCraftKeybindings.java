@@ -26,6 +26,7 @@ public final class HumanCraftKeybindings {
 	private final KeyMapping recapture = key("recapture", GLFW.GLFW_KEY_G);
 	private final KeyMapping live = key("toggle_live", GLFW.GLFW_KEY_V);
 	private final KeyMapping registerRig = key("register_rig", GLFW.GLFW_KEY_N);
+	private final KeyMapping alignPerson = key("align_person", GLFW.GLFW_KEY_M);
 	private final KeyMapping clear = key("clear", GLFW.GLFW_KEY_C);
 	private final KeyMapping probe = key("probe", GLFW.GLFW_KEY_R);
 	private final KeyMapping cloud = key("toggle_cloud", GLFW.GLFW_KEY_O);
@@ -60,6 +61,7 @@ public final class HumanCraftKeybindings {
 		consume(recapture, coordinator::requestCapture);
 		consume(live, coordinator::toggleLive);
 		consume(registerRig, coordinator::registerRig);
+		consume(alignPerson, coordinator::alignPerson);
 		consume(clear, coordinator::clear);
 		consume(probe, coordinator::probe);
 		consume(cloud, () -> {

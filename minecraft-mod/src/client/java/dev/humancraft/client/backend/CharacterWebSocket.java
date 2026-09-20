@@ -101,6 +101,10 @@ public final class CharacterWebSocket implements AutoCloseable {
 		return Optional.of(captureId);
 	}
 
+	public boolean alignPerson() {
+		return send(new ControlMessage.AlignPerson(UUID.randomUUID()));
+	}
+
 	public boolean registerRig() {
 		return send(new ControlMessage.RegisterRig(UUID.randomUUID()));
 	}
