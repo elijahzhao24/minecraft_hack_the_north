@@ -39,6 +39,9 @@ public final class AvatarService {
 				new CommonListenerCookie(profile, 0, scanned.clientInformation(), false));
 		scanned.teleportTo(observer.serverLevel(), observer.getX() + 2.0, observer.getY(), observer.getZ(), observer.getYRot(), 0);
 		scanned.gameMode.changeGameModeForPlayer(GameType.SURVIVAL);
+		// It is a display body driven by intent, not a combatant: mobs at night
+		// were killing it, after which every tick tried to release control.
+		scanned.setInvulnerable(true);
 		scanned.setHealth(20.0f);
 		scanned.prepareForSpawn();
 		internalPlayers.put(observer.getUUID(), scanned);
@@ -53,6 +56,9 @@ public final class AvatarService {
 	public Binding control(ServerPlayer observer, boolean enabled) {
 		Binding old = binding(observer);
 		boolean allowed = enabled && old.mode() == AvatarMode.SEPARATE && target(observer.server, old).isPresent();
+		if (allowed == old.controlling()) {
+			return old;
+		}
 		Binding next = new Binding(old.observerId(), old.targetId(), old.mode(), old.generation() + 1, old.normalizationRevision(), allowed);
 		bindings.put(observer.getUUID(), next);
 		send(observer, next);
@@ -98,7 +104,7 @@ public final class AvatarService {
 			ServerPlayer observer = server.getPlayerList().getPlayer(entry.getKey());
 			ScannedServerPlayer scanned = entry.getValue();
 			if (observer == null) continue;
-			if (!scanned.isAlive() || scanned.level() != observer.level()) {
+			if (binding(observer).controlling() && (!scanned.isAlive() || scanned.level() != observer.level())) {
 				control(observer, false);
 			}
 		}

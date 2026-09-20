@@ -264,6 +264,15 @@ public final class ClientSnapshotCoordinator {
 
 	public void onAvatarState(HumanCraftPayloads.AvatarState state) {
 		boolean normalizationChanged = normalizationRevision != state.normalizationRevision();
+		boolean unchanged = state.targetPlayerId().equals(targetPlayerId)
+				&& state.bindingGeneration() == bindingGeneration
+				&& !normalizationChanged
+				&& state.mode().equals(avatarMode);
+		controllingSeparate = state.controlling();
+		if (unchanged) {
+			// A re-sent identical binding must not wipe the rendered figure.
+			return;
+		}
 		pending = null;
 		active = null;
 		contactCount = 0;
@@ -274,7 +283,8 @@ public final class ClientSnapshotCoordinator {
 		normalizationRevision = state.normalizationRevision();
 		controllingSeparate = state.controlling();
 		if (normalizationChanged) lockedBlocksPerMeter = Double.NaN;
-		if (joined && latestDecoded != null && hasCriticalTracking(latestDecoded)) {
+		if (joined && latestDecoded != null
+				&& (!config.requireCriticalTracking || hasCriticalTracking(latestDecoded))) {
 			install(latestDecoded, "avatar binding changed");
 		}
 	}
