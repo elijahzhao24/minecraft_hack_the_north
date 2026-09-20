@@ -9,6 +9,7 @@ fake substitutes for hardware.
 
 from __future__ import annotations
 
+import time
 import threading
 from collections.abc import Callable
 from uuid import UUID
@@ -25,9 +26,9 @@ from hmc_backend.contracts.internal import (
     TraceContext,
     ViewDetection,
 )
-from hmc_backend.observability import log_event
+from hmc_backend.observability import log_event, span
+from hmc_backend.observability.quality import QualityMonitor, measure_view_quality
 from hmc_backend.pipeline.assembler import FrameAssembler
-from hmc_backend.observability import log_event
 from hmc_backend.reconstruction.reconstruct import CropBounds, merge_clouds, reconstruct_view
 from hmc_backend.reconstruction.registration import (
     gravity_aligned,
@@ -55,6 +56,8 @@ class CharacterProcessor:
         voxel_size_m: float,
         max_points: int,
         confidence_min: int,
+        observability_delay_ms: int = 0,
+        quality_monitor: QualityMonitor | None = None,
         post_fit_hook: PostFitHook | None = None,
         reference_device: str | None = None,
         gravity_align: bool = False,
@@ -68,6 +71,8 @@ class CharacterProcessor:
         self._voxel_size_m = voxel_size_m
         self._max_points = max_points
         self._confidence_min = confidence_min
+        self._observability_delay_ms = max(0, observability_delay_ms)
+        self._quality_monitor = quality_monitor or QualityMonitor()
         self._post_fit_hook = post_fit_hook
         self._reference_device = reference_device
         self._gravity_align = gravity_align
@@ -142,7 +147,13 @@ class CharacterProcessor:
     def fitter(self) -> CharacterFitter:
         return self._fitter
 
-    def process(self, pair: PairedFrames, *, mode: str = "snapshot") -> CharacterFrame:
+    def process(
+        self,
+        pair: PairedFrames,
+        *,
+        mode: str = "snapshot",
+        trace: TraceContext | None = None,
+    ) -> CharacterFrame:
         """Run all stages and return one validated CharacterFrame."""
         frames = {pair.first.device_id: pair.first, pair.second.device_id: pair.second}
 
@@ -150,68 +161,109 @@ class CharacterProcessor:
         clouds = []
         clouds_by_device = {}
         source_bit = 1
-        for device_id in (pair.first.device_id, pair.second.device_id):
-            frame = frames[device_id]
-            calib = self._effective_calibration(device_id, frame)
-            detection = self._detector.detect_view(frame)
-            detections[device_id] = detection
-            cloud = reconstruct_view(
-                frame,
-                detection,
-                calib,
-                self._crop,
-                confidence_min=self._confidence_min,
-                source_bit=source_bit,
-                use_frame_intrinsics=self._use_frame_intrinsics,
-            )
-            clouds.append(cloud)
-            clouds_by_device[device_id] = cloud
-            source_bit <<= 1
+        view_quality = []
+        source_ids = ",".join(
+            str(frame.source_frame_id or frame.capture_id) for frame in (pair.first, pair.second)
+        )
+        with span(
+            "hmc.calibration_fusion",
+            "detect, calibrate, reconstruct, fuse and fit",
+            fusion_id=str(pair.pair_id),
+            source_frame_ids=source_ids,
+        ) as fusion_span:
+            if self._observability_delay_ms:
+                # Explicit, opt-in demo hook. Never enabled by default.
+                time.sleep(self._observability_delay_ms / 1000)
 
-        if self._register_requested.is_set():
-            self._register_requested.clear()
-            self._register(clouds_by_device)
-            # Rebuild the corrected view so this very frame already merges.
-            for i, device_id in enumerate((pair.first.device_id, pair.second.device_id)):
-                if device_id in self._corrections:
-                    clouds[i] = reconstruct_view(
-                        frames[device_id],
-                        detections[device_id],
-                        self._effective_calibration(device_id, frames[device_id]),
+            for device_id in (pair.first.device_id, pair.second.device_id):
+                frame = frames[device_id]
+                calib = self._effective_calibration(device_id, frame)
+                with span("hmc.detect", "existing person mask + landmarks", camera_id=device_id):
+                    detection = self._detector.detect_view(frame)
+                detections[device_id] = detection
+                view_quality.append(
+                    measure_view_quality(
+                        frame, detection, confidence_min=self._confidence_min
+                    )
+                )
+                with span("hmc.reconstruct", "masked depth -> calibrated points", camera_id=device_id) as reconstruct_span:
+                    cloud = reconstruct_view(
+                        frame,
+                        detection,
+                        calib,
                         self._crop,
                         confidence_min=self._confidence_min,
-                        source_bit=1 << i,
+                        source_bit=source_bit,
                         use_frame_intrinsics=self._use_frame_intrinsics,
                     )
+                    reconstruct_span.set_data("point_count", cloud.count)
+                clouds.append(cloud)
+                clouds_by_device[device_id] = cloud
+                source_bit <<= 1
 
-        seed = _seed_from_pair(pair)
-        merged = merge_clouds(
-            clouds, voxel_size_m=self._voxel_size_m, max_points=self._max_points, seed=seed
-        )
+            if self._register_requested.is_set():
+                self._register_requested.clear()
+                self._register(clouds_by_device)
+                # Rebuild corrected views so this frame already uses the new registration.
+                for i, device_id in enumerate((pair.first.device_id, pair.second.device_id)):
+                    if device_id in self._corrections:
+                        with span("hmc.reconstruct", "rebuild registered view", camera_id=device_id) as reconstruct_span:
+                            clouds[i] = reconstruct_view(
+                                frames[device_id],
+                                detections[device_id],
+                                self._effective_calibration(device_id, frames[device_id]),
+                                self._crop,
+                                confidence_min=self._confidence_min,
+                                source_bit=1 << i,
+                                use_frame_intrinsics=self._use_frame_intrinsics,
+                            )
+                            reconstruct_span.set_data("point_count", clouds[i].count)
 
-        # Fit against the front camera's calibration (registration reference).
-        front_calib = self._calibration.camera(pair.first.device_id)
-        fitted = self._fitter.fit_character(pair, detections, merged, front_calib)
+            seed = _seed_from_pair(pair)
+            with span("hmc.fuse", "merge, voxel downsample and cap") as merge_span:
+                merged = merge_clouds(
+                    clouds, voxel_size_m=self._voxel_size_m, max_points=self._max_points, seed=seed
+                )
+                merge_span.set_data("point_count", merged.count)
 
-        if self._post_fit_hook is not None:
-            try:
-                self._post_fit_hook(pair, detections, merged, fitted)
-            except Exception as exc:  # noqa: BLE001 - diagnostics must never block publishing
-                log_event("warning", "post_fit_hook_failed", pair_id=str(pair.pair_id), error=type(exc).__name__)
+            # Fit against the front camera's calibration (registration reference).
+            front_calib = self._calibration.camera(pair.first.device_id)
+            with span("hmc.fit", "landmarks and colliders"):
+                fitted = self._fitter.fit_character(pair, detections, merged, front_calib)
 
-        warnings = ()
-        if merged.count == 0:
-            warnings = ("empty_cloud",)
+            if self._post_fit_hook is not None:
+                try:
+                    self._post_fit_hook(pair, detections, merged, fitted)
+                except Exception as exc:  # noqa: BLE001 - diagnostics must never block publishing
+                    log_event(
+                        "warning",
+                        "post_fit_hook_failed",
+                        pair_id=str(pair.pair_id),
+                        error=type(exc).__name__,
+                    )
 
-        return self._assembler.assemble(
-            pair,
-            merged,
-            fitted,
-            mode=mode,
-            calibration_id=self._calibration.calibration_id,
-            trace=TraceContext(),
-            extra_warnings=warnings,
-        )
+            warnings = ("empty_cloud",) if merged.count == 0 else ()
+            with span("hmc.assemble", "immutable CharacterFrame"):
+                result = self._assembler.assemble(
+                    pair,
+                    merged,
+                    fitted,
+                    mode=mode,
+                    calibration_id=self._calibration.calibration_id,
+                    trace=trace or TraceContext(),
+                    extra_warnings=warnings,
+                )
+            fusion_span.set_data("frame_id", result.frame_id)
+            fusion_span.set_data("point_count", result.quality.point_count)
+
+        for quality in view_quality:
+            self._quality_monitor.observe(
+                frame_id=result.frame_id,
+                fusion_id=pair.pair_id,
+                calibration_id=self._calibration.calibration_id,
+                quality=quality,
+            )
+        return result
 
 
 def _seed_from_pair(pair: PairedFrames) -> int:

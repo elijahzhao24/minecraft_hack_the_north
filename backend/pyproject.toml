@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "numpy>=1.26",
+    "scipy>=1.14",
     "opencv-contrib-python>=4.10",
     # 0.10.14 is the version verified with the pinned Pose/Hand task files on macOS arm64.
     "mediapipe==0.10.14",

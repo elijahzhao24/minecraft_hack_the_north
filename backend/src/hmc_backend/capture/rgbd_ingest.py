@@ -45,7 +45,7 @@ def decode_rgbd_frame(envelope: Envelope) -> DecodedRgbd:
     # Check the header schema version before full validation so a future
     # version reports `unsupported_version` rather than a generic failure.
     raw_version = envelope.header.get("schema_version")
-    if isinstance(raw_version, int) and not isinstance(raw_version, bool) and raw_version != 1:
+    if isinstance(raw_version, int) and not isinstance(raw_version, bool) and raw_version not in (1, 2):
         raise EnvelopeError("unsupported_version", f"unsupported schema_version {raw_version}")
 
     try:

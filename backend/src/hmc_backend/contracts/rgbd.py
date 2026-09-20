@@ -78,11 +78,16 @@ class BufferDescriptorModel(_Strict):
     shape: list[int] | None = None
 
 
+class TraceContextModel(_Strict):
+    sentry_trace: str | None = None
+    baggage: str | None = None
+
+
 class RgbdFrameHeader(_Strict):
     """The ``hmc.rgbd_frame`` header carried in an HMC1 RGBD envelope."""
 
     schema_name: str
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     device_id: str
     session_id: UUID
     capture_id: UUID
@@ -96,6 +101,8 @@ class RgbdFrameHeader(_Strict):
     rgb_depth_mapping: RGBDepthMappingModel | None = None
     t_arkit_world_from_camera_row_major: list[float]
     buffers: list[BufferDescriptorModel]
+    source_frame_id: UUID | None = None
+    trace: TraceContextModel | None = None
 
     # The wire uses `schema` and `T_arkit_world_from_camera_row_major`; map them.
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)

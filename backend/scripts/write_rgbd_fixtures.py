@@ -196,7 +196,7 @@ def build_malformed(raw: bytes) -> dict[str, tuple[bytes, str]]:
     )
 
     future = json.loads(json.dumps(header))
-    future["schema_version"] = 2
+    future["schema_version"] = 3
     cases["future_schema_version"] = (_mutate(raw, future, payload), "unsupported_version")
 
     unknown_field = json.loads(json.dumps(header))

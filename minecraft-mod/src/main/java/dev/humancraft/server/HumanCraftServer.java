@@ -150,7 +150,7 @@ public final class HumanCraftServer {
 			Telemetry.log(outcome.accepted() ? SentryLevel.INFO : SentryLevel.WARNING,
 					"install frame=%d owner=%s result=%s %s", payload.frameId(), owner, outcome.code(), outcome.detail());
 			ServerPlayNetworking.send(player, HumanCraftPayloads.SnapshotAck.of(payload.frameId(), outcome, validColliders,
-					payload.bindingGeneration(), payload.normalizationRevision()));
+					payload.fusionId(), payload.bindingGeneration(), payload.normalizationRevision()));
 		}
 	}
 

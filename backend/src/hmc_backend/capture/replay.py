@@ -9,13 +9,14 @@ rather than calling reconstruction directly.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from hmc_backend.calibration.model import RigCalibration
 from hmc_backend.capture.pairing import Pairer
 from hmc_backend.capture.rgbd_ingest import DecodedRgbd, decode_rgbd_frame
 from hmc_backend.contracts.character_codec import encode_character_frame
-from hmc_backend.contracts.internal import CapturedFrame, CharacterFrame
+from hmc_backend.contracts.internal import CapturedFrame, CharacterFrame, TraceContext
 from hmc_backend.pipeline.processor import CharacterProcessor
 from hmc_backend.pipeline.snapshot_store import SnapshotStore
 from hmc_backend.protocol.envelope import decode_envelope
@@ -48,6 +49,12 @@ def captured_frame_from_decoded(
         confidence=decoded.confidence,
         K_rgb=decoded.k_rgb,
         arkit_pose=decoded.arkit_pose,
+        source_frame_id=h.source_frame_id,
+        trace=TraceContext(
+            sentry_trace=h.trace.sentry_trace if h.trace else None,
+            baggage=h.trace.baggage if h.trace else None,
+        ),
+        received_monotonic_s=time.perf_counter(),
     )
 
 

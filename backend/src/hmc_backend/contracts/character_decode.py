@@ -57,6 +57,7 @@ _HEADER_KEYS = {
     "session_id",
     "calibration_id",
     "frame_id",
+    "fusion_id",
     "source_frames",
     "normalized_capture_time_s",
     "pair_skew_ms",
@@ -97,6 +98,7 @@ class DecodedCharacterFrame:
     landmarks: tuple[Landmark3D, ...]
     colliders: tuple[Collider, ...]
     header: dict
+    fusion_id: UUID | None = None
 
     @property
     def point_count(self) -> int:
@@ -255,10 +257,11 @@ def decode_character_frame(raw: bytes) -> DecodedCharacterFrame:
     _require(header.get("schema") == CHARACTER_SCHEMA, "invalid_message", "unexpected schema")
     version = header.get("schema_version")
     _require(isinstance(version, int) and not isinstance(version, bool), "invalid_message", "schema_version must be an integer")
-    _require(version == CHARACTER_SCHEMA_VERSION, "unsupported_version", f"unsupported schema_version {version}")
+    _require(version in (1, CHARACTER_SCHEMA_VERSION), "unsupported_version", f"unsupported schema_version {version}")
 
     # v1 rejects unknown fields so a misspelling cannot silently change geometry.
-    unknown = set(header) - _HEADER_KEYS
+    allowed_keys = _HEADER_KEYS if version == 2 else _HEADER_KEYS - {"fusion_id"}
+    unknown = set(header) - allowed_keys
     _require(not unknown, "invalid_message", f"unknown header fields: {sorted(unknown)}")
 
     mode = header.get("mode")
@@ -331,4 +334,5 @@ def decode_character_frame(raw: bytes) -> DecodedCharacterFrame:
         landmarks=landmarks,
         colliders=colliders,
         header=header,
+        fusion_id=_uuid(header.get("fusion_id"), "fusion_id") if header.get("fusion_id") else None,
     )

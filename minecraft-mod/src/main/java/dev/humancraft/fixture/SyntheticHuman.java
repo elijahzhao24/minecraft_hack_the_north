@@ -79,7 +79,8 @@ public final class SyntheticHuman {
 				"points", BufferDescriptor.ENCODING_POINTS, 0, (long) cloud.count() * ProtocolLimits.POINT_RECORD_BYTES,
 				List.of((long) cloud.count())));
 		CharacterFrameHeader header = new CharacterFrameHeader(
-				SESSION_ID, CALIBRATION_ID, frameId, sources,
+				SESSION_ID, CALIBRATION_ID, frameId,
+				UUID.nameUUIDFromBytes(("fusion-" + frameId).getBytes()), sources,
 				61420.0 + frameId * 0.5, 4.0, mode, quality, landmarks, colliders, TraceContext.EMPTY, buffers);
 		return new CharacterFrame(header, cloud);
 	}

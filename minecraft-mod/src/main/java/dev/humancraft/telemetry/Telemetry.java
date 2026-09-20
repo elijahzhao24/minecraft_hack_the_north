@@ -25,6 +25,10 @@ import java.util.function.Supplier;
 public final class Telemetry {
 	private static volatile boolean enabled;
 	private static volatile String release = "humancraft@dev";
+	private static long aggregateStartedNanos = System.nanoTime();
+	private static long aggregateFrames;
+	private static long aggregatePoints;
+	private static long aggregateBytes;
 
 	private Telemetry() {}
 
@@ -35,20 +39,20 @@ public final class Telemetry {
 	public static synchronized void init(HumanCraftConfig config, String modVersion, Map<String, String> tags) {
 		release = "humancraft@" + modVersion;
 		String dsn = config.sentry.dsn == null ? "" : config.sentry.dsn.trim();
-		if (dsn.isEmpty()) {
-			HumanCraft.LOGGER.info("Sentry disabled (no HUMANCRAFT_SENTRY_DSN / sentry.dsn configured)");
-			enabled = false;
-			return;
-		}
 		try {
 			Sentry.init(options -> {
-				options.setDsn(dsn);
+				// Enables SENTRY_PROPERTIES_FILE / sentry.properties. Explicit
+				// HUMANCRAFT_* configuration still takes precedence when supplied.
+				options.setEnableExternalConfiguration(true);
+				if (!dsn.isEmpty()) {
+					options.setDsn(dsn);
+					options.setEnvironment(config.sentry.environment);
+					options.setTracesSampleRate(config.sentry.tracesSampleRate);
+					options.getLogs().setEnabled(config.sentry.logs);
+					options.setDebug(config.sentry.debug);
+					options.setSendDefaultPii(false);
+				}
 				options.setRelease(release);
-				options.setEnvironment(config.sentry.environment);
-				options.setTracesSampleRate(config.sentry.tracesSampleRate);
-				options.getLogs().setEnabled(config.sentry.logs);
-				options.setDebug(config.sentry.debug);
-				options.setSendDefaultPii(false);
 				options.setAttachStacktrace(true);
 				options.setEnableUncaughtExceptionHandler(true);
 				options.setShutdownTimeoutMillis(2000);
@@ -58,10 +62,26 @@ public final class Telemetry {
 			enabled = Sentry.isEnabled();
 			HumanCraft.LOGGER.info("Sentry enabled (release={}, environment={})", release, config.sentry.environment);
 			Sentry.logger().info("HumanCraft started release=%s", release);
+			if (enabled && Boolean.parseBoolean(System.getenv("HUMANCRAFT_SENTRY_VERIFY"))) {
+				verifyInstallation();
+			}
 		} catch (RuntimeException e) {
 			enabled = false;
 			HumanCraft.LOGGER.warn("Sentry initialisation failed; continuing without telemetry", e);
 		}
+	}
+
+	/** Opt-in smoke event and metrics; never runs during normal gameplay. */
+	private static void verifyInstallation() {
+		try {
+			throw new Exception("HumanCraft Sentry installation test");
+		} catch (Exception error) {
+			Sentry.captureException(error);
+		}
+		Sentry.metrics().count("humancraft.sentry_verify", 1.0);
+		Sentry.metrics().gauge("humancraft.queue_size", 0.0);
+		Sentry.metrics().distribution("humancraft.response_time", 150.0);
+		Sentry.logger().info("HumanCraft Sentry verification event and metrics sent");
 	}
 
 	public static synchronized void shutdown() {
@@ -127,6 +147,20 @@ public final class Telemetry {
 		if (enabled) {
 			Sentry.addBreadcrumb(message, category);
 		}
+	}
+
+	/** Periodic summary for routine frames; detailed frame traces remain sampled. */
+	public static synchronized void routineFrame(long frameId, int pointCount, int payloadSize) {
+		aggregateFrames++;
+		aggregatePoints += pointCount;
+		aggregateBytes += payloadSize;
+		long now = System.nanoTime();
+		if (now - aggregateStartedNanos < 30_000_000_000L) return;
+		log(SentryLevel.INFO, "frame aggregate last_frame_id=%d frames=%d mean_points=%d mean_payload_bytes=%d period_ms=%d",
+				frameId, aggregateFrames, aggregatePoints / aggregateFrames, aggregateBytes / aggregateFrames,
+				(now - aggregateStartedNanos) / 1_000_000);
+		aggregateFrames = aggregatePoints = aggregateBytes = 0;
+		aggregateStartedNanos = now;
 	}
 
 	// ---- spans -------------------------------------------------------------------------------

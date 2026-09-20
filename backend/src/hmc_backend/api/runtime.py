@@ -34,7 +34,7 @@ from hmc_backend.contracts.control import (
     HealthResponse,
 )
 from hmc_backend.contracts.enums import HealthStatus, Mode
-from hmc_backend.contracts.internal import CharacterFrame
+from hmc_backend.contracts.internal import CharacterFrame, TraceContext
 from hmc_backend.observability import log_event, span, transaction
 from hmc_backend.pipeline.factory import build_pairer, build_processor
 from hmc_backend.pipeline.processor import CharacterProcessor
@@ -72,6 +72,9 @@ class AppRuntime:
         self._store = store or SnapshotStore()
         self._hub = CharacterHub()
         self._lock = asyncio.Lock()
+        self._published_since_aggregate = 0
+        self._aggregate_point_total = 0
+        self._last_aggregate_s = time.perf_counter()
 
         self._devices = {dev: DeviceState(dev) for dev in settings.expected_device_ids}
         # capture_id -> mode for requests this backend dispatched, so a frame
@@ -298,54 +301,81 @@ class AppRuntime:
             decoded, clock_offset_s=offset, clock_uncertainty_ms=uncertainty
         )
 
-        outcome = self._pairer.offer(frame, self._calibration.calibration_id)
-        log_event(
-            "info",
-            "rgbd_received",
-            device_id=device_id,
-            capture_id=str(decoded.header.capture_id)[:8],
-            mode=mode,
-            paired=outcome.paired is not None,
-            reason=outcome.rejected_reason,
-        )
-        if outcome.paired is None:
-            if outcome.rejected_reason is not None:
-                log_event(
-                    "warning",
-                    "pair_rejected",
-                    device_id=device_id,
-                    capture_id=str(decoded.header.capture_id),
-                    reason=outcome.rejected_reason,
-                )
-            return None
-
-        pair = outcome.paired
-        if self._live_inflight.pop(pair.first.capture_id, None) is not None:
-            self._live_paired.set()
-        started = time.monotonic()
         with transaction(
             "character.snapshot",
             op="capture.process",
-            capture_id=str(pair.first.capture_id),
-            calibration_id=str(self._calibration.calibration_id),
-            pair_skew_ms=round(pair.pair_skew_ms, 2),
-        ):
+            sentry_trace=frame.trace.sentry_trace,
+            baggage=frame.trace.baggage,
+            source_frame_id=str(frame.source_frame_id or frame.capture_id),
+            camera_id=device_id,
+            payload_size=len(raw),
+        ) as txn:
+            queue_depth = self._pairer.pending_depth(device_id)
+            with span("hmc.pair", "offer frame to bounded pairing queue", queue_depth=queue_depth):
+                outcome = self._pairer.offer(frame, self._calibration.calibration_id)
+            log_event(
+                "info",
+                "rgbd_received",
+                device_id=device_id,
+                capture_id=str(decoded.header.capture_id)[:8],
+                mode=mode,
+                paired=outcome.paired is not None,
+                reason=outcome.rejected_reason,
+            )
+            if outcome.paired is None:
+                if outcome.rejected_reason is not None:
+                    log_event(
+                        "warning",
+                        "pair_rejected",
+                        device_id=device_id,
+                        capture_id=str(decoded.header.capture_id),
+                        reason=outcome.rejected_reason,
+                    )
+                return None
+
+            pair = outcome.paired
+            if self._live_inflight.pop(pair.first.capture_id, None) is not None:
+                self._live_paired.set()
+            started = time.perf_counter()
+            now = time.perf_counter()
+            waits = [
+                max(0.0, now - source.received_monotonic_s) * 1000
+                for source in (pair.first, pair.second)
+                if source.received_monotonic_s is not None
+            ]
+            txn.set_data("fusion_id", str(pair.pair_id))
+            txn.set_data("calibration_version", str(self._calibration.calibration_id))
+            txn.set_data("pair_skew_ms", round(pair.pair_skew_ms, 2))
+            if waits:
+                # Derived only from this process's monotonic clock.
+                txn.set_data("pair_queue_wait_ms_max", round(max(waits), 3))
+            propagated = txn.propagation_headers()
+            output_trace = TraceContext(
+                sentry_trace=propagated.get("sentry-trace"),
+                baggage=propagated.get("baggage"),
+            )
             # Run the CPU-heavy stages off the event loop.
             with span("collider.fit_and_reconstruct", "detect+reconstruct+fit"):
-                character = await asyncio.to_thread(self._processor.process, pair, mode=mode)
+                character = await asyncio.to_thread(
+                    self._processor.process, pair, mode=mode, trace=output_trace
+                )
             self._save_registration_if_dirty()
             if mode == "live" and character.quality.point_count == 0:
                 # Nobody in frame; publishing an empty live frame only makes
                 # the client log a decode error and blank the figure.
                 log_event("info", "live_frame_empty", capture_id=str(pair.first.capture_id))
                 return None
-            with span("character.serialize", "encode CHARACTER_FRAME"):
+            txn.set_data("frame_id", character.frame_id)
+            txn.set_data("point_count", character.quality.point_count)
+            with span("hmc.character_serialize", "encode CHARACTER_FRAME") as serialize_span:
                 encoded = await asyncio.to_thread(encode_character_frame, character)
+                serialize_span.set_data("payload_size", len(encoded))
             # Publish only after successful serialization (all-or-nothing).
-            with span("character.publish", "store + broadcast"):
+            with span("hmc.character_publish", "store + latest-wins broadcast"):
                 self._store.publish(character, encoded)
                 self._hub.broadcast(encoded)
 
+        self._log_publication(character, len(encoded))
         log_event(
             "info",
             "character_published",
@@ -355,9 +385,30 @@ class AppRuntime:
             valid_collider_count=character.quality.valid_collider_count,
             pair_skew_ms=round(pair.pair_skew_ms, 2),
             mode=mode,
-            processing_ms=round((time.monotonic() - started) * 1000.0, 1),
+            processing_ms=round((time.perf_counter() - started) * 1000.0, 1),
         )
         return character
+
+    def _log_publication(self, character: CharacterFrame, payload_size: int) -> None:
+        self._published_since_aggregate += 1
+        self._aggregate_point_total += character.quality.point_count
+        now = time.perf_counter()
+        if character.mode != "live" or now - self._last_aggregate_s >= 30:
+            count = self._published_since_aggregate
+            log_event(
+                "info",
+                "character_publish_aggregate",
+                frame_id=character.frame_id,
+                fusion_id=str(character.fusion_id),
+                calibration_version=str(character.calibration_id),
+                frames=count,
+                mean_point_count=round(self._aggregate_point_total / count),
+                payload_size=payload_size,
+                aggregate_period_s=round(now - self._last_aggregate_s, 3),
+            )
+            self._published_since_aggregate = 0
+            self._aggregate_point_total = 0
+            self._last_aggregate_s = now
 
     # --- health -----------------------------------------------------------
 

@@ -57,6 +57,8 @@ public final class HumanCraftPayloads {
 			List<WireCollider> colliders,
 			int landmarkCount,
 			int pointCount,
+			UUID fusionId,
+			String sourceFrameIds,
 			UUID targetPlayerId,
 			long bindingGeneration,
 			long normalizationRevision) implements CustomPacketPayload {
@@ -68,7 +70,7 @@ public final class HumanCraftPayloads {
 				double anchorX, double anchorY, double anchorZ, double blocksPerMeter,
 				List<WireCollider> colliders, int landmarkCount, int pointCount) {
 			this(frameId, sessionId, calibrationId, mode, anchorX, anchorY, anchorZ, blocksPerMeter,
-					colliders, landmarkCount, pointCount, new UUID(0, 0), 0, 0);
+					colliders, landmarkCount, pointCount, null, "", new UUID(0, 0), 0, 0);
 		}
 
 		public static InstallSnapshot of(InstallRequest request) {
@@ -79,7 +81,8 @@ public final class HumanCraftPayloads {
 			Vector3 a = request.transform().anchor();
 			return new InstallSnapshot(request.frameId(), request.sessionId(), request.calibrationId(), request.mode().wireName(),
 					a.x(), a.y(), a.z(), request.transform().blocksPerMeter(), wire, request.landmarkCount(), request.pointCount(),
-					request.targetPlayerId(), request.bindingGeneration(), request.normalizationRevision());
+					request.fusionId(), request.sourceFrameIds(), request.targetPlayerId(), request.bindingGeneration(),
+					request.normalizationRevision());
 		}
 
 		/** Validates and converts; throws {@link dev.humancraft.contract.ProtocolException} or {@link IllegalArgumentException}. */
@@ -90,7 +93,7 @@ public final class HumanCraftPayloads {
 			}
 			return new InstallRequest(frameId, sessionId, calibrationId, WireEnum.fromWire(Mode.class, mode),
 					new StageToWorld(new Vector3(anchorX, anchorY, anchorZ), blocksPerMeter), dtos, landmarkCount, pointCount,
-					targetPlayerId, bindingGeneration, normalizationRevision);
+					fusionId, sourceFrameIds, targetPlayerId, bindingGeneration, normalizationRevision);
 		}
 
 		private static void write(FriendlyByteBuf buf, InstallSnapshot p) {
@@ -108,6 +111,9 @@ public final class HumanCraftPayloads {
 			}
 			buf.writeVarInt(p.landmarkCount);
 			buf.writeVarInt(p.pointCount);
+			buf.writeBoolean(p.fusionId != null);
+			if (p.fusionId != null) buf.writeUUID(p.fusionId);
+			buf.writeUtf(p.sourceFrameIds, 512);
 			buf.writeUUID(p.targetPlayerId);
 			buf.writeVarLong(p.bindingGeneration);
 			buf.writeVarLong(p.normalizationRevision);
@@ -132,8 +138,10 @@ public final class HumanCraftPayloads {
 			}
 			int landmarks = buf.readVarInt();
 			int points = buf.readVarInt();
+			UUID fusionId = buf.readBoolean() ? buf.readUUID() : null;
+			String sourceFrameIds = buf.readUtf(512);
 			return new InstallSnapshot(frameId, session, calibration, mode, ax, ay, az, scale, colliders, landmarks, points,
-					buf.readUUID(), buf.readVarLong(), buf.readVarLong());
+					fusionId, sourceFrameIds, buf.readUUID(), buf.readVarLong(), buf.readVarLong());
 		}
 
 		@Override
@@ -196,8 +204,11 @@ public final class HumanCraftPayloads {
 
 	/** {@code hmc:snapshot_ack} — accepted or rejected install; {@code activeFrameId} is -1 when nothing is active. */
 	public record SnapshotAck(long frameId, boolean accepted, String code, String detail, long activeFrameId, int validColliders,
-			long bindingGeneration, long normalizationRevision)
-			implements CustomPacketPayload {
+			UUID fusionId, long bindingGeneration, long normalizationRevision) implements CustomPacketPayload {
+		public SnapshotAck(long frameId, boolean accepted, String code, String detail, long activeFrameId, int validColliders) {
+			this(frameId, accepted, code, detail, activeFrameId, validColliders, null, 0, 0);
+		}
+
 		public static final Type<SnapshotAck> TYPE = new Type<>(id("snapshot_ack"));
 		public static final StreamCodec<FriendlyByteBuf, SnapshotAck> CODEC = StreamCodec.of(
 				(buf, p) -> {
@@ -207,25 +218,32 @@ public final class HumanCraftPayloads {
 					buf.writeUtf(p.detail, MAX_STRING);
 					buf.writeLong(p.activeFrameId);
 					buf.writeVarInt(p.validColliders);
+					buf.writeBoolean(p.fusionId != null);
+					if (p.fusionId != null) buf.writeUUID(p.fusionId);
 					buf.writeVarLong(p.bindingGeneration);
 					buf.writeVarLong(p.normalizationRevision);
 				},
-				buf -> new SnapshotAck(buf.readLong(), buf.readBoolean(), buf.readUtf(64), buf.readUtf(MAX_STRING),
-						buf.readLong(), buf.readVarInt(), buf.readVarLong(), buf.readVarLong()));
+				buf -> new SnapshotAck(buf.readLong(), buf.readBoolean(), buf.readUtf(64), buf.readUtf(MAX_STRING), buf.readLong(),
+						buf.readVarInt(), buf.readBoolean() ? buf.readUUID() : null, buf.readVarLong(), buf.readVarLong()));
 
-		public SnapshotAck(long frameId, boolean accepted, String code, String detail, long activeFrameId, int validColliders) {
-			this(frameId, accepted, code, detail, activeFrameId, validColliders, 0, 0);
+		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders,
+				UUID fusionId, long bindingGeneration, long normalizationRevision) {
+			String detail = outcome.detail().length() > MAX_STRING ? outcome.detail().substring(0, MAX_STRING) : outcome.detail();
+			return new SnapshotAck(frameId, outcome.accepted(), outcome.code(), detail, outcome.activeFrameId().orElse(-1),
+					validColliders, fusionId, bindingGeneration, normalizationRevision);
 		}
 
 		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders,
 				long bindingGeneration, long normalizationRevision) {
-			String detail = outcome.detail().length() > MAX_STRING ? outcome.detail().substring(0, MAX_STRING) : outcome.detail();
-			return new SnapshotAck(frameId, outcome.accepted(), outcome.code(), detail, outcome.activeFrameId().orElse(-1),
-					validColliders, bindingGeneration, normalizationRevision);
+			return of(frameId, outcome, validColliders, null, bindingGeneration, normalizationRevision);
+		}
+
+		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders, UUID fusionId) {
+			return of(frameId, outcome, validColliders, fusionId, 0, 0);
 		}
 
 		public static SnapshotAck of(long frameId, InstallOutcome outcome, int validColliders) {
-			return of(frameId, outcome, validColliders, 0, 0);
+			return of(frameId, outcome, validColliders, null, 0, 0);
 		}
 
 		@Override

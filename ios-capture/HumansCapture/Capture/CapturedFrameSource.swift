@@ -13,6 +13,7 @@ struct CaptureIntent: Sendable {
 /// pipeline has copied/encoded them. The pipeline never retains more than its
 /// configured snapshot capacity plus one replaceable live frame.
 struct CapturedFrameSource: @unchecked Sendable {
+    let sourceFrameID: UUID
     let sessionID: UUID
     let intent: CaptureIntent
     let sequence: UInt64

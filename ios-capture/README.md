@@ -6,6 +6,7 @@ Native Swift/ARKit capture app for LiDAR-equipped iPhones. It retains RGB, scene
 
 - Xcode 16.4, Apple Swift 6.1.2 (Swift language mode 6)
 - iOS 17.0+
+- Sentry Cocoa 9.29.0+
 - Landscape-right, unmirrored and uncropped sensor rasters
 
 ## Configure
@@ -16,11 +17,31 @@ Native Swift/ARKit capture app for LiDAR-equipped iPhones. It retains RGB, scene
 
 The app requires camera and local-network permission. Scene depth is checked before session start and the UI reports an explicit unsupported-device error.
 
+### Sentry
+
+Add these environment variables to the Xcode scheme's **Run → Arguments →
+Environment Variables** section:
+
+```text
+HMC_SENTRY_DSN=https://public-key@your-sentry-host/project-id
+HMC_SENTRY_ENVIRONMENT=local-device
+HMC_SENTRY_TRACES_SAMPLE_RATE=0.2
+```
+
+With a DSN present, Sentry receives structured capture logs, sampled
+`ios.capture_frame` traces and their `hmc.*` child spans, plus capture metrics.
+Snapshot metrics are emitted immediately and live-mode measurements are aggregated
+every 30 seconds. Search Metrics for `humancraft.capture.*` and Traces for
+`ios.capture_frame`.
+
 ## Data and privacy
 
 Explicit snapshots are saved on-device under Application Support in `HumansCapture/Fixtures` as the exact `.hmc` envelope, a pretty-printed decoded header, and a SHA-256 file. Export the last envelope through the Share Sheet. These files contain a real RGB image and depth data; inspect the scene before committing a fixture.
 
-Capture diagnostics remain local through `os.Logger`. Live-frame logs are aggregated every 30 seconds and repeated warnings are rate-limited. Raw RGB, depth, confidence, and packet bytes are never included in logs.
+Capture diagnostics always remain available locally through `os.Logger` and are also
+sent through Sentry structured Logs when configured. Live-frame logs and metrics are
+aggregated every 30 seconds and repeated warnings are rate-limited. Raw RGB, depth,
+confidence, and packet bytes are never included in telemetry.
 
 ## Build and tests
 

@@ -226,7 +226,16 @@ public final class CharacterWebSocket implements AutoCloseable {
 				if (last) {
 					byte[] complete = binary.toByteArray();
 					binary.reset();
-					decoder.execute(() -> decode(complete));
+					long queuedAtNanos = System.nanoTime();
+					Telemetry.Span decodeTransaction = Telemetry.transaction("client.character_decode", "hmc.decode");
+					Telemetry.Span queueSpan = decodeTransaction.child("hmc.queue_wait", "decoder executor queue");
+					try {
+						decoder.execute(() -> decode(complete, queuedAtNanos, decodeTransaction, queueSpan));
+					} catch (RuntimeException error) {
+						queueSpan.fail(error).close();
+						decodeTransaction.fail(error).close();
+						throw error;
+					}
 				}
 			} catch (RuntimeException e) {
 				binary.reset();
@@ -278,14 +287,23 @@ public final class CharacterWebSocket implements AutoCloseable {
 		}
 	}
 
-	private void decode(byte[] complete) {
-		try (Telemetry.Span span = Telemetry.transaction("client.character_decode", "hmc.decode")) {
-			span.data("message_bytes", complete.length);
-			CharacterFrame frame = CharacterFrameDecoder.decode(ByteBuffer.wrap(complete));
-			span.data("frame_id", frame.frameId()).data("point_count", frame.cloud().count())
-					.data("collider_count", frame.header().colliders().size());
-			send(new ControlMessage.CharacterAck(frame.frameId(), true, "decoded", Optional.empty()));
-			frameConsumer.accept(frame);
+	private void decode(byte[] complete, long queuedAtNanos, Telemetry.Span span, Telemetry.Span queue) {
+		double queueWaitMs = (System.nanoTime() - queuedAtNanos) / 1_000_000.0;
+		queue.data("duration_ms", queueWaitMs).close();
+		try (span) {
+			try {
+				span.data("payload_size", complete.length).data("queue_wait_ms", queueWaitMs);
+				CharacterFrame frame = CharacterFrameDecoder.decode(ByteBuffer.wrap(complete));
+				span.data("frame_id", frame.frameId()).data("point_count", frame.cloud().count())
+						.data("fusion_id", frame.header().fusionId())
+						.data("collider_count", frame.header().colliders().size());
+				Telemetry.routineFrame(frame.frameId(), frame.cloud().count(), complete.length);
+				send(new ControlMessage.CharacterAck(frame.frameId(), true, "decoded", Optional.empty()));
+				frameConsumer.accept(frame);
+			} catch (RuntimeException error) {
+				span.fail(error);
+				throw error;
+			}
 		} catch (RuntimeException e) {
 			Telemetry.captureException(e, "client.frame.malformed");
 			setStatus("rejected malformed frame: " + safeMessage(e));

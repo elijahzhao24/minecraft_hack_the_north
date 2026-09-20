@@ -53,6 +53,8 @@ public final class HumanCraftConfig {
 	/** Load the built-in synthetic fixture when the backend is unreachable at startup. */
 	public boolean fixtureOnStart = true;
 	public String fixturePose = "NEUTRAL";
+	/** Environment-only fault injection: mismatch_ids or stale_updates. */
+	public transient String observabilityFault = "";
 
 	public Sentry sentry = new Sentry();
 
@@ -107,6 +109,7 @@ public final class HumanCraftConfig {
 		override(env, "HUMANCRAFT_LIVE_TTL_MS", v -> liveFrameTtlMs = Integer.parseInt(v));
 		override(env, "HUMANCRAFT_BLOCKS_PER_METER", v -> blocksPerMeter = Double.parseDouble(v));
 		override(env, "HUMANCRAFT_FIXTURE_ON_START", v -> fixtureOnStart = Boolean.parseBoolean(v));
+		override(env, "HUMANCRAFT_OBSERVABILITY_FAULT", v -> observabilityFault = v);
 		override(env, "HUMANCRAFT_SENTRY_DSN", v -> sentry.dsn = v);
 		if (sentry.dsn.isEmpty()) {
 			override(env, "SENTRY_DSN", v -> sentry.dsn = v);

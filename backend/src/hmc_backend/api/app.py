@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         environment=settings.environment,
         release=settings.release,
         traces_sample_rate=settings.traces_sample_rate,
+        send_default_pii=settings.sentry_send_default_pii,
     )
     app.state.runtime = build_runtime(settings)
     start_discovery(port=settings.port)
