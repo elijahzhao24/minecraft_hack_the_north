@@ -81,6 +81,7 @@ def reconstruct_view(
     source_bit: int,
     use_frame_intrinsics: bool = False,
     diagnostics: dict | None = None,
+    apply_stage_crop: bool = True,
 ) -> ColoredPointCloud:
     """Reconstruct one view's masked person cloud in stage meters.
 
@@ -131,6 +132,8 @@ def reconstruct_view(
         & (stage[:, 2] >= crop.min_z)
         & (stage[:, 2] <= crop.max_z)
     )
+    if not apply_stage_crop:
+        in_stage = np.ones(len(stage), dtype=bool)
     stage = stage[in_stage]
     if diagnostics is not None:
         diagnostics["after_stage"] = int(stage.shape[0])
@@ -147,6 +150,16 @@ def reconstruct_view(
         rgba=np.ascontiguousarray(rgba),
         source_mask=source_mask,
     )
+
+
+def crop_cloud(cloud: ColoredPointCloud, crop: CropBounds) -> ColoredPointCloud:
+    """Apply stage bounds after body assembly; camera-space range was already gated."""
+    p = cloud.xyz_stage_m
+    keep = ((p[:, 0] >= crop.min_x) & (p[:, 0] <= crop.max_x)
+            & (p[:, 1] >= crop.min_y) & (p[:, 1] <= crop.max_y)
+            & (p[:, 2] >= crop.min_z) & (p[:, 2] <= crop.max_z))
+    return ColoredPointCloud(np.ascontiguousarray(p[keep]), np.ascontiguousarray(cloud.rgba[keep]),
+                             np.ascontiguousarray(cloud.source_mask[keep]))
 
 
 def merge_clouds(

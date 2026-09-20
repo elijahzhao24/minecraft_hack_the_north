@@ -218,6 +218,7 @@ class AppRuntime:
             result["state"] = "failed"
             result["error"] = result["error"] or result["invalid_reason"]
         result["max_range_m"] = self._settings.max_range_m
+        result["body_merge"] = getattr(self._processor, "body_merge_status", {"state": "waiting"})
         # Where the active rig thinks each phone sits, and how far apart — the
         # numbers to tape-measure against the real rig when the render splits.
         if self._calibration is not None:

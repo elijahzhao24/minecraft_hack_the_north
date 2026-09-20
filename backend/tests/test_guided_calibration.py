@@ -98,7 +98,7 @@ def test_misaligned_views_warn_and_report_gap():
     shifted = cam.T_stage_from_optical.copy()
     shifted[0, 3] += 1.0
     wrong = replace(rig, cameras={**rig.cameras, "side-phone": replace(cam, T_stage_from_optical=shifted)})
-    processor = build_processor(Settings(gravity_align=False), wrong)
+    processor = build_processor(Settings(gravity_align=False, opposing_body_merge=False), wrong)
     result = processor.process(pair)
     assert result.cloud.count > 0
     assert any(w.startswith("views_misaligned") for w in result.quality.warnings)
@@ -195,7 +195,7 @@ def test_missing_view_warns_and_sources_roundtrip():
     pose = cam.T_stage_from_optical.copy()
     pose[0, 3] += 10
     wrong = replace(rig, cameras={**rig.cameras, "side-phone": replace(cam, T_stage_from_optical=pose)})
-    processor = build_processor(Settings(gravity_align=False), wrong)
+    processor = build_processor(Settings(gravity_align=False, opposing_body_merge=False), wrong)
     result = processor.process(pair)
     assert result.cloud.count > 0
     assert "missing_view:side-phone:after_stage" in result.quality.warnings

@@ -74,7 +74,7 @@ def test_registration_recovers_misplaced_side_camera(tmp_path):
     wrong = replace(truth, cameras={**truth.cameras, "side-phone": replace(
         wrong_cam, T_stage_from_optical=pert @ wrong_cam.T_stage_from_optical)})
 
-    settings = Settings(registration_path=str(tmp_path / "reg.json"), gravity_align=False)
+    settings = Settings(registration_path=str(tmp_path / "reg.json"), gravity_align=False, opposing_body_merge=False)
     processor = build_processor(settings, wrong)
     # Two partial views of one body have different centroids even when the rig
     # is perfect, so measure against the true rig rather than against zero.
@@ -96,7 +96,7 @@ def test_registration_recovers_misplaced_side_camera(tmp_path):
 def test_registration_is_idempotent_on_aligned_rig():
     truth = build_synthetic_rig(orientation="landscape_right")
     pair = _pair(truth)
-    processor = build_processor(Settings(gravity_align=False), truth)
+    processor = build_processor(Settings(gravity_align=False, opposing_body_merge=False), truth)
     processor.request_registration()
     processor.process(pair)
     last = processor.last_registration

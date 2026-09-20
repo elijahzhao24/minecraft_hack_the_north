@@ -1,3 +1,5 @@
+> **Front/back merge:** [forced body assembly](docs/opposing-body-merge.md) is enabled by default on this branch. It pulls the torso and leg profiles together without matching front skin to back skin.
+
 > **Physical punches:** see [arm swings, controls, and scan alignment](docs/arm-swings.md). Enable live capture with V, then swing either tracked wrist.
 
 > **Two-phone setup:** see [guided camera calibration and 5 m filtering](docs/camera-calibration.md). Press N or use `/humancraft cameras calibrate`; `/humancraft calibrate` only resets avatar scale.
