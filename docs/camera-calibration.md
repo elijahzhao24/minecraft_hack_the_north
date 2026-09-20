@@ -3,12 +3,12 @@
 Camera calibration measures where both phones sit in one physical coordinate
 system. Avatar normalization only sizes/places that scan in Minecraft.
 
-The backend never aligns the two views against each other. Each phone's masked
-depth is unprojected through that phone's own solved pose and the two clouds are
-concatenated — a plain union plus voxel downsample. Fusing one person from two
-cameras is entirely a property of the calibration: if either phone's stage pose
-is wrong, that view's person renders displaced and the result looks like two
-people. Noise removal cannot fix a displaced view.
+This branch defaults to **forced opposing-body assembly** for a front phone and
+rear phone 180° apart. Camera calibration still establishes the stage and validates
+tracking, but the person clouds are additionally brought together on every pair.
+See [forced front/back merge](opposing-body-merge.md) for operation and limits.
+Use `HMC_OPPOSING_BODY_MERGE=false` to inspect the original, unmodified calibrated
+union, or for a rig whose cameras are not opposite one another.
 
 ## Print and place the board
 
@@ -86,8 +86,7 @@ A missing view leaves the available scan visible with `missing_view:<device>:<st
 `GET /health` reports connection and clock readiness, frame age, tracking,
 raw valid depths, and counts after range, confidence, mask, stage crop, and merge.
 Each device's `cross_view_nn_m` — the median distance from its points to the
-nearest point of the other view — is the direct "are the two views fused"
-measurement: it sits near the subject's surface thickness on an aligned rig
+nearest point of the other view — is a surface-distance diagnostic, not proof of correct calibration: it sits near the subject's surface thickness on an aligned rig
 (roughly 0.15–0.25 m on a front/back setup, far less on a same-side one) and
 rises with the misalignment when the person renders twice. A `views_misaligned`
 warning appears on the frame and the HUD when it exceeds
@@ -116,7 +115,7 @@ This is sample filtering, not a command that changes LiDAR hardware sensing rang
   not body ICP. An accepted request is not evidence that calibration succeeded.
 - `GET /rig/register` returns state (`collecting`, `validating`, `ready`, `failed`),
   per-device accepted counts/rejections, error, active calibration ID and range,
-  plus `synthetic`, `camera_positions_m` and `baseline_m` for the active rig.
+  plus `synthetic`, `camera_positions_m`, `baseline_m`, and current `body_merge` diagnostics.
 - `DELETE /rig/register` cancels setup; it preserves a previously validated rig.
 - Existing ACK messages carry progress/results to Minecraft. Character-frame v2
   optionally adds `point_sources`, a `uint8` buffer of shape `[point_count]`.
@@ -125,6 +124,7 @@ This is sample filtering, not a command that changes LiDAR hardware sensing rang
 
 ## Physical acceptance checklist
 
+First set `HMC_OPPOSING_BODY_MERGE=false` when validating physical camera poses.
 Measure camera spacing and compare it with the saved transforms. Capture a
 stationary shared target and verify alignment within 3 cm. Then capture a person
 from front/back and inspect each source color: body thickness must be preserved.

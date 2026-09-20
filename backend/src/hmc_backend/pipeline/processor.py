@@ -31,12 +31,23 @@ from hmc_backend.contracts.internal import (
 from hmc_backend.observability import log_event, span
 from hmc_backend.observability.quality import QualityMonitor, measure_view_quality
 from hmc_backend.pipeline.assembler import FrameAssembler
-from hmc_backend.reconstruction.reconstruct import CropBounds, merge_clouds, reconstruct_view
+from hmc_backend.reconstruction.body_merge import (
+    BodyMergeRejected,
+    assemble_opposing_body,
+    opposed_calibrations,
+)
+from hmc_backend.reconstruction.reconstruct import (
+    CropBounds,
+    crop_cloud,
+    merge_clouds,
+    reconstruct_view,
+)
 from hmc_backend.reconstruction.registration import (
     gravity_aligned,
     register_yaw_translation,
     with_stage_correction,
 )
+from hmc_backend.vision.depth_sampling import DepthSamplingConfig, observe_landmarks
 from hmc_backend.vision.protocols import CharacterFitter, ViewDetector
 
 PostFitHook = Callable[
@@ -66,6 +77,9 @@ class CharacterProcessor:
         use_frame_intrinsics: bool = False,
         view_alignment_warn_m: float = 0.4,
         depth_edge_max_step_m: float = 0.0,
+        opposing_body_merge: bool = False,
+        body_merge_min_thickness_m: float = 0.12,
+        body_merge_seam_overlap_m: float = 0.01,
     ) -> None:
         self._detector = detector
         self._fitter = fitter
@@ -83,6 +97,12 @@ class CharacterProcessor:
         self._use_frame_intrinsics = use_frame_intrinsics
         self._depth_edge_max_step_m = depth_edge_max_step_m
         self._view_alignment_warn_m = view_alignment_warn_m
+        self._opposing_body_merge = opposing_body_merge
+        self._body_merge_min_thickness_m = body_merge_min_thickness_m
+        self._body_merge_seam_overlap_m = body_merge_seam_overlap_m
+        self.body_merge_status: dict = {"state": "waiting" if opposing_body_merge else "disabled"}
+        self.view_calibrations = {}
+        self.view_warps = {}
         # device -> 4x4 stage->stage correction learned by registration.
         self._corrections: dict[str, NDArray[np.float64]] = {}
         self._register_requested = threading.Event()
@@ -106,13 +126,16 @@ class CharacterProcessor:
         """Align the non-reference camera onto the reference on the next pair."""
         self._register_requested.set()
 
+    def set_post_fit_hook(self, hook: PostFitHook | None) -> None:
+        self._post_fit_hook = hook
+
     def _effective_calibration(self, device_id: str, frame):
         calib = self._calibration.camera(device_id)
         if self._use_frame_intrinsics:
             calib = replace(calib, K_rgb=frame.K_rgb, rgb_size=(frame.rgb.shape[1], frame.rgb.shape[0]))
         if self._gravity_align and self._calibration.board is None:
             calib = gravity_aligned(calib, frame)
-        return calib if self._calibration.board is not None else with_stage_correction(calib, self._corrections.get(device_id))
+        return calib if self._calibration.board is not None or self._opposing_body_merge else with_stage_correction(calib, self._corrections.get(device_id))
 
     def _register(self, clouds_by_device: dict) -> None:
         devices = list(clouds_by_device)
@@ -187,6 +210,20 @@ class CharacterProcessor:
         frames = {pair.first.device_id: pair.first, pair.second.device_id: pair.second}
 
         self.view_diagnostics = {}
+        self.view_warps = {}
+        effective = {dev: self._effective_calibration(dev, frame) for dev, frame in frames.items()}
+        reference = self._reference_device or pair.first.device_id
+        merge_failure = None
+        if self._opposing_body_merge:
+            try:
+                if reference not in effective:
+                    raise BodyMergeRejected("front_device_missing")
+                if any(frame.tracking_state != "normal" for frame in frames.values()):
+                    raise BodyMergeRejected("tracking_not_normal")
+                effective = opposed_calibrations(effective, reference)
+            except BodyMergeRejected as exc:
+                merge_failure = str(exc)
+        self.view_calibrations = effective
         detections = {}
         clouds = []
         clouds_by_device = {}
@@ -207,7 +244,7 @@ class CharacterProcessor:
 
             for device_id in (pair.first.device_id, pair.second.device_id):
                 frame = frames[device_id]
-                calib = self._effective_calibration(device_id, frame)
+                calib = effective[device_id]
                 with span("hmc.detect", "existing person mask + landmarks", camera_id=device_id):
                     detection = self._detector.detect_view(frame)
                 detections[device_id] = detection
@@ -228,13 +265,43 @@ class CharacterProcessor:
                         diagnostics=diagnostics,
                         use_frame_intrinsics=self._use_frame_intrinsics,
                 depth_edge_max_step_m=self._depth_edge_max_step_m,
+                apply_stage_crop=not self._opposing_body_merge,
                     )
                     reconstruct_span.set_data("point_count", cloud.count)
                 clouds.append(cloud)
                 clouds_by_device[device_id] = cloud
                 source_bit <<= 1
 
-            if self._register_requested.is_set() and self._calibration.board is None:
+            if self._opposing_body_merge:
+                self._register_requested.clear()  # ICP must never follow forced opposing assembly.
+                if merge_failure is None:
+                    depth_cfg = DepthSamplingConfig(confidence_min=self._confidence_min,
+                        depth_min_m=self._crop.depth_min, depth_max_m=self._crop.depth_max,
+                        max_range_m=self._crop.max_range_m)
+                    anchors = {}
+                    for dev, frame in frames.items():
+                        det = detections[dev]
+                        anchors[dev] = {name: np.asarray(obs.position_stage_m) for name, obs in observe_landmarks(
+                            frame, effective[dev], det.person_mask, det.body, depth_cfg, name_prefix="body."
+                        ).items() if obs.quality >= .35 and (obs.visibility is None or obs.visibility >= .5)}
+                    try:
+                        clouds_by_device, self.view_warps, self.body_merge_status = assemble_opposing_body(
+                            clouds_by_device, effective, reference, anchors,
+                            min_thickness_m=self._body_merge_min_thickness_m,
+                            seam_overlap_m=self._body_merge_seam_overlap_m,
+                        )
+                    except BodyMergeRejected as exc:
+                        merge_failure = str(exc)
+                if merge_failure is not None:
+                    self.body_merge_status = {"state": "unavailable", "reason": merge_failure}
+                clouds = []
+                for dev in frames:
+                    cloud = crop_cloud(clouds_by_device[dev], self._crop)
+                    clouds.append(cloud)
+                    self.view_diagnostics[dev]["after_stage"] = cloud.count
+                    self.view_diagnostics[dev]["body_merge"] = self.body_merge_status
+
+            elif self._register_requested.is_set() and self._calibration.board is None:
                 self._register_requested.clear()
                 self._register(clouds_by_device)
                 # Rebuild corrected views so this frame already uses the new registration.
@@ -252,6 +319,8 @@ class CharacterProcessor:
                 depth_edge_max_step_m=self._depth_edge_max_step_m,
                             )
                             reconstruct_span.set_data("point_count", clouds[i].count)
+                effective = {dev: self._effective_calibration(dev, frame) for dev, frame in frames.items()}
+                self.view_calibrations = effective
 
             cross_view_gap = None
             if len(clouds) == 2 and min(clouds[0].count, clouds[1].count) >= 50:
@@ -269,10 +338,11 @@ class CharacterProcessor:
                 merge_span.set_data("point_count", merged.count)
 
             # Fit against the front camera's calibration (registration reference).
-            effective = {dev: self._effective_calibration(dev, frame) for dev, frame in frames.items()}
             if hasattr(self._fitter, "set_view_calibrations"):
                 self._fitter.set_view_calibrations(effective)
-            front_calib = effective[pair.first.device_id]
+            if hasattr(self._fitter, "set_view_warps"):
+                self._fitter.set_view_warps(self.view_warps)
+            front_calib = effective.get(reference, effective[pair.first.device_id])
             with span("hmc.fit", "landmarks and colliders"):
                 fitted = self._fitter.fit_character(pair, detections, merged, front_calib)
 
@@ -288,6 +358,8 @@ class CharacterProcessor:
                     )
 
             warnings = ["empty_cloud"] if merged.count == 0 else []
+            if self._opposing_body_merge:
+                warnings.append(f"body_merge_unavailable:{merge_failure}" if merge_failure else "forced_opposing_body_merge")
             if cross_view_gap is not None and cross_view_gap > self._view_alignment_warn_m:
                 warnings.append(f"views_misaligned:{cross_view_gap * 100:.0f}cm")
                 log_event("warning", "views_misaligned", cross_view_nn_m=round(cross_view_gap, 3))

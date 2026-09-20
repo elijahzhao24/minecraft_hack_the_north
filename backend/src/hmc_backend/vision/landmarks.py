@@ -18,7 +18,7 @@ index by name and reason about validity explicitly.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -30,6 +30,7 @@ from hmc_backend.contracts.internal import (
     Landmark3D,
     ViewDetection,
 )
+from hmc_backend.reconstruction.body_merge import BodyWarp
 from hmc_backend.vision import registration as reg
 from hmc_backend.vision import triangulation as tri
 from hmc_backend.vision.depth_sampling import (
@@ -72,6 +73,7 @@ class ViewInput:
     frame: CapturedFrame
     detection: ViewDetection
     calibration: CameraCalibration
+    body_warp: BodyWarp | None = None
 
 
 @dataclass(slots=True)
@@ -125,6 +127,9 @@ def _depth_observations(view: ViewInput, cfg: FusionConfig) -> dict[str, DepthOb
         out.update(
             observe_landmarks(view.frame, view.calibration, det.person_mask, hand, cfg.depth, name_prefix=f"hand.{side}.")
         )
+    if view.body_warp is not None:
+        out = {name: replace(obs, position_stage_m=_t3(view.body_warp.apply(
+            np.asarray(obs.position_stage_m)[None])[0])) for name, obs in out.items()}
     return out
 
 
@@ -156,7 +161,11 @@ def _fuse_observed(
     visibility = max(vis) if vis else None
 
     valid2d = [(i, o[name]) for i, o in enumerate(obs2d) if name in o and o[name].valid]
-    if len(valid2d) == 2 and len(views) == 2:
+    if any(v.body_warp is not None for v in views):
+        # A body-space deformation is not a pinhole camera. Intersecting its
+        # old rays would put joints back in the unmerged space.
+        report["triangulation"] = {"ok": False, "reason": "forced_body_space"}
+    elif len(valid2d) == 2 and len(views) == 2:
         (ia, a), (ib, b) = valid2d
         try:
             t = tri.triangulate(a.xy_px, views[ia].calibration, b.xy_px, views[ib].calibration, cfg.triangulation)

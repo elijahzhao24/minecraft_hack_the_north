@@ -107,6 +107,9 @@ class AnatomicalCharacterFitter:
     def set_view_calibrations(self, calibrations):
         self._view_calibrations = calibrations
 
+    def set_view_warps(self, warps):
+        self._view_warps = warps
+
     def fit_character(
         self,
         pair: PairedFrames,
@@ -117,7 +120,8 @@ class AnatomicalCharacterFitter:
         del calibration  # per-view calibrations come from the rig; the front camera is the stage reference
         report = FitReport(point_count=cloud.count)
         views = [
-            ViewInput(frame, detections[frame.device_id], getattr(self, "_view_calibrations", self._rig.cameras)[frame.device_id])
+            ViewInput(frame, detections[frame.device_id], getattr(self, "_view_calibrations", self._rig.cameras)[frame.device_id],
+                      getattr(self, "_view_warps", {}).get(frame.device_id))
             for frame in (pair.first, pair.second)
             if frame.device_id in detections
         ]
@@ -170,4 +174,3 @@ class AnatomicalCharacterFitter:
             for name, side, est in o.subject_updates:
                 subject = subject.updated(name, est, side, min_samples=self._fit_cfg.subject_min_samples)
         self._subject = subject
-

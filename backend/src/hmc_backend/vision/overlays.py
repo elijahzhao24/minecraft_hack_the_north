@@ -38,6 +38,7 @@ from hmc_backend.contracts.internal import (
     Landmark3D,
     ViewDetection,
 )
+from hmc_backend.reconstruction.body_merge import BodyWarp
 from hmc_backend.vision.model_mapping import body_name, hand_name
 
 # Skeleton edges (body short names) for the wireframe.
@@ -75,9 +76,11 @@ SOURCE_PALETTE = ((230, 80, 80), (80, 160, 255), (80, 220, 120), (240, 200, 60),
 # --- projection ---------------------------------------------------------------
 
 
-def project_stage_to_rgb(points: NDArray, calib: CameraCalibration) -> tuple[NDArray[np.float64], NDArray[np.bool_]]:
+def project_stage_to_rgb(points: NDArray, calib: CameraCalibration, body_warp: BodyWarp | None = None) -> tuple[NDArray[np.float64], NDArray[np.bool_]]:
     """Pixel coordinates (N x 2) in the RGB raster and an in-front-of-camera mask."""
     p = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    if body_warp is not None:
+        p = body_warp.apply(p, inverse=True)
     r = calib.T_stage_from_optical[:3, :3]
     eye = calib.T_stage_from_optical[:3, 3]
     opt = (p - eye) @ r
@@ -163,13 +166,13 @@ def skeleton_edges(landmarks: dict[str, Landmark3D]) -> list[tuple[NDArray, NDAr
 # --- 2D overlay ---------------------------------------------------------------
 
 
-def _draw_segments_2d(img, segs, calib, color, thickness=1):
+def _draw_segments_2d(img, segs, calib, color, thickness=1, body_warp=None):
     if not segs:
         return
     a = np.stack([s[0] for s in segs])
     b = np.stack([s[1] for s in segs])
-    ua, fa = project_stage_to_rgb(a, calib)
-    ub, fb = project_stage_to_rgb(b, calib)
+    ua, fa = project_stage_to_rgb(a, calib, body_warp)
+    ub, fb = project_stage_to_rgb(b, calib, body_warp)
     h, w = img.shape[:2]
     for i in range(len(segs)):
         if not (fa[i] and fb[i]):
@@ -190,6 +193,7 @@ def draw_view_overlay(
     landmarks: dict[str, Landmark3D] | None = None,
     colliders: tuple[FittedCollider, ...] = (),
     label_landmarks: bool = True,
+    body_warp: BodyWarp | None = None,
 ) -> NDArray[np.uint8]:
     """Return an RGB overlay image for one camera."""
     img = np.ascontiguousarray(frame.rgb.copy())
@@ -205,14 +209,14 @@ def draw_view_overlay(
     # Fused skeleton and colliders projected into this view (drawn first; the
     # per-view observations go on top so their validity colour stays readable).
     if landmarks:
-        _draw_segments_2d(img, [(a, b) for a, b, _ in skeleton_edges(landmarks)], calib, COLOR_SKELETON, 1)
+        _draw_segments_2d(img, [(a, b) for a, b, _ in skeleton_edges(landmarks)], calib, COLOR_SKELETON, 1, body_warp)
     for c in colliders:
         if isinstance(c, DisabledCollider):
             continue
         color = COLOR_COLLIDER.get(c.fit_source.value, (255, 255, 255))
-        _draw_segments_2d(img, collider_wireframe(c), calib, color, 1)
+        _draw_segments_2d(img, collider_wireframe(c), calib, color, 1, body_warp)
         centre = _collider_centre(c)
-        uv, front = project_stage_to_rgb(centre[None], calib)
+        uv, front = project_stage_to_rgb(centre[None], calib, body_warp)
         if front[0] and 0 <= uv[0, 0] < w and 0 <= uv[0, 1] < h:
             cv2.putText(img, c.id, (int(uv[0, 0]) + 3, int(uv[0, 1])), cv2.FONT_HERSHEY_PLAIN, 0.8, color, 1, cv2.LINE_AA)
 
@@ -386,6 +390,7 @@ def write_debug_artifacts(
     colliders: tuple[FittedCollider, ...],
     fit_report: Any,
     extra: dict | None = None,
+    view_warps: dict[str, BodyWarp] | None = None,
 ) -> dict[str, Path]:
     """Write all debug artifacts for one capture; returns the written paths.
 
@@ -400,6 +405,7 @@ def write_debug_artifacts(
         img = draw_view_overlay(
             frame, detections[device_id], calibrations[device_id],
             per_landmark_report=per_lm, landmarks=by_name, colliders=colliders,
+            body_warp=(view_warps or {}).get(device_id),
         )
         p = out_dir / f"overlay_{device_id}.png"
         cv2.imwrite(str(p), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))

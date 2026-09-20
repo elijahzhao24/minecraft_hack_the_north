@@ -7,7 +7,6 @@ capture loop build the pipeline the same way.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -82,7 +81,8 @@ def build_fitter(settings: Settings, calibration: RigCalibration) -> CharacterFi
     raise ValueError(f"unknown collider_backend {settings.collider_backend!r}")
 
 
-def build_debug_hook(settings: Settings, calibration: RigCalibration, fitter: CharacterFitter) -> PostFitHook | None:
+def build_debug_hook(settings: Settings, calibration: RigCalibration, fitter: CharacterFitter,
+                     processor: CharacterProcessor) -> PostFitHook | None:
     if not settings.debug_artifacts_dir:
         return None
     from hmc_backend.vision.overlays import write_debug_artifacts
@@ -93,13 +93,12 @@ def build_debug_hook(settings: Settings, calibration: RigCalibration, fitter: Ch
         frames = {pair.first.device_id: pair.first, pair.second.device_id: pair.second}
         write_debug_artifacts(
             root / str(pair.pair_id), frames=frames, detections=detections,
-            calibrations={d: replace(calibration.camera(d), K_rgb=f.K_rgb,
-                                    rgb_size=(f.rgb.shape[1], f.rgb.shape[0]))
-                          if settings.use_frame_intrinsics else calibration.camera(d)
-                          for d, f in frames.items()}, cloud=cloud,
+            calibrations=processor.view_calibrations, cloud=cloud,
+            view_warps=processor.view_warps,
             landmarks=fitted.landmarks, colliders=getattr(fitter, "last_typed_colliders", ()),
             fit_report=getattr(fitter, "last_report", None),
-            extra={"pair_id": str(pair.pair_id), "calibration_id": str(calibration.calibration_id)},
+            extra={"pair_id": str(pair.pair_id), "calibration_id": str(calibration.calibration_id),
+                   "body_merge": processor.body_merge_status},
         )
     return hook
 
@@ -116,7 +115,7 @@ def build_processor(
     """Build a processor using the configured production or fixture stages."""
     detector = detector or build_detector(settings)
     fitter = fitter or build_fitter(settings, calibration)
-    return CharacterProcessor(
+    processor = CharacterProcessor(
         detector,
         fitter,
         calibration,
@@ -126,13 +125,17 @@ def build_processor(
         max_points=settings.max_points,
         confidence_min=settings.confidence_min,
         observability_delay_ms=settings.observability_demo_delay_ms,
-        post_fit_hook=build_debug_hook(settings, calibration, fitter),
-        reference_device=settings.expected_device_ids[0],
+        reference_device=settings.front_device_id,
         gravity_align=settings.gravity_align,
         use_frame_intrinsics=settings.use_frame_intrinsics,
         depth_edge_max_step_m=settings.depth_edge_max_step_m,
         view_alignment_warn_m=settings.view_alignment_warn_m,
+        opposing_body_merge=settings.opposing_body_merge,
+        body_merge_min_thickness_m=settings.body_merge_min_thickness_m,
+        body_merge_seam_overlap_m=settings.body_merge_seam_overlap_m,
     )
+    processor.set_post_fit_hook(build_debug_hook(settings, calibration, fitter, processor))
+    return processor
 
 
 def new_snapshot_store() -> SnapshotStore:

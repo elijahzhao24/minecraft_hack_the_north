@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # apart (symmetric median NN). A healthy opposed rig sits near the body's
     # surface thickness (~0.15-0.25m); a biased camera solve shows up above it.
     view_alignment_warn_m: float = Field(default=0.3, gt=0, le=2.0)
+    # Forced visual assembly for physical opposing phones; never persisted as calibration.
+    opposing_body_merge: bool = True
+    body_merge_min_thickness_m: float = Field(default=0.12, gt=0, le=0.4)
+    body_merge_seam_overlap_m: float = Field(default=0.01, ge=0, le=0.03)
     # Take pitch/roll from each frame's ARKit gravity-aligned pose instead of
     # trusting the nominal camera pose, and unproject with the lens intrinsics
     # the phone reports rather than the rig file's nominal K.
