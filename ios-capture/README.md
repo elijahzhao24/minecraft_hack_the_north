@@ -9,6 +9,21 @@ Native Swift/ARKit capture app for LiDAR-equipped iPhones. It retains RGB, scene
 - Sentry Cocoa 9.29.0+
 - Landscape-right, unmirrored and uncropped sensor rasters
 
+## Sentry set-up
+
+Macos
+```
+brew install getsentry/tools/sentry-wizard && sentry-wizard -i ios --saas --org jonathan-zhu --project apple-ios
+```
+
+Linux
+```
+downloadUrl="https://github.com/getsentry/sentry-wizard/releases/download/v4.0.1/sentry-wizard-linux-x64"
+curl -L $downloadUrl -o sentry-wizard
+chmod +x sentry-wizard
+./sentry-wizard -i ios --saas --org jonathan-zhu --project apple-ios
+```
+
 ## Configure
 
 1. Open `HumansCapture.xcodeproj`, select the `HumansCapture` scheme, choose a personal development team, and select a physical LiDAR-capable iPhone.

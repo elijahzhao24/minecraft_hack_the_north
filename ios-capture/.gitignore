@@ -3,3 +3,5 @@ DerivedData/
 __pycache__/
 *.xcuserstate
 xcuserdata/
+
+.sentryclirc
