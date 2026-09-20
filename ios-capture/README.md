@@ -34,14 +34,13 @@ The app requires camera and local-network permission. Scene depth is checked bef
 
 ### Sentry
 
-Add these environment variables to the Xcode scheme's **Run → Arguments →
-Environment Variables** section:
-
-```text
-HMC_SENTRY_DSN=https://public-key@your-sentry-host/project-id
-HMC_SENTRY_ENVIRONMENT=local-device
-HMC_SENTRY_TRACES_SAMPLE_RATE=0.2
-```
+Sentry is configured once, in `CaptureEventLogger`. The DSN, environment and
+trace sample rate are build settings in `Config/Base.xcconfig`
+(`HMC_SENTRY_DSN`, `HMC_SENTRY_ENVIRONMENT`, `HMC_SENTRY_TRACES_SAMPLE_RATE`)
+and are baked into `Info.plist`, so a phone launched from the home screen
+reports too. An Xcode scheme environment variable of the same name overrides
+the baked value for a developer run; `HMC_SENTRY_DEBUG=true` prints SDK
+diagnostics. Leave `HMC_SENTRY_DSN` empty in the xcconfig to disable reporting.
 
 With a DSN present, Sentry receives structured capture logs, sampled
 `ios.capture_frame` traces and their `hmc.*` child spans, plus capture metrics.

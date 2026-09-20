@@ -59,21 +59,40 @@ final class CaptureEventLogger: @unchecked Sendable {
     private var transactions: [UUID: any Span] = [:]
     private var lastWarningAt: [String: TimeInterval] = [:]
 
+    /// Sentry settings: an Xcode scheme environment variable wins when present
+    /// (developer runs), otherwise the value baked into Info.plist from
+    /// Config/Base.xcconfig. Scheme variables do not exist when the app is
+    /// launched from the home screen, which is how the phones run on the rig.
+    private static func setting(_ key: String) -> String? {
+        if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty {
+            return value
+        }
+        if let value = Bundle.main.object(forInfoDictionaryKey: key) as? String, !value.isEmpty, !value.hasPrefix("$(") {
+            return value
+        }
+        return nil
+    }
+
     private init() {
-        guard let dsn = ProcessInfo.processInfo.environment["HMC_SENTRY_DSN"], !dsn.isEmpty else {
+        guard let dsn = Self.setting("HMC_SENTRY_DSN") else {
+            localLogger.notice("Sentry disabled: no HMC_SENTRY_DSN in environment or Info.plist")
             return
         }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
         SentrySDK.start { options in
             options.dsn = dsn
-            options.environment = ProcessInfo.processInfo.environment["HMC_SENTRY_ENVIRONMENT"] ?? "development"
-            options.releaseName = "humans-capture@\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")"
-            let configuredRate = Double(ProcessInfo.processInfo.environment["HMC_SENTRY_TRACES_SAMPLE_RATE"] ?? "0.2") ?? 0.2
+            options.environment = Self.setting("HMC_SENTRY_ENVIRONMENT") ?? "development"
+            options.releaseName = "humans-capture@\(version)+\(build)"
+            let configuredRate = Double(Self.setting("HMC_SENTRY_TRACES_SAMPLE_RATE") ?? "0.2") ?? 0.2
             options.tracesSampleRate = NSNumber(value: min(1, max(0, configuredRate)))
             options.enableLogs = true
             options.enableMetrics = true
             options.sendDefaultPii = false
-            options.debug = ProcessInfo.processInfo.environment["HMC_SENTRY_DEBUG"] == "true"
+            options.attachStacktrace = true
+            options.debug = Self.setting("HMC_SENTRY_DEBUG") == "true"
         }
+        localLogger.notice("Sentry enabled")
     }
 
     func beginCapture(captureID: UUID, mode: CaptureMode, attributes: [String: Any]) {

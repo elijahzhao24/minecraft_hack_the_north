@@ -29,6 +29,12 @@
 	<string>Capture synchronized color and LiDAR depth for the Humans in Minecraft demo.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Send RGBD capture packets to the processing laptop on your local network.</string>
+	<key>HMC_SENTRY_DSN</key>
+	<string>$(HMC_SENTRY_DSN)</string>
+	<key>HMC_SENTRY_ENVIRONMENT</key>
+	<string>$(HMC_SENTRY_ENVIRONMENT)</string>
+	<key>HMC_SENTRY_TRACES_SAMPLE_RATE</key>
+	<string>$(HMC_SENTRY_TRACES_SAMPLE_RATE)</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_hmc._tcp</string>

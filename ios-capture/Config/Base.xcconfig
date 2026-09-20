@@ -1,1 +1,7 @@
 // Shared build settings for the capture app.
+
+// Sentry (baked into Info.plist; an Xcode scheme environment variable of the
+// same name overrides at runtime). Leave HMC_SENTRY_DSN empty to disable.
+HMC_SENTRY_DSN = https:/$()/bac69829b21573f6cd6c6a7d0811ea08@o4512111998664704.ingest.us.sentry.io/4512112002924544
+HMC_SENTRY_ENVIRONMENT = device
+HMC_SENTRY_TRACES_SAMPLE_RATE = 0.2
