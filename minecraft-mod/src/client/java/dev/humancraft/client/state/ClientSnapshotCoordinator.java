@@ -147,7 +147,9 @@ public final class ClientSnapshotCoordinator {
 			return;
 		}
 		latestDecoded = frame;
-		if (!hasCriticalTracking(frame)) {
+		// The cloud is worth showing even when the anatomy fit has not produced
+		// head/torso/pelvis volumes yet; only probing depends on them.
+		if (config.requireCriticalTracking && !hasCriticalTracking(frame)) {
 			if (joined) {
 				try {
 					ClientPlayNetworking.send(new HumanCraftPayloads.ClearSnapshot());
