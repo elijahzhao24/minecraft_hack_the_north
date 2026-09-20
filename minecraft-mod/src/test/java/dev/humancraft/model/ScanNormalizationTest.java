@@ -21,16 +21,18 @@ class ScanNormalizationTest {
 	}
 	@Test void unevenCloudAndArmMotionCannotPullHipsOffPlayerOrigin() {
 		var normalization = new ScanNormalization();
-		var first = normalization.transform(frame(3, hips()));
-		var next = normalization.transform(frame(5, hips()));
+		var first = normalization.transform(frame(2.1, hips()));
+		var next = normalization.transform(frame(2.15, hips()));
 		assertEquals(0, first.point(new Vector3(2, .9, 4)).x(), 1e-8);
 		assertEquals(0, next.point(new Vector3(2, .9, 4)).z(), 1e-8);
 		assertEquals(first, next);
 	}
-	@Test void lostHipsKeepLastRootAndScaleUntilExplicitReset() {
+	@Test void lostHipsFollowCurrentCloudInsteadOfLeavingItThreeBlocksAway() {
 		var normalization = new ScanNormalization();
-		var first = normalization.transform(frame(3, hips()));
-		assertEquals(first, normalization.transform(frame(5, List.of())));
+		var first = normalization.transform(frame(2.1, hips()));
+		var moved = normalization.transform(frame(5, List.of()));
+		assertEquals(0, moved.point(new Vector3(5, .9, 4)).x(), 1e-8);
+		assertEquals(first.blocksPerMeter(), moved.blocksPerMeter(), 1e-8);
 		normalization.reset();
 		var fallback = normalization.transform(frame(5, List.of()));
 		assertEquals(0, fallback.point(new Vector3(5, 0, 4)).x(), 1e-8);
@@ -40,10 +42,10 @@ class ScanNormalizationTest {
 		var normalization = new ScanNormalization();
 		var landmarks = new ArrayList<>(hips());
 		landmarks.add(ArmSwingDetectorTest.landmark("body.left_heel", new Vector3(2, .025, 4)));
-		var first = normalization.transform(frame(3, landmarks));
+		var first = normalization.transform(frame(2.1, landmarks));
 		assertEquals(0, first.point(new Vector3(2, 0, 4)).length(), 1e-8);
 		normalization.scaleBy(1.1);
-		var next = normalization.transform(frame(3, landmarks));
+		var next = normalization.transform(frame(2.1, landmarks));
 		assertEquals(first.blocksPerMeter() * 1.1, next.blocksPerMeter(), 1e-8);
 	}
 }

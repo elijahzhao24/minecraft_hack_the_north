@@ -566,12 +566,14 @@ public final class ClientSnapshotCoordinator {
 		lines.add("arm swings: " + (config.armSwingEnabled ? String.format(Locale.ROOT, "L %s  R %s  trigger %.2f m/s",
 				speedLabel(swings.leftSpeed()), speedLabel(swings.rightSpeed()), config.armSwingSpeedMps) : "disabled"));
 		lines.add("last swing: " + lastSwing);
+		if (config.mouseMovementEnabled) lines.add("Mouse: hold buttons 4/5 to turn left/right");
+		lines.add(String.format(Locale.ROOT, "capture target: %.0f FPS", config.liveRateHz));
 		lines.add("last probe: " + lastProbe);
 		return lines;
 	}
 
 	private String speedLabel(double speed) {
-		return System.currentTimeMillis() - lastReceivedMs > 350 || !Double.isFinite(speed)
+		return System.currentTimeMillis() - lastReceivedMs > 500 || !Double.isFinite(speed)
 				? "untracked / warming up" : String.format(Locale.ROOT, "%.2f m/s", speed);
 	}
 

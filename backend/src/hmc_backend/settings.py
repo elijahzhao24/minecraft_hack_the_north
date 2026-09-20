@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     hello_deadline_s: float = 10.0
     clock_probe_interval_s: float = 2.0
     # Backend-driven live capture: requests per second sent to both phones.
-    live_rate_hz: float = 8.0
+    live_rate_hz: float = 15.0
 
     # --- Reconstruction tunables -----------------------------------------
     voxel_size_m: float = 0.006

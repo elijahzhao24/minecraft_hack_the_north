@@ -3,7 +3,7 @@ package dev.humancraft.client;
 import dev.humancraft.HumanCraft;
 import dev.humancraft.client.backend.CharacterWebSocket;
 import dev.humancraft.client.input.HumanCraftKeybindings;
-import dev.humancraft.client.input.SeparatePlayerControl;
+import dev.humancraft.client.input.MouseMovement;
 import dev.humancraft.client.input.AnatomyAttackInput;
 import dev.humancraft.client.render.HumanCraftHud;
 import dev.humancraft.client.render.HumanRenderer;
@@ -34,6 +34,7 @@ public final class HumanCraftClient implements ClientModInitializer {
 				frame -> Minecraft.getInstance().execute(() -> snapshots.receiveBackend(frame)),
 				status -> Minecraft.getInstance().execute(() -> snapshots.setBackendStatus(status)));
 		snapshots.setBackend(backend);
+		MouseMovement.configure(config, snapshots);
 
 		ClientPlayNetworking.registerGlobalReceiver(HumanCraftPayloads.SnapshotAck.TYPE,
 				(payload, context) -> snapshots.onAck(payload));
@@ -55,7 +56,6 @@ public final class HumanCraftClient implements ClientModInitializer {
 			keys.tick(client);
 			snapshots.tick(client);
 		});
-		ClientTickEvents.START_CLIENT_TICK.register(client -> SeparatePlayerControl.tick(client, snapshots));
 		ClientTickEvents.END_CLIENT_TICK.register(client -> AnatomyAttackInput.tick(client, snapshots));
 		HudRenderCallback.EVENT.register((graphics, tickCounter) -> hud.render(graphics));
 

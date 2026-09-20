@@ -13,6 +13,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HumanCraftConfigTest {
+	@Test void existingEightFpsConfigMigratesToFifteen() throws IOException {
+		Files.writeString(temp.resolve(HumanCraftConfig.FILE_NAME), "{\"liveRateHz\":8.0}");
+		var config = HumanCraftConfig.load(temp);
+		assertEquals(15.0, config.liveRateHz);
+		assertTrue(config.mouseMovementEnabled);
+		assertEquals(1, config.inputProfileVersion);
+	}
+
 	@Test void swingSettingsAreConfigurableAndBounded() {
 		var config = new HumanCraftConfig();
 		config.applyEnvironment(Map.of("HUMANCRAFT_ARM_SWING_ENABLED", "false", "HUMANCRAFT_ARM_SWING_SPEED_MPS", "2.25",

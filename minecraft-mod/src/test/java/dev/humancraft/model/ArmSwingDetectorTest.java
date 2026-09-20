@@ -64,7 +64,7 @@ class ArmSwingDetectorTest {
 	@Test void staleGapOutOfOrderAndSnapshotsNeverSwing() {
 		var d = new ArmSwingDetector(1.5, 500); settle(d);
 		assertTrue(d.update(frame(1, 0.3), 1200).isEmpty());
-		assertTrue(d.update(frame(2, 0.3), 1600).isEmpty(), "old arrival");
+		assertTrue(d.update(frame(2, 0.3), 1700).isEmpty(), "old arrival");
 		assertTrue(d.update(frame(9, 0.6), 1700).isEmpty(), "capture gap");
 		assertTrue(d.update(header(10, 1, Mode.SNAPSHOT, BASE.header().sessionId(), BASE.header().calibrationId(), arms(0, Vector3.ZERO)), 1800).isEmpty());
 	}
@@ -94,6 +94,30 @@ class ArmSwingDetectorTest {
 				? landmark(l.name(), new Vector3(-0.2, 1.1, -0.3)) : l).toList();
 		assertFalse(d.update(header(4, 0.4, Mode.LIVE, BASE.header().sessionId(), BASE.header().calibrationId(), lm), 1400).orElseThrow().left());
 	}
+	@Test void eitherHandTriggersImmediatelyAtFifteenFpsWithoutSlowPose() {
+		for (String side : List.of("left", "right")) {
+			var d = new ArmSwingDetector(1.5, 500);
+			var base = arms(0, Vector3.ZERO).stream().filter(l -> l.name().contains(side)).toList();
+			d.update(header(0, 0, Mode.LIVE, BASE.header().sessionId(), BASE.header().calibrationId(), base), 1000);
+			var moving = arms(.12, Vector3.ZERO).stream().filter(l -> l.name().contains(side)).map(l ->
+					new LandmarkDto(l.name(), l.position(), true, LandmarkSource.TRIANGULATED, l.confidence(),
+							l.visibility(), List.of("front-phone", "rear-phone"), Optional.empty())).toList();
+			var swing = d.update(header(1, 1.0 / 15, Mode.LIVE, BASE.header().sessionId(), BASE.header().calibrationId(), moving), 1067).orElseThrow();
+			assertEquals(side.equals("left"), swing.left());
+			assertEquals(1.8, swing.speedMetersPerSecond(), 1e-6);
+		}
+	}
+
+	@Test void elbowCanTriggerWhenWristIsOccluded() {
+		var d = new ArmSwingDetector(1.5, 500);
+		for (int i = 0; i < 2; i++) {
+			var lm = List.of(landmark("body.right_shoulder", new Vector3(0, 1.4, 0)),
+					landmark("body.right_elbow", new Vector3(0, 1.15, i * .12)));
+			var swing = d.update(header(i, i / 15.0, Mode.LIVE, BASE.header().sessionId(), BASE.header().calibrationId(), lm), 1000 + i * 67);
+			assertEquals(i == 1, swing.isPresent());
+		}
+	}
+
 	@Test void lowConfidenceAndImplausibleArmAreRejected() {
 		var d = new ArmSwingDetector(1.5, 500); settle(d);
 		assertTrue(d.update(frame(2, 2), 1200).isEmpty());

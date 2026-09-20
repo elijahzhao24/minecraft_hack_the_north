@@ -3,7 +3,9 @@
   "package": "dev.humancraft.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "PlayerRendererMixin"
+    "PlayerRendererMixin",
+    "KeyboardInputMixin",
+    "MouseHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1
