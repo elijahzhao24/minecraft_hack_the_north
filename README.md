@@ -1,10 +1,6 @@
-> **Front/back merge:** [forced body assembly](docs/opposing-body-merge.md) is enabled by default on this branch. It pulls the torso and leg profiles together without matching front skin to back skin.
+# Humans in Minecraft (HumanCraft)
 
-> **Physical punches:** see [arm swings, controls, and scan alignment](docs/arm-swings.md). Enable live capture with V, then swing either tracked wrist.
-
-> **Two-phone setup:** see [guided camera calibration and 5 m filtering](docs/camera-calibration.md). Press N or use `/humancraft cameras calibrate`; `/humancraft calibrate` only resets avatar scale.
-
-# Humans in Minecraft
+Youtube Demo:[![Watch the HumanCraft video demo](thumbnail.png)](https://www.youtube.com/watch?v=qKX6S8JOmR0)
 
 Capture a real person with two LiDAR iPhones and use the RGB point cloud as the body of a real Minecraft player. Minecraft keeps player health, inventory, movement, gravity, collision, damage, and respawn while HumanCraft supplies appearance and anatomical hit volumes.
 
